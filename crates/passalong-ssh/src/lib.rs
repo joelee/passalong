@@ -10,6 +10,8 @@ pub mod host_key;
 pub mod sftp_fs;
 
 pub use backend::{open_ssh_store, register};
+pub use connect::fetch_host_key;
+pub use host_key::DiscoveredKey;
 
 /// Version of this crate, shared by every crate in the workspace.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

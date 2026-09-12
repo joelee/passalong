@@ -52,6 +52,37 @@ pub(crate) fn fingerprint(key: &PublicKey) -> String {
     key.fingerprint(HashAlg::Sha256).to_string()
 }
 
+/// A server host key seen during discovery, not yet trusted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscoveredKey {
+    /// The key as an OpenSSH `type base64` line, ready for
+    /// `server.ssh.host_key`.
+    pub openssh_line: String,
+    /// SHA-256 fingerprint, as `ssh-keygen -l` prints it.
+    pub fingerprint: String,
+    /// Algorithm name, such as `ssh-ed25519`.
+    pub algorithm: String,
+}
+
+impl DiscoveredKey {
+    pub(crate) fn from_key(key: &PublicKey) -> Result<Self, SshError> {
+        let line = key.to_openssh().map_err(|err| {
+            SshError::InvalidHostKey(format!("cannot encode the server's key: {err}"))
+        })?;
+        // Keep `type base64` only; a comment is meaningless for a host key.
+        let openssh_line = line
+            .split_whitespace()
+            .take(2)
+            .collect::<Vec<_>>()
+            .join(" ");
+        Ok(Self {
+            openssh_line,
+            fingerprint: fingerprint(key),
+            algorithm: key.algorithm().as_str().to_owned(),
+        })
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -120,5 +151,25 @@ pub(crate) mod tests {
                 other => panic!("{bad:?}: {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn a_discovered_key_carries_its_line_fingerprint_and_algorithm() {
+        let found = DiscoveredKey::from_key(&public(KEY_A)).unwrap();
+        assert_eq!(found.fingerprint, KEY_A_FINGERPRINT);
+        assert_eq!(found.algorithm, "ssh-ed25519");
+        assert!(
+            found.openssh_line.starts_with("ssh-ed25519 AAAA"),
+            "{}",
+            found.openssh_line
+        );
+        assert_eq!(
+            PinnedHostKey::parse(&found.openssh_line)
+                .unwrap()
+                .fingerprint(),
+            KEY_A_FINGERPRINT
+        );
+        let ecdsa = DiscoveredKey::from_key(&public(KEY_C)).unwrap();
+        assert_eq!(ecdsa.algorithm, "ecdsa-sha2-nistp256");
     }
 }

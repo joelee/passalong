@@ -16,3 +16,4 @@ workspace = true
 
 [dependencies]
 clap.workspace = true
+dotenvy.workspace = true

@@ -12,6 +12,13 @@ use clap::Parser;
 struct Cli {}
 
 fn main() {
+    // Secrets such as the SSH key passphrase live in `./.env`. The file is
+    // optional and never overrides variables already set in the environment.
+    if let Err(err) = dotenvy::from_path(".env")
+        && !err.not_found()
+    {
+        eprintln!("warning: ignoring .env: {err}");
+    }
     let _cli = Cli::parse();
 }
 

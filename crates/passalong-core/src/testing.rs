@@ -3,7 +3,7 @@
 //! Compiled for this crate's own tests and, behind the `testing` feature, for
 //! other crates' tests. Never enable the feature in production builds.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::sync::{Arc, Mutex};
 
@@ -11,6 +11,7 @@ use chrono::{DateTime, Utc};
 use tracing_subscriber::fmt::MakeWriter;
 
 use crate::clock::Clock;
+use crate::config::EnvProvider;
 use crate::random::RandomSource;
 
 /// [`Clock`] that always returns the same instant.
@@ -94,5 +95,53 @@ impl<'a> MakeWriter<'a> for LogBuffer {
 
     fn make_writer(&'a self) -> Self::Writer {
         self.clone()
+    }
+}
+
+/// [`EnvProvider`] backed by an in-memory map, so tests never read or modify
+/// the real process environment.
+#[derive(Debug, Clone)]
+pub struct MapEnv {
+    vars: HashMap<String, String>,
+    hostname: String,
+}
+
+impl Default for MapEnv {
+    fn default() -> Self {
+        Self {
+            vars: HashMap::new(),
+            hostname: "test-host".to_owned(),
+        }
+    }
+}
+
+impl MapEnv {
+    /// Creates an empty environment whose host name is `test-host`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns this environment with `key` set to `value`.
+    #[must_use]
+    pub fn with(mut self, key: &str, value: &str) -> Self {
+        self.vars.insert(key.to_owned(), value.to_owned());
+        self
+    }
+
+    /// Returns this environment with the given host name.
+    #[must_use]
+    pub fn with_hostname(mut self, hostname: &str) -> Self {
+        self.hostname = hostname.to_owned();
+        self
+    }
+}
+
+impl EnvProvider for MapEnv {
+    fn var(&self, key: &str) -> Option<String> {
+        self.vars.get(key).cloned()
+    }
+
+    fn hostname(&self) -> String {
+        self.hostname.clone()
     }
 }

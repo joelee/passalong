@@ -7,6 +7,7 @@
 //! GUI and Android front-ends can reuse it.
 
 pub mod clock;
+pub mod config;
 pub mod random;
 pub mod telemetry;
 #[cfg(any(test, feature = "testing"))]

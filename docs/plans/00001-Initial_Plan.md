@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/initial-plan"
 execution_started_at: "2026-09-12T10:54:05Z"
-execution_updated_at: "2026-09-12T11:05:44Z"
+execution_updated_at: "2026-09-12T11:23:44Z"
 execution_completed_at: null
-current_step: "PLAN-00001-STEP-03"
+current_step: "PLAN-00001-STEP-04"
 ---
 
 # Delivery Plan 00001: Initial Plan
@@ -1481,7 +1481,7 @@ behavioural step.
 |---|---|---|---|---|---|
 | PLAN-00001-STEP-01 | completed | 2026-09-12T10:54:05Z | 2026-09-12T10:59:49Z | Commit `build: complete PLAN-00001-STEP-01 - Workspace scaffold, tooling, and quality gates`; `just check` green, 82.35 % lines | User-directed additions: Apache-2.0 `LICENSE`, full initial `README.md`. Pinned deps: anyhow 1.0.104, arboard 3.6.1, async-trait 0.1.92, chrono 0.4.45, clap 4.6.6, dotenvy 0.15.7, gethostname 1.1.0, hex 0.4.3, mime_guess 2.0.5, notify 8.2.0, russh 0.63.3, russh-sftp 3.0.0, serde 1.0.229, serde_json 1.0.151, sha2 0.11.0, ssh-key 0.6.7, thiserror 2.0.20, tokio 1.53.1, toml 1.1.6, tracing 0.1.44, tracing-subscriber 0.3.23; dev: assert_cmd 2.2.2, predicates 3.1.4, tempfile 3.27.0, tokio-test 0.4.5 |
 | PLAN-00001-STEP-02 | completed | 2026-09-12T10:59:49Z | 2026-09-12T11:05:44Z | Commit `build: complete PLAN-00001-STEP-02 - Telemetry: levels, syslog-style formatter, operation ids`; `just check` green, 97.54 % lines | Third-party targets capped at warning except at `debug`; `op` span created at ERROR level so every record carries the id; `Targets` filter used instead of `EnvFilter` (no regex dependency) |
-| PLAN-00001-STEP-03 | not-started | — | — | — | — |
+| PLAN-00001-STEP-03 | completed | 2026-09-12T11:05:44Z | 2026-09-12T11:23:44Z | Commit `build: complete PLAN-00001-STEP-03 - Configuration loading and validation`; checkpoint digest `5cb46dc13d60493bd662f540e872f4e9ad5fc4e663e58040d93dcd70cade87af` re-verified before commit | `just check` green, 97.23 % lines; config.rs 97.71 % |
 | PLAN-00001-STEP-04 | not-started | — | — | — | — |
 | PLAN-00001-STEP-05 | not-started | — | — | — | — |
 | PLAN-00001-STEP-06 | not-started | — | — | — | — |
@@ -1507,6 +1507,9 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | Verified; commit authorised by the user's instruction to implement STEP-01 to STEP-03 in one run | `build: complete PLAN-00001-STEP-01 - Workspace scaffold, tooling, and quality gates` | Begin STEP-02 |
 | 2026-09-12T10:59:49Z | PLAN-00001-STEP-02 | Started | — | Red phase |
 | 2026-09-12T11:05:44Z | PLAN-00001-STEP-02 | Verified; commit authorised by the user's instruction to implement STEP-01 to STEP-03 | `build: complete PLAN-00001-STEP-02 - Telemetry: levels, syslog-style formatter, operation ids` | Begin STEP-03 |
+| 2026-09-12T11:05:44Z | PLAN-00001-STEP-03 | Started | — | Red phase |
+| 2026-09-12T11:13:51Z | PLAN-00001-STEP-03 | Awaiting user review: verified and staged, not committed | `git diff --cached`; digest `5cb46dc13d60493bd662f540e872f4e9ad5fc4e663e58040d93dcd70cade87af` | User asks to continue; Builder commits STEP-03, then begins STEP-04 |
+| 2026-09-12T11:23:44Z | PLAN-00001-STEP-03 | User said "continue"; staged-checkpoint gate passed (digest, path set, branch, HEAD 043e574) | `build: complete PLAN-00001-STEP-03 - Configuration loading and validation` | Begin STEP-04 |
 
 ### Deviations and blockers
 
@@ -1517,6 +1520,9 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | CI installs `just` and `cargo-llvm-cov` with `taiki-e/install-action@v2` instead of `extractions/setup-just`; `just ci` runs `check`, `test-integration`, then `coverage-full` to satisfy both REQ-02 and REQ-20. | None | None (routine) |
 | 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | Compose pins `lscr.io/linuxserver/openssh-server:10.3_p1-r1-ls236` and binds port 2222 to 127.0.0.1 only; `notify` 8.2.0 and `ssh-key` 0.6.7 are the latest stable releases (newest published are release candidates). | None | None (routine) |
 | 2026-09-12T11:05:44Z | PLAN-00001-STEP-02 | `Clock`/`SystemClock` (planned for STEP-04) and the `testing` feature with `FixedClock` (planned for STEP-05) were introduced here because the formatter needs an injected clock. Added `random::RandomSource`/`StdRandom` (std-only, no new dependency) for correlation ids, and `testing::SeqRandom` and `testing::LogBuffer` doubles. | STEP-04 and STEP-05 reuse these instead of creating them | None (routine) |
+| 2026-09-12T11:13:51Z | PLAN-00001-STEP-03 | `locate` returns `LocatedConfig { path, origin }`; the plan's `ConfigSource` is named `ConfigOrigin` because `thiserror` treats a field called `source` as the error cause. `SearchRoots` injects the `/etc` and working-directory positions for tests; `EnvProvider` also provides `hostname()` so the `device_name` default is injectable. | None; interfaces are additive | None (routine) |
+| 2026-09-12T11:13:51Z | PLAN-00001-STEP-03 | Positions 1 and 2 (`--config`, `PASSALONG_CONFIG_FILE`) must exist when given (`ConfigError::Missing`) instead of falling through; `ConfigError::NotFound` therefore lists the up to four probed standard paths, not six. | Typos in an explicit path are reported | None (interpretation of REQ-05) |
+| 2026-09-12T11:13:51Z | PLAN-00001-STEP-03 | Chosen bounds and defaults not spelled out in the plan: `connect_timeout_secs` 1 to 3600, poll interval 1 to 3600000 ms, stable wait 0 to 3600000 ms, `serve.drop_folder` default `~/PassAlong`; unknown keys rejected; relative `XDG_CONFIG_HOME` ignored. Added `effective_log_level` now so STEP-08 can apply the REQ-07 precedence. The CLI loads only `./.env` (no parent-directory search) and prints a warning for a malformed file. | Documented in docs/configuration.md | None (routine) |
 
 ### Verification results
 
@@ -1534,12 +1540,18 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T11:05:44Z | PLAN-00001-STEP-02 | Determinism: telemetry tests run 5 times | 5 of 5 passed | Scoped subscribers per test |
 | 2026-09-12T11:05:44Z | PLAN-00001-STEP-02 | `just check` | Exit 0 | Lines 97.54 % (366 lines, 9 missed); telemetry.rs 98.97 % |
 | 2026-09-12T11:05:44Z | PLAN-00001-STEP-02 | `grep -rn println! crates/passalong-core/src crates/passalong-ssh/src` | Empty | Library crates log only through tracing |
+| 2026-09-12T11:05:44Z | PLAN-00001-STEP-03 | Red: `cargo test -p passalong-core --all-features` | Exit 101 (expected) | Missing `ConfigError`, `ConfigOrigin`, `locate`, `parse`, `load`, `effective_log_level`, `Passphrase`, `AfterSend`, `SearchRoots`, `StdEnv`, `MapEnv`, `expand_tilde` |
+| 2026-09-12T11:13:51Z | PLAN-00001-STEP-03 | Green: `cargo test -p passalong-core --all-features`; `cargo build -p passalong-cli` | Exit 0 | 45 unit and 1 integration test passed; CLI builds with `.env` loading |
+| 2026-09-12T11:13:51Z | PLAN-00001-STEP-03 | `just check` | Exit 0 | Lines 97.23 % (1048 lines, 29 missed) |
+| 2026-09-12T11:13:51Z | PLAN-00001-STEP-03 | `grep -rnE 'set_var|remove_var' crates/` | Empty | No test mutates the process environment |
+| 2026-09-12T11:13:51Z | PLAN-00001-STEP-03 | Every key in the `Raw*` config structs appears in docs/configuration.md | Pass | 15 keys documented |
+| 2026-09-12T11:13:51Z | PLAN-00001-STEP-03 | Committed sample `config.sample.toml` parses (unit test `the_committed_sample_config_is_valid`) | Pass | Sample stays in sync with the schema |
 
 ### Completion summary
 
 - **Implementation status:** `in-progress`
-- **Completed requirements:** REQ-01, REQ-02, REQ-03, REQ-04, REQ-07, REQ-24 (scaffold parts); REQ-22 (log allow-list part)
-- **Incomplete requirements:** REQ-05 to REQ-23
+- **Completed requirements:** REQ-01, REQ-02, REQ-03, REQ-04, REQ-05, REQ-06, REQ-07, REQ-24 (scaffold parts); REQ-22 (log allow-list part)
+- **Incomplete requirements:** REQ-08 to REQ-23
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

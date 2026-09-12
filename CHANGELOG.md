@@ -15,3 +15,7 @@ All notable changes to this project are documented here. The format follows
   `verbose`, `debug`), per-operation correlation ids, and a field allow-list
   that keeps clipboard text, file contents, and secrets out of logs
   (PLAN-00001 STEP-02).
+- Configuration from `config.toml` with the six-position lookup order,
+  documented defaults, validation errors that name the key, `~` expansion,
+  and the SSH key passphrase read only from the environment or `./.env`
+  (PLAN-00001 STEP-03).

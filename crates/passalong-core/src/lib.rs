@@ -8,6 +8,7 @@
 
 pub mod clock;
 pub mod config;
+pub mod fs;
 pub mod model;
 pub mod random;
 pub mod telemetry;

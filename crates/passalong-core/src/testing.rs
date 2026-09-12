@@ -3,15 +3,17 @@
 //! Compiled for this crate's own tests and, behind the `testing` feature, for
 //! other crates' tests. Never enable the feature in production builds.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
 use std::sync::{Arc, Mutex};
 
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tracing_subscriber::fmt::MakeWriter;
 
 use crate::clock::Clock;
 use crate::config::EnvProvider;
+use crate::fs::{BoxRead, BoxWrite, DirEntry, FsError, Metadata, RemoteFs, RemotePath};
 use crate::random::RandomSource;
 
 /// [`Clock`] that always returns the same instant.
@@ -143,5 +145,133 @@ impl EnvProvider for MapEnv {
 
     fn hostname(&self) -> String {
         self.hostname.clone()
+    }
+}
+
+/// The [`RemoteFs`] operations [`FaultyFs`] can fail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FsOp {
+    /// [`RemoteFs::create_dir_all`].
+    CreateDirAll,
+    /// [`RemoteFs::read_dir`].
+    ReadDir,
+    /// [`RemoteFs::open_read`].
+    OpenRead,
+    /// [`RemoteFs::open_write`].
+    OpenWrite,
+    /// [`RemoteFs::rename`].
+    Rename,
+    /// [`RemoteFs::remove_dir_all`].
+    RemoveDirAll,
+    /// [`RemoteFs::stat`].
+    Stat,
+}
+
+#[derive(Debug, Default)]
+struct FaultState {
+    calls: HashMap<FsOp, usize>,
+    failing: HashSet<(FsOp, usize)>,
+}
+
+/// [`RemoteFs`] wrapper that fails chosen calls, for testing error paths
+/// of code built on the filesystem layer.
+#[derive(Debug)]
+pub struct FaultyFs<F> {
+    inner: F,
+    state: Mutex<FaultState>,
+}
+
+impl<F> FaultyFs<F> {
+    /// Wraps `inner`; nothing fails until configured.
+    pub fn new(inner: F) -> Self {
+        Self {
+            inner,
+            state: Mutex::default(),
+        }
+    }
+
+    /// The wrapped filesystem.
+    pub fn inner(&self) -> &F {
+        &self.inner
+    }
+
+    /// Makes the `nth` call of `op` (counting from 1, over the wrapper's
+    /// lifetime) fail.
+    pub fn fail_nth(&self, op: FsOp, nth: usize) {
+        self.state
+            .lock()
+            .expect("fault state lock")
+            .failing
+            .insert((op, nth));
+    }
+
+    /// Makes the next `times` calls of `op` fail.
+    pub fn fail_next(&self, op: FsOp, times: usize) {
+        let mut state = self.state.lock().expect("fault state lock");
+        let done = state.calls.get(&op).copied().unwrap_or(0);
+        state.failing.extend((1..=times).map(|i| (op, done + i)));
+    }
+
+    /// How many times `op` has been called.
+    pub fn calls(&self, op: FsOp) -> usize {
+        self.state
+            .lock()
+            .expect("fault state lock")
+            .calls
+            .get(&op)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    fn check(&self, op: FsOp, path: &RemotePath) -> Result<(), FsError> {
+        let mut state = self.state.lock().expect("fault state lock");
+        let call = state.calls.entry(op).or_insert(0);
+        *call += 1;
+        let key = (op, *call);
+        if state.failing.remove(&key) {
+            return Err(FsError::Other {
+                path: path.to_string(),
+                message: format!("injected {op:?} failure"),
+            });
+        }
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl<F: RemoteFs> RemoteFs for FaultyFs<F> {
+    async fn create_dir_all(&self, path: &RemotePath) -> Result<(), FsError> {
+        self.check(FsOp::CreateDirAll, path)?;
+        self.inner.create_dir_all(path).await
+    }
+
+    async fn read_dir(&self, path: &RemotePath) -> Result<Vec<DirEntry>, FsError> {
+        self.check(FsOp::ReadDir, path)?;
+        self.inner.read_dir(path).await
+    }
+
+    async fn open_read(&self, path: &RemotePath) -> Result<BoxRead, FsError> {
+        self.check(FsOp::OpenRead, path)?;
+        self.inner.open_read(path).await
+    }
+
+    async fn open_write(&self, path: &RemotePath) -> Result<BoxWrite, FsError> {
+        self.check(FsOp::OpenWrite, path)?;
+        self.inner.open_write(path).await
+    }
+
+    async fn rename(&self, from: &RemotePath, to: &RemotePath) -> Result<(), FsError> {
+        self.check(FsOp::Rename, from)?;
+        self.inner.rename(from, to).await
+    }
+
+    async fn remove_dir_all(&self, path: &RemotePath) -> Result<(), FsError> {
+        self.check(FsOp::RemoveDirAll, path)?;
+        self.inner.remove_dir_all(path).await
+    }
+
+    async fn stat(&self, path: &RemotePath) -> Result<Option<Metadata>, FsError> {
+        self.check(FsOp::Stat, path)?;
+        self.inner.stat(path).await
     }
 }

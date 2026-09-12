@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/initial-plan"
 execution_started_at: "2026-09-12T10:54:05Z"
-execution_updated_at: "2026-09-12T12:08:41Z"
+execution_updated_at: "2026-09-12T12:11:51Z"
 execution_completed_at: null
-current_step: "PLAN-00001-STEP-05"
+current_step: "PLAN-00001-STEP-06"
 ---
 
 # Delivery Plan 00001: Initial Plan
@@ -1483,7 +1483,7 @@ behavioural step.
 | PLAN-00001-STEP-02 | completed | 2026-09-12T10:59:49Z | 2026-09-12T11:05:44Z | Commit `build: complete PLAN-00001-STEP-02 - Telemetry: levels, syslog-style formatter, operation ids`; `just check` green, 97.54 % lines | Third-party targets capped at warning except at `debug`; `op` span created at ERROR level so every record carries the id; `Targets` filter used instead of `EnvFilter` (no regex dependency) |
 | PLAN-00001-STEP-03 | completed | 2026-09-12T11:05:44Z | 2026-09-12T11:23:44Z | Commit `build: complete PLAN-00001-STEP-03 - Configuration loading and validation`; checkpoint digest `5cb46dc13d60493bd662f540e872f4e9ad5fc4e663e58040d93dcd70cade87af` re-verified before commit | `just check` green, 97.23 % lines; config.rs 97.71 % |
 | PLAN-00001-STEP-04 | completed | 2026-09-12T11:23:44Z | 2026-09-12T12:08:41Z | Commit `build: complete PLAN-00001-STEP-04 - Item model, ids, hashing, and clock`; checkpoint digest `8e1ba738…2dc5` re-verified before commit | `just check` green, 97.26 % lines; model.rs 97.31 % |
-| PLAN-00001-STEP-05 | not-started | — | — | — | — |
+| PLAN-00001-STEP-05 | completed | 2026-09-12T12:09:54Z | 2026-09-12T12:11:51Z | Commit `build: complete PLAN-00001-STEP-05 - `RemoteFs` trait, `LocalFs`, and failing test double`; `just check` green, 97.68% lines | `Box<dyn RemoteFs>` compiles (object-safety test) |
 | PLAN-00001-STEP-06 | not-started | — | — | — | — |
 | PLAN-00001-STEP-07 | not-started | — | — | — | — |
 | PLAN-00001-STEP-08 | not-started | — | — | — | — |
@@ -1514,6 +1514,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T11:27:52Z | PLAN-00001-STEP-04 | Awaiting user review: verified and staged, not committed | `git diff --cached`; digest `8e1ba73851e6a855fb9c91866e7ee31ca88c877e027d8d505342e50a7a1b2dc5` | User asks to continue; Builder commits STEP-04, then begins STEP-05 |
 | 2026-09-12T12:08:41Z | PLAN-00001-STEP-04 | User said "continue"; staged-checkpoint gate passed | `build: complete PLAN-00001-STEP-04 - Item model, ids, hashing, and clock` | Begin STEP-05 |
 | 2026-09-12T12:08:41Z | — | User instruction: "Continue all the remaining steps without pausing for my review, unless there is a blocker. Still do a git commit on each step." From STEP-05 on, each verified step is committed immediately with no review pause. | User message | STEP-05 |
+| 2026-09-12T12:09:54Z | PLAN-00001-STEP-05 | Started | — | Red phase |
+| 2026-09-12T12:11:51Z | PLAN-00001-STEP-05 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-05 - `RemoteFs` trait, `LocalFs`, and failing test double` | Begin PLAN-00001-STEP-06 |
 
 ### Deviations and blockers
 
@@ -1528,6 +1530,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T11:13:51Z | PLAN-00001-STEP-03 | Positions 1 and 2 (`--config`, `PASSALONG_CONFIG_FILE`) must exist when given (`ConfigError::Missing`) instead of falling through; `ConfigError::NotFound` therefore lists the up to four probed standard paths, not six. | Typos in an explicit path are reported | None (interpretation of REQ-05) |
 | 2026-09-12T11:13:51Z | PLAN-00001-STEP-03 | Chosen bounds and defaults not spelled out in the plan: `connect_timeout_secs` 1 to 3600, poll interval 1 to 3600000 ms, stable wait 0 to 3600000 ms, `serve.drop_folder` default `~/PassAlong`; unknown keys rejected; relative `XDG_CONFIG_HOME` ignored. Added `effective_log_level` now so STEP-08 can apply the REQ-07 precedence. The CLI loads only `./.env` (no parent-directory search) and prints a warning for a malformed file. | Documented in docs/configuration.md | None (routine) |
 | 2026-09-12T11:27:52Z | PLAN-00001-STEP-04 | No `error.rs`: each module owns its error enum (`model::ModelError`, `config::ConfigError`, `telemetry::TelemetryError`) and nothing needs a top-level enum yet. `ItemId::new` returns `Result` because times before 1970 or after 2106-02-07 cannot be encoded. Added `ContentDigest` (SHA-256 plus byte count) returned by `ContentHasher`, and `NewItem::text`, `NewItem::file`, `NewItem::finish` so stores build metadata in one place. `preview_of` collapses every whitespace run, not only newlines. `name` and `preview` default to null when absent from older JSON. | None; interfaces are additive | None (routine) |
+| 2026-09-12T12:11:51Z | PLAN-00001-STEP-05 | Added `RemotePath::new` (validated multi-component parse), `BoxRead`/`BoxWrite` aliases, and `FaultyFs::fail_nth`/`fail_next`/`calls` with an `FsOp` selector. `LocalFs::rename` checks the target first because POSIX would replace an empty target directory; `remove_dir_all` succeeds on a missing path so clean-up is idempotent. `FsError` is `Clone` with an `Other { path, message }` variant. | None; interfaces are additive | None (routine) |
 
 ### Verification results
 
@@ -1556,12 +1559,15 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T11:27:52Z | PLAN-00001-STEP-04 | `cargo test -p passalong-core model`; `cargo test -p passalong-core clock` | Pass | test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 46 filtered out; finished in 0.00s; test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 63 filtered out; finished in 0.00s |
 | 2026-09-12T11:27:52Z | PLAN-00001-STEP-04 | `just check` | Exit 0 | Lines 97.26% (1388 lines, 38 missed); model.rs 97.31% |
 | 2026-09-12T11:27:52Z | PLAN-00001-STEP-04 | Ordering property: 100 deterministic pseudo-random id pairs | Pass | String order and `Ord` both equal (time, key) order |
+| 2026-09-12T12:09:54Z | PLAN-00001-STEP-05 | Red: `cargo test -p passalong-core --all-features` | Exit 101 (expected) | Missing `LocalFs`, `RemotePath`, `FsError`, `RemoteFs`, `FaultyFs` |
+| 2026-09-12T12:11:51Z | PLAN-00001-STEP-05 | `cargo test -p passalong-core --all-features fs::` | Pass | test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 65 filtered out; finished in 0.00s |
+| 2026-09-12T12:11:51Z | PLAN-00001-STEP-05 | `just check` | Exit 0 | Lines 97.68% (1768 lines, 41 missed); mod.rs 99.38%; local.rs 98.75%; testing.rs 97.35% |
 
 ### Completion summary
 
 - **Implementation status:** `in-progress`
-- **Completed requirements:** REQ-01, REQ-02, REQ-03, REQ-04, REQ-05, REQ-06, REQ-07, REQ-08, REQ-24 (scaffold parts); REQ-22 (log allow-list and id-validation parts)
-- **Incomplete requirements:** REQ-09 to REQ-21, REQ-23
+- **Completed requirements:** REQ-01 to REQ-08, REQ-24 (scaffold parts); REQ-22 (log allow-list and id-validation parts); REQ-10 (filesystem seam part)
+- **Incomplete requirements:** REQ-09, REQ-10 (store part), REQ-11 to REQ-21, REQ-23
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

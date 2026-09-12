@@ -8,7 +8,9 @@ COPY crates ./crates
 RUN cargo build --release --locked -p passalong-cli
 
 FROM debian:trixie-slim
-RUN useradd --create-home --uid 10001 passalong
+# The home directory must be traversable (755) so the image also works with
+# `--user "$(id -u):$(id -g)"`, which is needed to read a mounted SSH key.
+RUN useradd --create-home --uid 10001 passalong && chmod 755 /home/passalong
 COPY --from=builder /src/target/release/passalong /usr/local/bin/passalong
 USER passalong
 WORKDIR /home/passalong

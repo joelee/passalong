@@ -32,14 +32,14 @@ confidence: high                  # high | medium | low
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; Delivery Planner initializes them.
-implementation_status: in-progress # not-started | in-progress | blocked | completed | abandoned
+implementation_status: completed # not-started | in-progress | blocked | completed | abandoned
 builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/initial-plan"
 execution_started_at: "2026-09-12T10:54:05Z"
-execution_updated_at: "2026-09-12T12:56:36Z"
-execution_completed_at: null
-current_step: "PLAN-00001-STEP-15"
+execution_updated_at: "2026-09-12T13:00:18Z"
+execution_completed_at: "2026-09-12T13:00:18Z"
+current_step: null
 ---
 
 # Delivery Plan 00001: Initial Plan
@@ -1493,7 +1493,7 @@ behavioural step.
 | PLAN-00001-STEP-12 | completed | 2026-09-12T12:41:35Z | 2026-09-12T12:42:00Z | Commit `build: complete PLAN-00001-STEP-12 - Wire the `ssh` backend into the factory and CLI`; `just check` green, 92.13% lines | The CLI resolves backends only through the registry; `passalong-core` has no dependency on `passalong-ssh` |
 | PLAN-00001-STEP-13 | completed | 2026-09-12T12:46:06Z | 2026-09-12T12:53:40Z | Commit `build: complete PLAN-00001-STEP-13 - `serve`: clipboard watcher, drop-folder watcher, retry loop`; `just check` green, 92.84% lines | Coverage checkpoint (STEP-13) in the `just check` row; AC-16 and AC-17 covered by `serve_sends_clipboard_text_and_dropped_files_then_stops` and `failed_uploads_are_retried_with_a_fresh_store` |
 | PLAN-00001-STEP-14 | completed | 2026-09-12T12:56:27Z | 2026-09-12T12:56:36Z | Commit `build: complete PLAN-00001-STEP-14 - Documentation, samples, and backlog`; `just check` green, 92.84% lines | Consistency script checks config keys, env vars (docs and .env.sample), CLI flags from every `--help`, `just` recipes, and relative Markdown links |
-| PLAN-00001-STEP-15 | not-started | — | — | — | — |
+| PLAN-00001-STEP-15 | completed | 2026-09-12T12:57:03Z | 2026-09-12T13:00:18Z | Commit `build: complete PLAN-00001-STEP-15 - Final quality gate and coverage report`; `just check` green, 92.84% lines | All five commands verified end to end: local backend in binary tests, SSH backend against OpenSSH 10.3 in Docker, container image with mapped user. Manual acceptance on a desktop (real clipboard round trip, real server) remains for the user |
 
 Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 `skipped`. A skipped step requires explicit user approval recorded in Evidence.
@@ -1534,6 +1534,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T12:53:40Z | PLAN-00001-STEP-13 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-13 - `serve`: clipboard watcher, drop-folder watcher, retry loop` | Begin PLAN-00001-STEP-14 |
 | 2026-09-12T12:56:27Z | PLAN-00001-STEP-14 | Started | — | Evidence first |
 | 2026-09-12T12:56:36Z | PLAN-00001-STEP-14 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-14 - Documentation, samples, and backlog` | Begin PLAN-00001-STEP-15 |
+| 2026-09-12T12:57:03Z | PLAN-00001-STEP-15 | Started | — | Evidence first |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-15 - Final quality gate and coverage report` | Builder hand-off |
 
 ### Deviations and blockers
 
@@ -1563,6 +1565,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T12:53:40Z | PLAN-00001-STEP-13 | Shutdown is a `tokio::sync::watch<bool>` rather than a `tokio-util` `CancellationToken` (no new dependency); dropping the sender also stops `serve`. Tokio's paused clock replaces a custom `Sleeper`, and `tokio`'s `test-util` feature was added to `passalong-core` dev-dependencies for it. Filesystem events are only hints: the drop folder is always rescanned at least every 5 s, so missed events cannot lose files. | None | None (routine) |
 | 2026-09-12T12:53:40Z | PLAN-00001-STEP-13 | The echo check (`find_by_content_key` before uploading text) lives in the uploader, the store's only user, rather than in the clipboard watcher; the first text seen after start-up is sent. Sent-name collisions become `name (1).ext`. Files failing for local reasons are skipped until `serve` restarts, while store failures retry forever with a reconnect before each attempt. Clipboard read errors are logged once per distinct message. The CLI now opens the store inside each one-shot command so `serve` can open and reopen its own. | Documented in docs/usage.md | None (routine) |
 | 2026-09-12T12:56:36Z | PLAN-00001-STEP-14 | README gained Quick start and Container sections, and `just run -- --help` became `just run --help` (the extra `--` reached the binary). docs/architecture.md gained Command flow, `serve`, and Security model sections with a component diagram. Backlog entries beyond the plan's list come from build findings: Linux clipboard holder (STEP-07), retrying skipped files (STEP-13), `rsa` advisory review (STEP-11), Xvfb desktop test, and the empty root `AGENTS.md`. | None | None (routine) |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | Two defects found by this gate and fixed within scope: a rustdoc link to the feature-gated `testing` module (doc text only), and the container home directory permissions that broke the README's documented `docker run --user` command (Dockerfile only). No behaviour or interface changed. | None | None (routine) |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | `pre-commit` is not installed here, so `pre-commit run --all-files` was not executed; the hook's entry `just check` passed as part of `just ci`. Acceptance-criteria checkboxes are left for independent Review or Validate, as the Builder contract requires. | Hook runner itself unverified on this host | None (routine) |
 
 ### Verification results
 
@@ -1629,14 +1633,25 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T12:56:36Z | PLAN-00001-STEP-14 | Evidence first (documentation-only step, no TDD) | — | Baseline consistency checks before editing: no missing keys, variables, flags, or recipes |
 | 2026-09-12T12:56:36Z | PLAN-00001-STEP-14 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck.sh` | Pass | documentation consistent: 15 keys, 3 variables, all flags, all recipes, all relative links |
 | 2026-09-12T12:56:36Z | PLAN-00001-STEP-14 | `just check` | Exit 0 | Lines 92.84% (4956 lines, 355 missed) |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | `just ci` (Linux, Docker): `check`, `test-integration`, `coverage-full` | Exit 0 | First run before the fixes and a second run after them both passed; all 7 Docker-backed tests ran (SFTP round trip, FsStore over SFTP, host key mismatch, unauthorised identity, closed port, CLI round trip over SSH, CLI host key mismatch) |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | `cargo llvm-cov` via `just coverage-full` (includes Docker tests) | 96.45 % lines | 4956 lines, 176 missed; `just coverage` without Docker: 92.82 % (both above the 80 % gate) |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | `RUSTDOCFLAGS=-D warnings cargo doc --workspace --no-deps` | Exit 0 after fix | First run failed on an intra-doc link to `testing::MockClipboard`, which exists only with the `testing` feature; changed to plain text |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | `cargo tree -p passalong-core -e normal` and `-p passalong-ssh`, grep clap; `-p passalong-ssh` grep arboard | 0, 0, 0 | REQ-01, REQ-23, AC-04 |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | `cargo build -p passalong-core -p passalong-ssh --no-default-features` | Exit 0 | AC-04 |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | `just docker-build`; `docker run --rm passalong:dev --help` and `--version` | Exit 0 | Usage printed; `passalong 0.1.0`; image 33 MB (AC-18) |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | README container command (`--user $(id -u):$(id -g)`, config and data mounted) with a local backend: `list`, `file`, `list`, `load <id> <dir>` | Pass after fix | First run failed with `no config file found`: `/home/passalong` was mode 700, so a mapped UID could not reach the mounted config; Dockerfile now sets 755 and all four commands succeed with byte-identical content |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | `pre-commit run --all-files` | Not run | `pre-commit` is not installed on the build host; its only hook entry is `just check`, which `just ci` ran |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | Scan for `unsafe` in crate sources; `aws-lc` in Cargo.lock | 0 and 0 | `#![forbid(unsafe_code)]` via workspace lints |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck.sh` | Pass | documentation consistent: 15 keys, 3 variables, all flags, all recipes, all relative links |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | `just check` | Exit 0 | Lines 92.84% (4956 lines, 355 missed) |
 
 ### Completion summary
 
-- **Implementation status:** `in-progress`
-- **Completed requirements:** REQ-01 to REQ-18, REQ-21, REQ-22, REQ-23, REQ-24 (scaffold parts)
-- **Incomplete requirements:** REQ-19, REQ-20 (final evidence in STEP-15)
-- **Outstanding blockers:** None
-- **Review request:** Not ready
+- **Implementation status:** `completed` — awaiting independent Review or Validate
+- **Completed requirements:** All: REQ-01 to REQ-24
+- **Incomplete requirements:** None
+- **Outstanding blockers:** None. User follow-ups: restore the empty root `AGENTS.md`; manual desktop acceptance (real clipboard round trip against a real server)
+- **Review request:** Ready for Review or Validate
 <!-- BUILDER_WORK_LOG_END -->
 
 ## 18. Planning change log

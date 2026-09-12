@@ -1,6 +1,6 @@
 //! Clipboard access behind a trait, so commands and `serve` can be tested
-//! with [`MockClipboard`](crate::testing::MockClipboard), and GUI or Android
-//! front-ends can supply their own implementation.
+//! with `testing::MockClipboard` (available with the `testing` feature),
+//! and GUI or Android front-ends can supply their own implementation.
 //!
 //! Only UTF-8 text is supported in this release.
 

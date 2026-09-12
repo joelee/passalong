@@ -629,7 +629,12 @@ fn serve_daemon_starts_reports_refuses_a_second_copy_and_stops() {
         .stdout("not running\n");
     let logged = std::fs::read_to_string(&log).unwrap();
     assert!(logged.contains("serve stopped"), "{logged}");
-    assert!(!sb.path("home/.local/state/passalong/serve.pid").exists());
+    let pid_file = if cfg!(target_os = "macos") {
+        sb.path("home/Library/Application Support/passalong/serve.pid")
+    } else {
+        sb.path("home/.local/state/passalong/serve.pid")
+    };
+    assert!(!pid_file.exists(), "--stop leaves no pid file");
 }
 
 #[cfg(unix)]

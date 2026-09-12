@@ -9,7 +9,8 @@ use chrono::{FixedOffset, Local, Offset};
 use passalong_core::clipboard::{ArboardClipboard, Clipboard, ClipboardError};
 use passalong_core::config::{self, Config, EnvProvider, SearchRoots};
 use passalong_core::random::StdRandom;
-use passalong_core::{store, telemetry};
+use passalong_core::store::BackendRegistry;
+use passalong_core::telemetry;
 use tracing::Instrument;
 
 use crate::cli::{Cli, Command};
@@ -48,7 +49,9 @@ async fn execute(cli: Cli, env: &dyn EnvProvider, out: &mut dyn Write) -> anyhow
 }
 
 async fn dispatch(command: Command, config: &Config, out: &mut dyn Write) -> anyhow::Result<()> {
-    let store = store::open_store(config).await?;
+    let mut backends = BackendRegistry::with_builtin();
+    passalong_ssh::register(&mut backends);
+    let store = backends.open(config).await?;
     let store = store.as_ref();
     let device = config.client.device_name.as_str();
     match command {

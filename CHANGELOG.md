@@ -36,3 +36,5 @@ All notable changes to this project are documented here. The format follows
   verifying its SHA-256 before anything is replaced (PLAN-00001 STEP-10).
 - SSH/SFTP storage backend with strict host key pinning, public-key
   authentication, and a connect timeout (PLAN-00001 STEP-11).
+- `server.kind = "ssh"` selects the SSH backend; backends are registered by
+  kind, so new ones plug in without changing commands (PLAN-00001 STEP-12).

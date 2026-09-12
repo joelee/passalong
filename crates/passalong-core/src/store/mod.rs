@@ -8,7 +8,7 @@
 pub mod factory;
 pub mod fs_store;
 
-pub use factory::open_store;
+pub use factory::{BackendFuture, BackendOpener, BackendRegistry, open_store};
 pub use fs_store::FsStore;
 
 use async_trait::async_trait;

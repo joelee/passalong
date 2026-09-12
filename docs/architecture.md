@@ -119,4 +119,21 @@ that lists the candidates.
 
 ## Adding a backend
 
-To be written (STEP-12).
+`server.kind` selects the backend through a `BackendRegistry`: a map from
+kind name to an opener function, `fn(&Config) -> BackendFuture`.
+`passalong-core` registers `local`, `passalong-ssh` provides `register` to
+add `ssh`, and the CLI builds the registry at start-up. The core never
+depends on a backend crate.
+
+There are two ways to add a backend:
+
+1. **File-like storage**, such as WebDAV or SMB: implement the seven-method
+   `RemoteFs` trait and wrap it in `FsStore`. The layout, atomic publish,
+   deduplication, listing, and id resolution come for free.
+2. **Anything else**, such as an HTTP API or an S3 bucket: implement `Store`
+   directly.
+
+Then add a `[server.<kind>]` section to the configuration module in
+`passalong-core` (unknown keys are rejected, so new sections must be
+declared there), write an opener, and register it where the CLI builds its
+registry.

@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/initial-plan"
 execution_started_at: "2026-09-12T10:54:05Z"
-execution_updated_at: "2026-09-12T12:38:58Z"
+execution_updated_at: "2026-09-12T12:42:00Z"
 execution_completed_at: null
-current_step: "PLAN-00001-STEP-12"
+current_step: "PLAN-00001-STEP-13"
 ---
 
 # Delivery Plan 00001: Initial Plan
@@ -1490,7 +1490,7 @@ behavioural step.
 | PLAN-00001-STEP-09 | completed | 2026-09-12T12:25:25Z | 2026-09-12T12:27:28Z | Commit `build: complete PLAN-00001-STEP-09 - `clipboard` and `file` commands`; `just check` green, 96.99% lines | AC-11 covered by binary tests `clipboard_from_stdin_prints_the_new_id` and `empty_stdin_is_refused`; 5 MiB digest test covers REQ-14 |
 | PLAN-00001-STEP-10 | completed | 2026-09-12T12:31:10Z | 2026-09-12T12:31:18Z | Commit `build: complete PLAN-00001-STEP-10 - `load` command with integrity check`; `just check` green, 97.21% lines | Coverage checkpoint (STEP-10) in the `just check` row; AC-12 (5 MiB file round trip) and AC-13 covered; the CLI is fully usable with `server.kind = "local"` |
 | PLAN-00001-STEP-11 | completed | 2026-09-12T12:34:04Z | 2026-09-12T12:38:58Z | Commit `build: complete PLAN-00001-STEP-11 - SSH backend: connection, host-key pinning, `SftpFs``; `just check` green, 91.94% lines | SFTP I/O paths are covered only by the ignored Docker tests; `just coverage-full` measures them in STEP-15 |
-| PLAN-00001-STEP-12 | not-started | — | — | — | — |
+| PLAN-00001-STEP-12 | completed | 2026-09-12T12:41:35Z | 2026-09-12T12:42:00Z | Commit `build: complete PLAN-00001-STEP-12 - Wire the `ssh` backend into the factory and CLI`; `just check` green, 92.13% lines | The CLI resolves backends only through the registry; `passalong-core` has no dependency on `passalong-ssh` |
 | PLAN-00001-STEP-13 | not-started | — | — | — | — |
 | PLAN-00001-STEP-14 | not-started | — | — | — | — |
 | PLAN-00001-STEP-15 | not-started | — | — | — | — |
@@ -1528,6 +1528,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T12:31:18Z | PLAN-00001-STEP-10 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-10 - `load` command with integrity check` | Begin PLAN-00001-STEP-11 |
 | 2026-09-12T12:34:04Z | PLAN-00001-STEP-11 | Started | — | Red phase |
 | 2026-09-12T12:38:58Z | PLAN-00001-STEP-11 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-11 - SSH backend: connection, host-key pinning, `SftpFs`` | Begin PLAN-00001-STEP-12 |
+| 2026-09-12T12:41:35Z | PLAN-00001-STEP-12 | Started | — | Red phase |
+| 2026-09-12T12:42:00Z | PLAN-00001-STEP-12 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-12 - Wire the `ssh` backend into the factory and CLI` | Begin PLAN-00001-STEP-13 |
 
 ### Deviations and blockers
 
@@ -1553,6 +1555,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T12:31:18Z | PLAN-00001-STEP-10 | Added `ModelError::InvalidFileName` for `sanitise_file_name`, which also strips control characters and trims spaces. `load` takes the clipboard as an on-demand opener so only loads to the clipboard need a desktop session, prints the written path for file destinations and nothing for the clipboard, and verifies size as well as SHA-256. Text loaded to the clipboard is read fully into memory; files are streamed. | None | None (routine) |
 | 2026-09-12T12:38:58Z | PLAN-00001-STEP-11 | `russh` uses the `ring` backend (`default-features = false`, features `ring`, `flate2`, `rsa`) instead of the default `aws-lc-rs`, which needs cmake (absent from the Rust builder image) and complicates Android cross-compiles. The `ssh-key` workspace dependency was removed because `russh` re-exports its pinned `ssh-key` 0.7 release candidate. The `passalong-core` workspace dependency is now `default-features = false`, with the CLI opting into `desktop`, so `passalong-ssh` never pulls in the desktop clipboard. | No cmake needed; `aws-lc` absent from Cargo.lock | None (routine) |
 | 2026-09-12T12:38:58Z | PLAN-00001-STEP-11 | `PinnedHostKey::parse` also accepts `ssh-keyscan` output with its leading host field. The identity key is loaded before connecting so key problems need no network. `SftpFs::open` creates the remote root; `rename` checks the target first because SFTP v3 failures do not say why; `remove_dir_all` is iterative; sessions send keepalives every 30 s for `serve`. The closed-port test sits with the ignored Docker tests because unit tests must not open sockets. | None | None (routine) |
+| 2026-09-12T12:42:00Z | PLAN-00001-STEP-12 | The registry maps kinds to plain function openers (`fn(&Config) -> BackendFuture`) rather than boxed closures, which keeps higher-ranked lifetimes simple; `open_store` stays as a shortcut for the built-in kinds. A new backend must also add its `[server.<kind>]` section to the config module because unknown keys are rejected; documented in docs/architecture.md. | None | None (routine) |
 
 ### Verification results
 
@@ -1605,11 +1608,16 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T12:38:58Z | PLAN-00001-STEP-11 | `just test-integration` against `lscr.io/linuxserver/openssh-server:10.3_p1-r1-ls236` | Exit 0 | 5 of 5 ignored SSH tests passed: RemoteFs round trip, FsStore 1 MiB put/list/get/dedupe/resolve, host key mismatch refused, unauthorised identity refused, closed port is a connection error; container removed afterwards |
 | 2026-09-12T12:38:58Z | PLAN-00001-STEP-11 | `cargo test -p passalong-ssh` | Pass | test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s |
 | 2026-09-12T12:38:58Z | PLAN-00001-STEP-11 | `just check` | Exit 0 | Lines 91.94% (3981 lines, 321 missed); host_key.rs 98.55%; connect.rs 55.68%; sftp_fs.rs 32.55%; error.rs 94.12% |
+| 2026-09-12T12:41:35Z | PLAN-00001-STEP-12 | Red: `cargo test -p passalong-core store::`; `cargo test -p passalong-ssh` | Exit 101 (expected) | Missing `BackendFuture` `BackendRegistry` `Config` `open_ssh_store` `passalong_core::store::BackendRegistry` `register` |
+| 2026-09-12T12:42:00Z | PLAN-00001-STEP-12 | `just test-integration` (Docker OpenSSH) | Exit 0 | 7 of 7 ignored tests passed, including the CLI round trip `clipboard --stdin` → `list --json` → `load` over SSH and `error: host key mismatch` for a wrong pinned key (AC-15); container removed |
+| 2026-09-12T12:42:00Z | PLAN-00001-STEP-12 | `cargo test -p passalong-ssh` | Pass | test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s |
+| 2026-09-12T12:42:00Z | PLAN-00001-STEP-12 | `cargo test -p passalong-core --all-features store::factory` | Pass | test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 95 filtered out; finished in 0.00s |
+| 2026-09-12T12:42:00Z | PLAN-00001-STEP-12 | `just check` | Exit 0 | Lines 92.13% (4117 lines, 324 missed); factory.rs 98.11%; backend.rs 91.94%; app.rs 85.42% |
 
 ### Completion summary
 
 - **Implementation status:** `in-progress`
-- **Completed requirements:** REQ-01 to REQ-16, REQ-18, REQ-22, REQ-23, REQ-24 (scaffold parts); REQ-09 (SSH not yet selectable from the CLI until STEP-12)
+- **Completed requirements:** REQ-01 to REQ-16, REQ-18, REQ-22, REQ-23, REQ-24 (scaffold parts)
 - **Incomplete requirements:** REQ-17, REQ-19 to REQ-21
 - **Outstanding blockers:** None
 - **Review request:** Not ready

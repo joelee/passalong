@@ -1472,6 +1472,7 @@ dependencies = [
  "clap",
  "dotenvy",
  "passalong-core",
+ "passalong-ssh",
  "predicates",
  "serde_json",
  "tempfile",

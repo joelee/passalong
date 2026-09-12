@@ -9,8 +9,8 @@ and pulls items back — no cloud service, no account, no custom server daemon.
 
 > **Status: under construction.** The project is being built in the open
 > against [Delivery Plan 00001](docs/plans/00001-Initial_Plan.md).
-> `clipboard`, `file`, `list`, and `load` work with a local storage
-> directory; the SSH backend is being wired in and `serve` is not finished.
+> `clipboard`, `file`, `list`, and `load` work with an SSH server or a
+> local storage directory; `serve` is not finished.
 
 ## How it works
 

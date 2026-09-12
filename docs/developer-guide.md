@@ -65,9 +65,10 @@ feature for other crates' tests.
 
 Tests that need a real SSH server are `#[ignore]`d and read their connection
 details from `PASSALONG_IT_SSH_*` variables. `just test-integration` generates
-a throwaway key pair in `tests/docker/keys/` (git-ignored), starts
-`tests/docker/docker-compose.yml`, exports the variables, runs the ignored
-tests, and always removes the container.
+a throwaway key pair in `tests/docker/keys/` (git-ignored), pulls the
+server image with up to 5 attempts because registries throttle shared CI
+runners, starts `tests/docker/docker-compose.yml`, exports the variables,
+runs the ignored tests, and always removes the container.
 
 ## Desktop clipboard test
 

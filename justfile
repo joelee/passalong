@@ -73,6 +73,19 @@ _with-sshd CMD:
     chmod 644 "$keys/id_ed25519.pub"
     cleanup() { docker compose -f {{compose}} down -v --remove-orphans >/dev/null 2>&1 || true; }
     trap cleanup EXIT
+    # Registries throttle shared CI runners, so retry the image pull before
+    # starting the server.
+    for attempt in 1 2 3 4 5; do
+        if docker compose -f {{compose}} pull --quiet; then
+            break
+        fi
+        if [ "$attempt" -eq 5 ]; then
+            echo "error: could not pull the SSH test image after $attempt attempts" >&2
+            exit 1
+        fi
+        echo "image pull failed (attempt $attempt of 5); retrying in $((attempt * 10)) s" >&2
+        sleep $((attempt * 10))
+    done
     docker compose -f {{compose}} up -d --wait
     host_key="$(docker compose -f {{compose}} exec -T sshd cat /config/ssh_host_keys/ssh_host_ed25519_key.pub | awk '{print $1" "$2}')"
     export PASSALONG_IT_SSH_HOST=127.0.0.1

@@ -338,8 +338,10 @@ fn loading_an_unknown_id_fails() {
 }
 
 /// Runs the real `serve` process, drops a file, and stops it with SIGTERM as
-/// systemd would. The display variables are removed so the developer's real
-/// clipboard is never read; `serve` then watches only the drop folder.
+/// systemd would. On Linux the display variables are removed, so no
+/// clipboard is reachable and `serve` watches only the drop folder. macOS
+/// always provides the system pasteboard, so there `serve` may also send
+/// whatever text is on it into this test's temporary store.
 #[cfg(unix)]
 #[test]
 fn serve_sends_dropped_files_and_stops_cleanly_on_sigterm() {
@@ -395,6 +397,7 @@ fn serve_sends_dropped_files_and_stops_cleanly_on_sigterm() {
         .unwrap();
     assert!(status.success(), "exit {status:?}\n{stderr}");
     assert!(stderr.contains("serve stopped"), "{stderr}");
+    #[cfg(target_os = "linux")]
     assert!(stderr.contains("clipboard unavailable"), "{stderr}");
     let out = sb
         .with_config()
@@ -405,5 +408,11 @@ fn serve_sends_dropped_files_and_stops_cleanly_on_sigterm() {
         .stdout
         .clone();
     let json: serde_json::Value = serde_json::from_slice(&out).unwrap();
-    assert_eq!(json[0]["name"], "hello.txt");
+    let names: Vec<&str> = json
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|item| item["name"].as_str())
+        .collect();
+    assert_eq!(names, ["hello.txt"], "exactly the dropped file was stored");
 }

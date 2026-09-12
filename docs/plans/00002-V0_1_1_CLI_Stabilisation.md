@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00002-v0.1.1-CLI_Stabilisation"
 execution_started_at: "2026-09-12T17:42:30Z"
-execution_updated_at: "2026-09-12T18:30:15Z"
+execution_updated_at: "2026-09-12T18:34:56Z"
 execution_completed_at: null
-current_step: "PLAN-00002-STEP-13"
+current_step: "PLAN-00002-STEP-14"
 ---
 
 # Delivery Plan 00002: V0 1 1 CLI Stabilisation
@@ -947,7 +947,7 @@ run at STEP-03, STEP-06, STEP-07, STEP-11, and STEP-14.
 | PLAN-00002-STEP-10 | completed | 2026-09-12T18:11:54Z | 2026-09-12T18:14:14Z | Commit `build: complete PLAN-00002-STEP-10 - Unreadable config error and skipped-file retry`; `just check` green, 92.49% lines | AC-13 by `an_unreadable_candidate_is_reported_instead_of_skipped`; AC-14 by `skipped_files_are_offered_again_once_they_change` |
 | PLAN-00002-STEP-11 | completed | 2026-09-12T18:14:55Z | 2026-09-12T18:19:21Z | Commit `build: complete PLAN-00002-STEP-11 - Docker SSH server guide and tested example`; `just check` green, 92.49% lines | AC-01: the recipe uses the guide's own fingerprint command, `init --fingerprint --yes`, a clipboard/list/load round trip, a host-UID ownership check, and a fingerprint comparison after re-creating the container |
 | PLAN-00002-STEP-12 | completed | 2026-09-12T18:19:59Z | 2026-09-12T18:30:15Z | Commit `build: complete PLAN-00002-STEP-12 - CI additions and release workflow`; `just check` green, 92.52% lines | AC-17 local, AC-18 met. Licence allow-list is exactly the set the dependency tree needs: Apache-2.0, Apache-2.0 WITH LLVM-exception, BSD-3-Clause, BSL-1.0, CC0-1.0, ISC, MIT, Unicode-3.0, Zlib; LGPL-2.1-or-later appears only as an OR alternative and is not allowed. AC-12 and AC-19 need the Xvfb job on GitHub, recorded in STEP-14 after the push |
-| PLAN-00002-STEP-13 | not-started | — | — | — | — |
+| PLAN-00002-STEP-13 | completed | 2026-09-12T18:30:28Z | 2026-09-12T18:34:56Z | Commit `build: complete PLAN-00002-STEP-13 - Documentation and v0.1.1 release preparation`; `just check` green, 92.49% lines | AC-20: all crates 0.1.1 with internal =0.1.1 pins; CHANGELOG Unreleased lists the v0.1.1 changes; docs/release/v0.1.1.md has the package-rename upgrade note (cargo uninstall passalong-cli first). The consistency script treats a release document for the current workspace version as a draft whose entries stay under Unreleased. Docs: README status, install, commands; architecture gains background serve, Linux clipboard, release pipeline; backlog drops delete/prune, init, clipboard holder, retry skipped files, serve --daemon, supply-chain audit, Xvfb test. STEP-12 audit and lint evidence rows corrected (the finisher had recorded a dependency-tree line and the recipe echo) |
 | PLAN-00002-STEP-14 | not-started | — | — | — | — |
 
 Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
@@ -982,6 +982,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T18:19:21Z | PLAN-00002-STEP-11 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00002-STEP-11 - Docker SSH server guide and tested example` | Begin PLAN-00002-STEP-12 |
 | 2026-09-12T18:19:59Z | PLAN-00002-STEP-12 | Started | — | Red phase |
 | 2026-09-12T18:30:15Z | PLAN-00002-STEP-12 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00002-STEP-12 - CI additions and release workflow` | Begin PLAN-00002-STEP-13 |
+| 2026-09-12T18:30:28Z | PLAN-00002-STEP-13 | Started | — | Red phase |
+| 2026-09-12T18:34:56Z | PLAN-00002-STEP-13 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00002-STEP-13 - Documentation and v0.1.1 release preparation` | Begin PLAN-00002-STEP-14 |
 
 ### Deviations and blockers
 
@@ -999,6 +1001,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T18:19:21Z | PLAN-00002-STEP-11 | Client keys come from a `keys/` directory (`PUBLIC_KEY_DIR`, one file per device) instead of a single `authorized_keys` file, because the image only ever appends keys; the guide explains removal via `config/.ssh/authorized_keys`. The example also ships `deploy/ssh-server/.env.sample`, and `.gitignore` excludes `config/` (host private keys), `storage/`, `keys/`, and `.env` under `deploy/ssh-server/`. `test-deploy` uses port 2223 and its own compose project so it never collides with the integration-test server. | None | None (routine) |
 | 2026-09-12T18:30:15Z | PLAN-00002-STEP-12 | `just publish-dry-run` (and the release workflow's verify job) first runs `cargo clean -p passalong-core -p passalong-ssh -p passalong`. The dry run compiles packaged crates as registry dependencies in the shared target directory, and cargo does not rebuild a registry crate whose version is unchanged, so it verified against STEP-02 builds and failed with unresolved imports; a fresh target directory and the clean both pass. | Dry run rebuilds the three workspace crates each time | None (routine) |
 | 2026-09-12T18:30:15Z | PLAN-00002-STEP-12 | Added `just lint-workflows` (local actionlint, else its pinned Docker image) and put `audit`, `publish-dry-run`, and `lint-workflows` in `just ci`, so the Linux CI job covers them without separate jobs. `just setup` installs actionlint only when Go is present. The tag-guard tests are a Rust integration test in the CLI crate so `just check` runs them. | None | None (routine) |
+| 2026-09-12T18:34:56Z | PLAN-00002-STEP-13 | `ci.yml` now also runs on pushes to `feature/**` branches. Before, CI ran only on `main` and pull requests, so the pushed branch produced no run and the plan's branch CI evidence (Linux, macOS, Xvfb) was unobtainable without opening a PR. A PR from such a branch runs CI twice. | Duplicate runs on PRs from feature branches | None (routine) |
+| 2026-09-12T18:34:56Z | PLAN-00002-STEP-13 | Backlog gains two engineering items found in STEP-12: the `rsa` advisory exception and the `cargo deny` duplicate-version warnings. | None | None (routine) |
 
 ### Verification results
 
@@ -1061,18 +1065,25 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T18:30:15Z | PLAN-00002-STEP-12 | `cargo test -p passalong --test release_tag_script` | Exit 0 | 4 passed: matching tag, 5 mismatched/malformed tags rejected with exit 1, missing tag exit 2, repository tag matches CARGO_PKG_VERSION |
 | 2026-09-12T18:30:15Z | PLAN-00002-STEP-12 | `cargo deny check` with `deny.toml` | Exit 0 | advisories ok, bans ok, licenses ok, sources ok; 14 duplicate-version warnings (warn by policy) |
 | 2026-09-12T18:30:15Z | PLAN-00002-STEP-12 | `actionlint` 1.7.12 on ci.yml and release.yml | Exit 0 | No findings; Docker fallback `rhysd/actionlint:1.7.12` also exit 0 |
-| 2026-09-12T18:30:15Z | PLAN-00002-STEP-12 | `just audit` | Pass | └── passalong-core v0.1.0 (*) |
-| 2026-09-12T18:30:15Z | PLAN-00002-STEP-12 | `just lint-workflows` | Pass | if command -v actionlint >/dev/null; then actionlint; else docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color; fi |
+| 2026-09-12T18:30:15Z | PLAN-00002-STEP-12 | `just audit` | Pass | advisories ok, bans ok, licenses ok, sources ok; 14 duplicate-version warnings |
+| 2026-09-12T18:30:15Z | PLAN-00002-STEP-12 | `just lint-workflows` | Pass | actionlint 1.7.12: no findings in ci.yml or release.yml |
 | 2026-09-12T18:30:15Z | PLAN-00002-STEP-12 | `just publish-dry-run --allow-dirty` | Pass | warning: aborting upload due to dry run |
 | 2026-09-12T18:30:15Z | PLAN-00002-STEP-12 | `cargo test -p passalong --test release_tag_script` | Pass | test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s |
 | 2026-09-12T18:30:15Z | PLAN-00002-STEP-12 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
 | 2026-09-12T18:30:15Z | PLAN-00002-STEP-12 | `just check` | Exit 0 | Lines 92.52% (7031 lines, 526 missed) |
+| 2026-09-12T18:30:28Z | PLAN-00002-STEP-13 | Before: packaged and reported version | 0.1.0 (expected) | STEP-12 publish dry run packaged `passalong v0.1.0`; `docs/release/v0.1.1.md` absent; backlog still listed 7 delivered items |
+| 2026-09-12T18:34:56Z | PLAN-00002-STEP-13 | `cargo run -q -p passalong -- --version` | Exit 0 | passalong 0.1.1; Cargo.lock updated for the three workspace crates only |
+| 2026-09-12T18:34:56Z | PLAN-00002-STEP-13 | `just coverage-full` (for the release notes) | Exit 0 | 95.53 % lines; 11 Docker tests passed; 3 desktop tests filtered |
+| 2026-09-12T18:34:56Z | PLAN-00002-STEP-13 | `cargo run -q -p passalong -- --version` | Pass | passalong 0.1.1 |
+| 2026-09-12T18:34:56Z | PLAN-00002-STEP-13 | `bash -c 'actionlint && echo actionlint: no findings passed'` | Pass | actionlint: no findings passed |
+| 2026-09-12T18:34:56Z | PLAN-00002-STEP-13 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
+| 2026-09-12T18:34:56Z | PLAN-00002-STEP-13 | `just check` | Exit 0 | Lines 92.49% (7031 lines, 528 missed) |
 
 ### Completion summary
 
 - **Implementation status:** `in-progress`
-- **Completed requirements:** REQ-01 to REQ-18, REQ-20; REQ-19 (implementation; Xvfb CI evidence pending the push in STEP-14)
-- **Incomplete requirements:** REQ-21 to REQ-24
+- **Completed requirements:** REQ-01 to REQ-18, REQ-20 to REQ-22; REQ-19 (implementation; Xvfb CI evidence pending)
+- **Incomplete requirements:** REQ-23, REQ-24
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

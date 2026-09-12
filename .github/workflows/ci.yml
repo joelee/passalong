@@ -1,8 +1,9 @@
 name: CI
 
 on:
+  # Feature branches run CI on every push, before a pull request exists.
   push:
-    branches: [main]
+    branches: [main, "feature/**"]
   pull_request:
 
 permissions:

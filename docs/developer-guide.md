@@ -56,3 +56,15 @@ details from `PASSALONG_IT_SSH_*` variables. `just test-integration` generates
 a throwaway key pair in `tests/docker/keys/` (git-ignored), starts
 `tests/docker/docker-compose.yml`, exports the variables, runs the ignored
 tests, and always removes the container.
+
+## Desktop clipboard test
+
+The real clipboard adapter needs a desktop session, so its test is ignored
+and excluded from the Docker-backed recipes. Run it by hand on a desktop:
+
+```sh
+cargo test -p passalong-core --all-features -- --ignored desktop_
+```
+
+`cargo build -p passalong-core --no-default-features` builds the core
+without the desktop clipboard, as GUI and Android front-ends will.

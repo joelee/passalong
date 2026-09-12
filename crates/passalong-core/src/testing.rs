@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tracing_subscriber::fmt::MakeWriter;
 
+use crate::clipboard::{Clipboard, ClipboardError};
 use crate::clock::Clock;
 use crate::config::EnvProvider;
 use crate::fs::{BoxRead, BoxWrite, DirEntry, FsError, Metadata, RemoteFs, RemotePath};
@@ -299,5 +300,92 @@ impl<F: RemoteFs> RemoteFs for FaultyFs<F> {
     async fn stat(&self, path: &RemotePath) -> Result<Option<Metadata>, FsError> {
         self.check(FsOp::Stat, path)?;
         self.inner.stat(path).await
+    }
+}
+
+#[derive(Debug, Default)]
+struct MockClipboardState {
+    reads: VecDeque<Result<Option<String>, ClipboardError>>,
+    current: Option<String>,
+    writes: Vec<String>,
+    fail_writes: bool,
+}
+
+/// In-memory [`Clipboard`]. Clones share state, so a test can keep one
+/// handle to inspect writes after moving another into the code under test.
+#[derive(Debug, Clone, Default)]
+pub struct MockClipboard(Arc<Mutex<MockClipboardState>>);
+
+impl MockClipboard {
+    /// An empty clipboard.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// A clipboard currently holding `text`.
+    pub fn with_text(text: &str) -> Self {
+        let mock = Self::new();
+        mock.lock().current = Some(text.to_owned());
+        mock
+    }
+
+    /// Queues successive read results. Once the queue is empty, reads return
+    /// the current text: the last text read or written.
+    #[must_use]
+    pub fn with_reads<'a>(self, reads: impl IntoIterator<Item = Option<&'a str>>) -> Self {
+        self.lock()
+            .reads
+            .extend(reads.into_iter().map(|read| Ok(read.map(str::to_owned))));
+        self
+    }
+
+    /// Makes the next queued read fail with `err`.
+    pub fn push_read_error(&self, err: ClipboardError) {
+        self.lock().reads.push_front(Err(err));
+    }
+
+    /// Makes every write fail (`true`) or succeed (`false`).
+    pub fn fail_writes(&self, fail: bool) {
+        self.lock().fail_writes = fail;
+    }
+
+    /// Every text written, oldest first.
+    pub fn writes(&self) -> Vec<String> {
+        self.lock().writes.clone()
+    }
+
+    /// The text a read would return once the queue is empty.
+    pub fn current(&self) -> Option<String> {
+        self.lock().current.clone()
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, MockClipboardState> {
+        self.0.lock().expect("mock clipboard lock")
+    }
+}
+
+impl Clipboard for MockClipboard {
+    fn read_text(&mut self) -> Result<Option<String>, ClipboardError> {
+        let mut state = self.lock();
+        match state.reads.pop_front() {
+            Some(Ok(text)) => {
+                if text.is_some() {
+                    state.current.clone_from(&text);
+                }
+                Ok(text)
+            }
+            Some(Err(err)) => Err(err),
+            None => Ok(state.current.clone()),
+        }
+    }
+
+    fn write_text(&mut self, text: &str) -> Result<(), ClipboardError> {
+        let mut state = self.lock();
+        if state.fail_writes {
+            return Err(ClipboardError::Other("injected write failure".to_owned()));
+        }
+        state.writes.push(text.to_owned());
+        state.current = Some(text.to_owned());
+        Ok(())
     }
 }

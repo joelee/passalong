@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/initial-plan"
 execution_started_at: "2026-09-12T10:54:05Z"
-execution_updated_at: "2026-09-12T12:17:43Z"
+execution_updated_at: "2026-09-12T12:19:56Z"
 execution_completed_at: null
-current_step: "PLAN-00001-STEP-07"
+current_step: "PLAN-00001-STEP-08"
 ---
 
 # Delivery Plan 00001: Initial Plan
@@ -1485,7 +1485,7 @@ behavioural step.
 | PLAN-00001-STEP-04 | completed | 2026-09-12T11:23:44Z | 2026-09-12T12:08:41Z | Commit `build: complete PLAN-00001-STEP-04 - Item model, ids, hashing, and clock`; checkpoint digest `8e1ba738…2dc5` re-verified before commit | `just check` green, 97.26 % lines; model.rs 97.31 % |
 | PLAN-00001-STEP-05 | completed | 2026-09-12T12:09:54Z | 2026-09-12T12:11:51Z | Commit `build: complete PLAN-00001-STEP-05 - `RemoteFs` trait, `LocalFs`, and failing test double`; `just check` green, 97.68% lines | `Box<dyn RemoteFs>` compiles (object-safety test) |
 | PLAN-00001-STEP-06 | completed | 2026-09-12T12:14:02Z | 2026-09-12T12:17:43Z | Commit `build: complete PLAN-00001-STEP-06 - `FsStore` layout with atomic publish and `Store` trait`; `just check` green, 97.51% lines | Coverage checkpoint (STEP-06) recorded in the `just check` row |
-| PLAN-00001-STEP-07 | not-started | — | — | — | — |
+| PLAN-00001-STEP-07 | completed | 2026-09-12T12:19:33Z | 2026-09-12T12:19:56Z | Commit `build: complete PLAN-00001-STEP-07 - Clipboard trait, arboard adapter, mock`; `just check` green, 96.37% lines | `arboard` absent from `cargo tree -p passalong-core --no-default-features`; desktop round-trip test is `#[ignore]` and excluded from Docker recipes with `--skip desktop_` |
 | PLAN-00001-STEP-08 | not-started | — | — | — | — |
 | PLAN-00001-STEP-09 | not-started | — | — | — | — |
 | PLAN-00001-STEP-10 | not-started | — | — | — | — |
@@ -1518,6 +1518,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T12:11:51Z | PLAN-00001-STEP-05 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-05 - `RemoteFs` trait, `LocalFs`, and failing test double` | Begin PLAN-00001-STEP-06 |
 | 2026-09-12T12:14:02Z | PLAN-00001-STEP-06 | Started | — | Red phase |
 | 2026-09-12T12:17:43Z | PLAN-00001-STEP-06 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-06 - `FsStore` layout with atomic publish and `Store` trait` | Begin PLAN-00001-STEP-07 |
+| 2026-09-12T12:19:33Z | PLAN-00001-STEP-07 | Started | — | Red phase |
+| 2026-09-12T12:19:56Z | PLAN-00001-STEP-07 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-07 - Clipboard trait, arboard adapter, mock` | Begin PLAN-00001-STEP-08 |
 
 ### Deviations and blockers
 
@@ -1535,6 +1537,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T12:11:51Z | PLAN-00001-STEP-05 | Added `RemotePath::new` (validated multi-component parse), `BoxRead`/`BoxWrite` aliases, and `FaultyFs::fail_nth`/`fail_next`/`calls` with an `FsOp` selector. `LocalFs::rename` checks the target first because POSIX would replace an empty target directory; `remove_dir_all` succeeds on a missing path so clean-up is idempotent. `FsError` is `Clone` with an `Other { path, message }` variant. | None; interfaces are additive | None (routine) |
 | 2026-09-12T12:17:43Z | PLAN-00001-STEP-06 | `Store::put` returns `PutOutcome { meta, created }` instead of bare `ItemMeta`, so callers can report "already present" (REQ-13). `StoreError::Ambiguous` carries the typed input as well as the candidates; extra variants `Config`, `Content`, `Corrupt`, `Model`, `Backend` classify failures for one-line CLI errors. `resolve` requires 4 characters for both forms and does not require hex, so `zzzz` is `NotFound` as the plan's test expects. | None; interfaces are additive | None (routine) |
 | 2026-09-12T12:17:43Z | PLAN-00001-STEP-06 | The same-second publish race (rename hits `AlreadyExists`) returns the existing item but has no unit test: reproducing it needs a filesystem double that hides an item from listing but not from rename. Added `testing::ManualClock` for tests that advance time. | Two lines uncovered | None (routine) |
+| 2026-09-12T12:19:56Z | PLAN-00001-STEP-07 | The adapter lives in `clipboard/desktop.rs` (not `clipboard/arboard.rs`) to avoid shadowing the `arboard` crate name. On Linux, writes use arboard's `wait_until` with a 2-second deadline so a clipboard manager can take the content over; without one, text loaded by the short-lived `load` command vanishes when it exits. Documented in docs/usage.md; a detached clipboard holder is a backlog candidate for STEP-14. | Linux users without a clipboard manager must load into a file | None (routine) |
+| 2026-09-12T12:19:56Z | PLAN-00001-STEP-07 | `just test-integration` and `just coverage-full` pass `--skip desktop_` so the desktop-only ignored test never runs in CI; docs/developer-guide.md shows how to run it by hand. `MockClipboard` clones share state and support scripted reads, read errors, and write failures. | None | None (routine) |
 
 ### Verification results
 
@@ -1569,12 +1573,16 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T12:14:02Z | PLAN-00001-STEP-06 | Red: `cargo test -p passalong-core --all-features` | Exit 101 (expected) | Missing `FsStore`, `open_store`, `Store`, `StoreError`, `ManualClock` |
 | 2026-09-12T12:17:43Z | PLAN-00001-STEP-06 | `cargo test -p passalong-core --all-features store::` | Pass | test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 77 filtered out; finished in 0.09s |
 | 2026-09-12T12:17:43Z | PLAN-00001-STEP-06 | `just check` | Exit 0 | Lines 97.51% (2414 lines, 60 missed); mod.rs 0.00%; fs_store.rs 97.79%; factory.rs 98.85% |
+| 2026-09-12T12:19:33Z | PLAN-00001-STEP-07 | Red: `cargo test -p passalong-core --all-features` | Exit 101 (expected) | Missing `ArboardClipboard` `Clipboard` `ClipboardError` `crate::testing::MockClipboard` |
+| 2026-09-12T12:19:56Z | PLAN-00001-STEP-07 | `cargo test -p passalong-core --all-features clipboard::` | Pass | test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 93 filtered out; finished in 0.00s |
+| 2026-09-12T12:19:56Z | PLAN-00001-STEP-07 | `cargo build -p passalong-core --no-default-features` | Pass | Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s |
+| 2026-09-12T12:19:56Z | PLAN-00001-STEP-07 | `just check` | Exit 0 | Lines 96.37% (2533 lines, 92 missed); mod.rs 86.05%; desktop.rs 0.00% |
 
 ### Completion summary
 
 - **Implementation status:** `in-progress`
-- **Completed requirements:** REQ-01 to REQ-10, REQ-24 (scaffold parts); REQ-22 (log allow-list and id-validation parts); REQ-09 (local backend only until STEP-12)
-- **Incomplete requirements:** REQ-11 to REQ-21, REQ-23
+- **Completed requirements:** REQ-01 to REQ-10, REQ-12, REQ-24 (scaffold parts); REQ-22 (log allow-list and id-validation parts); REQ-09 (local backend only until STEP-12); REQ-23 (core builds without desktop features)
+- **Incomplete requirements:** REQ-11, REQ-13 to REQ-21
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

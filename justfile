@@ -32,14 +32,14 @@ test:
     cargo test --workspace --all-targets --all-features
 
 # Run the Docker-backed SSH integration tests (ignored tests)
-test-integration: (_with-sshd "cargo test --workspace --all-features -- --ignored")
+test-integration: (_with-sshd "cargo test --workspace --all-features -- --ignored --skip desktop_")
 
 # Line coverage gate (>= 80%) without Docker-backed tests
 coverage:
     cargo llvm-cov --workspace --all-features --fail-under-lines 80 --summary-only
 
 # Line coverage gate including the Docker-backed tests
-coverage-full: (_with-sshd "cargo llvm-cov --workspace --all-features --fail-under-lines 80 --summary-only -- --include-ignored")
+coverage-full: (_with-sshd "cargo llvm-cov --workspace --all-features --fail-under-lines 80 --summary-only -- --include-ignored --skip desktop_")
 
 # Build the workspace from the lockfile
 build:

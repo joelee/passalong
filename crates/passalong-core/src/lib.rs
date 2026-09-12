@@ -6,6 +6,7 @@
 //! telemetry. It must never depend on CLI or terminal crates so that future
 //! GUI and Android front-ends can reuse it.
 
+pub mod clipboard;
 pub mod clock;
 pub mod config;
 pub mod fs;

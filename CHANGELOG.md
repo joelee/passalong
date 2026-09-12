@@ -25,3 +25,5 @@ All notable changes to this project are documented here. The format follows
   by content key, newest-first listing, and id prefix resolution, with a
   `local` backend for directories such as mounted shares (PLAN-00001
   STEP-05, STEP-06).
+- Clipboard access for macOS and Linux (X11 and Wayland) behind a trait,
+  so front-ends can supply their own (PLAN-00001 STEP-07).

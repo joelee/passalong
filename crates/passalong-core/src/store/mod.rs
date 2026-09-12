@@ -11,6 +11,8 @@ pub mod fs_store;
 pub use factory::{BackendFuture, BackendOpener, BackendRegistry, open_store};
 pub use fs_store::FsStore;
 
+use std::time::Duration;
+
 use async_trait::async_trait;
 
 use crate::fs::{BoxRead, FsError};
@@ -51,6 +53,15 @@ pub trait Store: Send + Sync {
     /// prefix of the full id. Case and surrounding spaces are ignored, and
     /// at least 4 characters are required.
     async fn resolve(&self, input: &str) -> Result<ItemId, StoreError>;
+
+    /// Deletes an item and returns its metadata. The item disappears from
+    /// listings in one step, even if removing its data then fails.
+    async fn delete(&self, id: &ItemId) -> Result<ItemMeta, StoreError>;
+
+    /// Removes staging directories that interrupted uploads and deletions
+    /// left behind, when older than `older_than`, and returns how many were
+    /// removed. Younger ones may belong to uploads in progress and stay.
+    async fn clean_staging(&self, older_than: Duration) -> Result<usize, StoreError>;
 }
 
 /// Storage errors.

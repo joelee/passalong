@@ -12,6 +12,7 @@ use passalong_core::fs::{FsError, RemoteFs, RemotePath};
 use passalong_core::model::NewItem;
 use passalong_core::random::{RandomSource, StdRandom};
 use passalong_core::store::{FsStore, Store};
+use passalong_core::testing::FixedClock;
 use passalong_ssh::connect::SshParams;
 use passalong_ssh::error::SshError;
 use passalong_ssh::sftp_fs::SftpFs;
@@ -129,6 +130,57 @@ async fn fs_store_works_over_sftp() {
             .await
             .unwrap(),
         out.meta.id
+    );
+    store
+        .fs()
+        .remove_dir_all(&RemotePath::root())
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs the Docker SSH server: just test-integration"]
+async fn delete_and_clean_staging_work_over_sftp() {
+    let params = SshParams::from_config(&config()).unwrap();
+    let fs = SftpFs::open(&params, &unique_root()).await.unwrap();
+    // A clock one day ahead makes a freshly created staging directory "old".
+    let tomorrow = (chrono::Utc::now() + chrono::TimeDelta::days(1)).to_rfc3339();
+    let store = FsStore::new(
+        fs,
+        Arc::new(FixedClock::at(&tomorrow)),
+        Box::new(StdRandom::new()),
+    );
+    let keep = store
+        .put(NewItem::text("it"), Box::new(Cursor::new(b"keep".to_vec())))
+        .await
+        .unwrap()
+        .meta;
+    let gone = store
+        .put(NewItem::text("it"), Box::new(Cursor::new(b"gone".to_vec())))
+        .await
+        .unwrap()
+        .meta;
+    assert_eq!(store.delete(&gone.id).await.unwrap(), gone);
+    assert_eq!(store.list().await.unwrap(), vec![keep]);
+    store
+        .fs()
+        .create_dir_all(&p("tmp/abandoned-upload"))
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .clean_staging(std::time::Duration::from_secs(3600))
+            .await
+            .unwrap(),
+        1
+    );
+    assert!(
+        store
+            .fs()
+            .stat(&p("tmp/abandoned-upload"))
+            .await
+            .unwrap()
+            .is_none()
     );
     store
         .fs()

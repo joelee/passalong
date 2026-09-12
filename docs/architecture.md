@@ -139,6 +139,12 @@ Storing an item works like this:
 An item directory therefore appears only when it is complete, and an
 interrupted upload leaves nothing under `items/`.
 
+Deleting an item renames `items/<id>` to `tmp/deleted-<id>-<random>` and
+then removes it, so the item disappears from every listing in one step.
+If the removal fails, only a staging leftover remains. Staging directories
+older than a threshold, left by interrupted uploads or deletions, are
+removed by `clean_staging`, which `prune` runs.
+
 Listing sorts the item directory names in reverse, which is newest first
 because ids are time-sortable, then reads each `meta.json`. Directories that
 are not ids, lack `meta.json`, or hold metadata that is unreadable or

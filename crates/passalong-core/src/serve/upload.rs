@@ -261,6 +261,12 @@ mod tests {
         async fn resolve(&self, input: &str) -> Result<ItemId, StoreError> {
             self.inner.resolve(input).await
         }
+        async fn delete(&self, id: &ItemId) -> Result<ItemMeta, StoreError> {
+            self.inner.delete(id).await
+        }
+        async fn clean_staging(&self, older_than: Duration) -> Result<usize, StoreError> {
+            self.inner.clean_staging(older_than).await
+        }
     }
 
     struct Rig {

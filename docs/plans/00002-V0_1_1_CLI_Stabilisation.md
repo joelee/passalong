@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00002-v0.1.1-CLI_Stabilisation"
 execution_started_at: "2026-09-12T17:42:30Z"
-execution_updated_at: "2026-09-12T17:45:33Z"
+execution_updated_at: "2026-09-12T17:47:55Z"
 execution_completed_at: null
-current_step: "PLAN-00002-STEP-03"
+current_step: "PLAN-00002-STEP-04"
 ---
 
 # Delivery Plan 00002: V0 1 1 CLI Stabilisation
@@ -937,7 +937,7 @@ run at STEP-03, STEP-06, STEP-07, STEP-11, and STEP-14.
 |---|---|---|---|---|---|
 | PLAN-00002-STEP-01 | completed | 2026-09-12T17:42:30Z | 2026-09-12T17:42:44Z | Commit `build: complete PLAN-00002-STEP-01 - v0.1.0 release records and metadata fixes`; `just check` green, 92.84% lines | Plans under docs/plans keep their historical text; the repository URL finding stays documented there |
 | PLAN-00002-STEP-02 | completed | 2026-09-12T17:43:07Z | 2026-09-12T17:45:33Z | Commit `build: complete PLAN-00002-STEP-02 - Crate metadata, package rename, caret requirements, publish dry run`; `just check` green, 92.84% lines | Package `passalong` lives in `crates/passalong-cli/` (directory unchanged); libraries get READMEs and docs.rs all-features builds |
-| PLAN-00002-STEP-03 | not-started | — | — | — | — |
+| PLAN-00002-STEP-03 | completed | 2026-09-12T17:45:48Z | 2026-09-12T17:47:55Z | Commit `build: complete PLAN-00002-STEP-03 - Store deletion and staging clean-up`; `just check` green, 92.89% lines | AC-05 by `a_failed_removal_still_hides_the_item_at_once`; AC-07 store part by `clean_staging_removes_only_entries_older_than_the_threshold` |
 | PLAN-00002-STEP-04 | not-started | — | — | — | — |
 | PLAN-00002-STEP-05 | not-started | — | — | — | — |
 | PLAN-00002-STEP-06 | not-started | — | — | — | — |
@@ -962,6 +962,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T17:42:30Z | — | Plan approved (commit d86a411e26d5916a40bba8176163db9223e1ba77) on the user's branch `feature/00002-v0.1.1-CLI_Stabilisation` | User: "The defaults are acceptable. Please proceed as before." | STEP-01 |
 | 2026-09-12T17:43:07Z | PLAN-00002-STEP-02 | Started | — | Evidence first |
 | 2026-09-12T17:45:33Z | PLAN-00002-STEP-02 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00002-STEP-02 - Crate metadata, package rename, caret requirements, publish dry run` | Begin PLAN-00002-STEP-03 |
+| 2026-09-12T17:45:48Z | PLAN-00002-STEP-03 | Started | — | Red phase |
+| 2026-09-12T17:47:55Z | PLAN-00002-STEP-03 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00002-STEP-03 - Store deletion and staging clean-up` | Begin PLAN-00002-STEP-04 |
 
 ### Deviations and blockers
 
@@ -969,6 +971,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 |---|---|---|---|---|
 | 2026-09-12T17:42:44Z | PLAN-00002-STEP-01 | Builder works on the user's branch `feature/00002-v0.1.1-CLI_Stabilisation` (the plan's § 5 was updated at approval). `docs/release/v0.1.0.md` also records the test counts per suite and the known limitations. The root `AGENTS.md` was restored verbatim from the text read at the start of PLAN-00001 (D-05 b), and the matching backlog entry was removed. The consistency script now also checks release documents, the CHANGELOG release sections, the repository URL, and a non-empty `AGENTS.md`. | None | None (routine) |
 | 2026-09-12T17:45:33Z | PLAN-00002-STEP-02 | STEP-01's commit did not set the Builder front-matter fields (branch, start time, builder, status); this step records them and the approval event. The CLI package's `readme` points at the root README and its `documentation` at docs/usage.md, since docs.rs is not useful for a binary. The published v0.1.0 notes keep the old `passalong-cli` name because that was correct for v0.1.0. | None | None (routine) |
+| 2026-09-12T17:47:55Z | PLAN-00002-STEP-03 | `clean_staging` only removes directories (staging entries are always directories) and skips entries without a modification time. An item whose `meta.json` is corrupt cannot be deleted through `Store::delete`, which returns its metadata; listings already skip such items. Recorded as a backlog candidate rather than widening the trait. | Corrupt items stay until removed by hand | None (routine) |
 
 ### Verification results
 
@@ -983,12 +986,16 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T17:45:33Z | PLAN-00002-STEP-02 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
 | 2026-09-12T17:45:33Z | PLAN-00002-STEP-02 | `cargo test -p passalong` | Pass | test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s |
 | 2026-09-12T17:45:33Z | PLAN-00002-STEP-02 | `just check` | Exit 0 | Lines 92.84% (4956 lines, 355 missed) |
+| 2026-09-12T17:45:48Z | PLAN-00002-STEP-03 | Red: `cargo test -p passalong-core --all-features store::` | Exit 101 (expected) | E0599 no method named `clean_staging` no method named `delete` |
+| 2026-09-12T17:47:55Z | PLAN-00002-STEP-03 | `just test-integration` (Docker OpenSSH) | Exit 0 | 8 ignored tests passed, including the new `delete_and_clean_staging_work_over_sftp` |
+| 2026-09-12T17:47:55Z | PLAN-00002-STEP-03 | `cargo test -p passalong-core --all-features store::` | Pass | test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 0.08s |
+| 2026-09-12T17:47:55Z | PLAN-00002-STEP-03 | `just check` | Exit 0 | Lines 92.89% (5063 lines, 360 missed); fs_store.rs 97.99% |
 
 ### Completion summary
 
 - **Implementation status:** `in-progress`
-- **Completed requirements:** REQ-03, REQ-04, REQ-05, REQ-13, REQ-14 (local recipe; CI job in STEP-12)
-- **Incomplete requirements:** REQ-01, REQ-02, REQ-06 to REQ-12, REQ-15 to REQ-24
+- **Completed requirements:** REQ-03, REQ-04, REQ-05, REQ-06, REQ-13, REQ-14 (local recipe)
+- **Incomplete requirements:** REQ-01, REQ-02, REQ-07 to REQ-12, REQ-15 to REQ-24
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

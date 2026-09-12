@@ -44,5 +44,3 @@ Future work not covered by an active plan. Completed items are removed.
   `passalong-ssh` for an Android target without default features.
 - **Desktop clipboard test in CI.** Run the ignored desktop test under a
   virtual X server such as Xvfb.
-- **Restore the root `AGENTS.md`.** It is empty in the repository; the Rust
-  rules it held survive only in Delivery Plan 00001.

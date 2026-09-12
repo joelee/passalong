@@ -37,9 +37,9 @@ builder_agent: null
 builder_model: null
 execution_branch: null
 execution_started_at: null
-execution_updated_at: null
+execution_updated_at: "2026-09-12T17:42:44Z"
 execution_completed_at: null
-current_step: null
+current_step: "PLAN-00002-STEP-02"
 ---
 
 # Delivery Plan 00002: V0 1 1 CLI Stabilisation
@@ -935,7 +935,7 @@ run at STEP-03, STEP-06, STEP-07, STEP-11, and STEP-14.
 
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
-| PLAN-00002-STEP-01 | not-started | — | — | — | — |
+| PLAN-00002-STEP-01 | completed | 2026-09-12T17:42:30Z | 2026-09-12T17:42:44Z | Commit `build: complete PLAN-00002-STEP-01 - v0.1.0 release records and metadata fixes`; `just check` green, 92.84% lines | Plans under docs/plans keep their historical text; the repository URL finding stays documented there |
 | PLAN-00002-STEP-02 | not-started | — | — | — | — |
 | PLAN-00002-STEP-03 | not-started | — | — | — | — |
 | PLAN-00002-STEP-04 | not-started | — | — | — | — |
@@ -957,24 +957,28 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 
 | Timestamp (UTC) | Step | Event | Evidence or reference | Next action |
 |---|---|---|---|---|
+| 2026-09-12T17:42:30Z | PLAN-00002-STEP-01 | Started | — | Evidence first |
+| 2026-09-12T17:42:44Z | PLAN-00002-STEP-01 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00002-STEP-01 - v0.1.0 release records and metadata fixes` | Begin PLAN-00002-STEP-02 |
 
 ### Deviations and blockers
 
 | Timestamp (UTC) | Step | Deviation or blocker | Impact | Decision required from |
 |---|---|---|---|---|
-
-None
+| 2026-09-12T17:42:44Z | PLAN-00002-STEP-01 | Builder works on the user's branch `feature/00002-v0.1.1-CLI_Stabilisation` (the plan's § 5 was updated at approval). `docs/release/v0.1.0.md` also records the test counts per suite and the known limitations. The root `AGENTS.md` was restored verbatim from the text read at the start of PLAN-00001 (D-05 b), and the matching backlog entry was removed. The consistency script now also checks release documents, the CHANGELOG release sections, the repository URL, and a non-empty `AGENTS.md`. | None | None (routine) |
 
 ### Verification results
 
 | Timestamp (UTC) | Step | Command or check | Result | Evidence |
 |---|---|---|---|---|
+| 2026-09-12T17:42:44Z | PLAN-00002-STEP-01 | Evidence first (documentation step, no TDD) | — | `grep` found `github.com/joeworks/passalong` in Cargo.toml before the fix; `docs/release/` did not exist; root `AGENTS.md` was 0 bytes |
+| 2026-09-12T17:42:44Z | PLAN-00002-STEP-01 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
+| 2026-09-12T17:42:44Z | PLAN-00002-STEP-01 | `just check` | Exit 0 | Lines 92.84% (4956 lines, 355 missed) |
 
 ### Completion summary
 
-- **Implementation status:** `not-started`
-- **Completed requirements:** None
-- **Incomplete requirements:** All
+- **Implementation status:** `in-progress`
+- **Completed requirements:** REQ-03, REQ-04, REQ-05
+- **Incomplete requirements:** REQ-01, REQ-02, REQ-06 to REQ-24
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- Crate metadata now points at the correct repository,
+  `https://github.com/joelee/passalong` (PLAN-00002 STEP-01).
+
+## v0.1.0 - 2026-09-12T14:24:52Z
+
 ### Added
 
 - Cargo workspace with `passalong-core`, `passalong-ssh`, and the `passalong`

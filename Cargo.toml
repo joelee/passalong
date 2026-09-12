@@ -7,7 +7,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.98"
 license = "Apache-2.0"
-repository = "https://github.com/joeworks/passalong"
+repository = "https://github.com/joelee/passalong"
 description = "Lightweight cross-platform clipboard and file sharing over SSH"
 
 # Exact pins (PLAN-00001 STEP-01). Cargo.lock is committed and builds use --locked.

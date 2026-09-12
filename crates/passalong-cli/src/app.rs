@@ -27,6 +27,9 @@ pub async fn run(cli: Cli, env: &dyn EnvProvider) -> ExitCode {
     match execute(cli, env, &mut stdout).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
+            if let Some(commands::QuietExit(code)) = err.downcast_ref::<commands::QuietExit>() {
+                return ExitCode::from(*code);
+            }
             // The `error:` line below is the user-facing report; the log
             // record is kept at verbose level so it is not printed twice.
             let message = format!("{err:#}");
@@ -51,17 +54,28 @@ async fn execute(cli: Cli, env: &dyn EnvProvider, out: &mut dyn Write) -> anyhow
     let _ = telemetry::init(level, io::stderr);
     tracing::debug!(path = %located.path.display(), "using config from {}", located.origin);
     let span = telemetry::op_span(cli.command.name(), &mut StdRandom::new());
-    dispatch(cli.command, &config, out).instrument(span).await
+    let context = commands::serve::ServeContext {
+        config: &config,
+        config_path: &located.path,
+        log_level: level,
+        env,
+    };
+    dispatch(cli.command, context, out).instrument(span).await
 }
 
-async fn dispatch(command: Command, config: &Config, out: &mut dyn Write) -> anyhow::Result<()> {
+async fn dispatch(
+    command: Command,
+    context: commands::serve::ServeContext<'_>,
+    out: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let config: &Config = context.config;
     let mut backends = BackendRegistry::with_builtin();
     passalong_ssh::register(&mut backends);
     let device = config.client.device_name.as_str();
     match command {
         Command::Init(_) => anyhow::bail!("init runs before configuration is loaded"),
         // `serve` opens, and re-opens, its own store.
-        Command::Serve => commands::serve::run(config, backends).await,
+        Command::Serve(args) => commands::serve::run(context, &args, backends, out).await,
         Command::Clipboard { stdin } => {
             let store = backends.open(config).await?;
             if stdin {

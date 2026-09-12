@@ -208,8 +208,19 @@ drop folder and logs `clipboard unavailable`.
 
 ### Running `serve` in the background
 
-`serve` runs in the foreground by design; let the operating system's
-service manager keep it running.
+Only one `serve` runs at a time: a second one exits with
+`serve is already running (pid N)`.
+
+| Option | Meaning |
+|---|---|
+| `--daemon` | Start `serve` in the background and return. Prints `serve started (pid N, log PATH)`, or the start-up error and exit code 1. Linux and macOS only. |
+| `--status` | Print `running (pid N, log PATH)`, or `not running` with exit code 3. |
+| `--stop` | Stop the running `serve` and wait up to 10 seconds for it to exit. |
+
+The background process keeps running after you close the terminal and logs
+to a file (see [configuration](configuration.md#serve-files)). For start at
+login and restarts after crashes, a service manager is still the better
+choice:
 
 - **Linux (systemd):** install `docs/service/passalong-serve.service` as a
   user unit. Its header shows the commands.

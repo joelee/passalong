@@ -3,6 +3,7 @@
 mod app;
 mod cli;
 mod commands;
+mod daemon;
 mod output;
 mod prompt;
 

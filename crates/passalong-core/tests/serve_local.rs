@@ -158,3 +158,32 @@ async fn serve_fails_when_the_drop_folder_cannot_be_created() {
     .unwrap_err();
     assert!(matches!(err, ServeError::DropFolder { .. }), "{err:?}");
 }
+
+#[tokio::test]
+async fn serve_signals_readiness_after_start_up() {
+    let dir = TempDir::new().unwrap();
+    let (store, drop_folder) = (dir.path().join("store"), dir.path().join("drop"));
+    let (stop, stopped) = watch::channel(false);
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    let task = tokio::spawn(serve::run_with_ready(
+        options(&drop_folder),
+        None,
+        local_opener(store),
+        stopped,
+        ready_tx,
+    ));
+    tokio::time::timeout(Duration::from_secs(5), ready_rx)
+        .await
+        .expect("ready in time")
+        .expect("ready sent");
+    assert!(
+        drop_folder.join("sent").is_dir(),
+        "ready only after the drop folder is prepared"
+    );
+    stop.send(true).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+}

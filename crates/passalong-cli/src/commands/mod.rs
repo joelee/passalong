@@ -11,6 +11,19 @@ pub mod load;
 pub mod prune;
 pub mod serve;
 
+/// Ends the process with this exit code without printing an error, for
+/// results such as `serve --status` reporting "not running".
+#[derive(Debug)]
+pub struct QuietExit(pub u8);
+
+impl std::fmt::Display for QuietExit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "exit code {}", self.0)
+    }
+}
+
+impl std::error::Error for QuietExit {}
+
 /// Helpers shared by the command tests.
 #[cfg(test)]
 pub(crate) mod support {

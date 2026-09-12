@@ -82,6 +82,19 @@ The CLI loads `./.env` at start-up when it exists. Values from `.env` never
 override variables already set in the environment. Keep secrets only in
 `.env`, which is git-ignored; `.env.sample` lists the supported names.
 
+## `serve` files
+
+`serve` records its pid, and `serve --daemon` writes its log, here:
+
+| Platform | Pid file | Log file |
+|---|---|---|
+| Linux | `${XDG_STATE_HOME:-~/.local/state}/passalong/serve.pid` | `${XDG_STATE_HOME:-~/.local/state}/passalong/serve.log` |
+| macOS | `~/Library/Application Support/passalong/serve.pid` | `~/Library/Logs/passalong/serve.log` |
+
+The pid file is locked while `serve` runs, which is how a second copy is
+refused. A pid file left behind by a crash is harmless and is reused. The
+log file grows without rotation.
+
 ## Logging
 
 Logs go to standard error, one line per record:

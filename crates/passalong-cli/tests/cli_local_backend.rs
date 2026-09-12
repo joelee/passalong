@@ -51,6 +51,9 @@ impl Sandbox {
         cmd.current_dir(self.path("work"))
             .env("HOME", self.path("home"))
             .env_remove("XDG_CONFIG_HOME")
+            .env_remove("XDG_STATE_HOME")
+            .env_remove("WAYLAND_DISPLAY")
+            .env_remove("DISPLAY")
             .env_remove("PASSALONG_CONFIG_FILE")
             .env_remove("PASSALONG_LOG_LEVEL")
             .env_remove("PASSALONG_SSH_KEY_PASSPHRASE");
@@ -355,6 +358,7 @@ fn serve_sends_dropped_files_and_stops_cleanly_on_sigterm() {
         .current_dir(sb.path("work"))
         .env("HOME", sb.path("home"))
         .env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_STATE_HOME")
         .env_remove("PASSALONG_CONFIG_FILE")
         .env_remove("PASSALONG_LOG_LEVEL")
         .env_remove("WAYLAND_DISPLAY")
@@ -539,4 +543,126 @@ fn init_writes_a_config_offline_and_refuses_to_overwrite_it() {
         .assert()
         .code(1)
         .stderr(predicate::str::contains("--host-key or --fingerprint"));
+}
+
+/// Stops a background `serve` left running by a failed test.
+#[cfg(unix)]
+struct DaemonGuard(Option<u32>);
+
+#[cfg(unix)]
+impl Drop for DaemonGuard {
+    fn drop(&mut self) {
+        if let Some(pid) = self.0 {
+            let _ = std::process::Command::new("kill")
+                .args(["-TERM", &pid.to_string()])
+                .status();
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn serve_daemon_starts_reports_refuses_a_second_copy_and_stops() {
+    use std::time::{Duration, Instant};
+    let sb = Sandbox::new();
+    let started = sb
+        .with_config()
+        .args(["serve", "--daemon"])
+        .timeout(Duration::from_secs(20))
+        .assert()
+        .success();
+    let out = String::from_utf8(started.get_output().stdout.clone()).unwrap();
+    assert!(out.starts_with("serve started (pid "), "{out}");
+    let pid: u32 = out["serve started (pid ".len()..]
+        .split(',')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let _guard = DaemonGuard(Some(pid));
+    let log = sb.path("home/.local/state/passalong/serve.log");
+    assert!(out.contains(&log.display().to_string()), "{out}");
+
+    sb.with_config()
+        .args(["serve", "--status"])
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with(format!("running (pid {pid}")));
+    let busy = format!("serve is already running (pid {pid})");
+    sb.with_config()
+        .args(["serve", "--daemon"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains(busy.clone()));
+    sb.with_config()
+        .arg("serve")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains(busy));
+
+    std::fs::write(sb.path("drop/daemon.txt"), b"sent by the daemon").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !sb.path("drop/sent/daemon.txt").exists() {
+        assert!(Instant::now() < deadline, "the daemon never sent the file");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    sb.with_config()
+        .args(["serve", "--stop"])
+        .timeout(Duration::from_secs(20))
+        .assert()
+        .success()
+        .stdout("stopped\n");
+    sb.with_config()
+        .args(["serve", "--status"])
+        .assert()
+        .code(3)
+        .stdout("not running\n");
+    sb.with_config()
+        .args(["serve", "--stop"])
+        .assert()
+        .success()
+        .stdout("not running\n");
+    let logged = std::fs::read_to_string(&log).unwrap();
+    assert!(logged.contains("serve stopped"), "{logged}");
+    assert!(!sb.path("home/.local/state/passalong/serve.pid").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn serve_daemon_reports_start_up_failures() {
+    let sb = Sandbox::new();
+    let bad = sb.path("cfg/bad.toml");
+    std::fs::write(&bad, "[server]\nkind = \"local\"\n").unwrap();
+    sb.cmd()
+        .arg("--config")
+        .arg(&bad)
+        .args(["serve", "--daemon"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("server.local.path"));
+
+    let unreachable = sb.path("cfg/unreachable.toml");
+    std::fs::write(
+        &unreachable,
+        "[server]\nkind = \"ssh\"\n[server.ssh]\nhost = \"127.0.0.1\"\nport = 1\nuser = \"u\"\nhost_key = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIF2M9DqIpW9GMebpvjNg+bobwAbQKRBqPVMatyvyI4gq\"\nidentity_file = \"/nonexistent/key\"\nremote_path = \"/r\"\n",
+    )
+    .unwrap();
+    sb.cmd()
+        .arg("--config")
+        .arg(&unreachable)
+        .args(["serve", "--daemon"])
+        .timeout(std::time::Duration::from_secs(20))
+        .assert()
+        .code(1)
+        .stderr(
+            predicate::str::contains("stopped during start-up")
+                .and(predicate::str::contains("cannot load the SSH key")),
+        );
+    sb.cmd()
+        .arg("--config")
+        .arg(&unreachable)
+        .args(["serve", "--status"])
+        .assert()
+        .code(3);
 }

@@ -16,6 +16,9 @@ All notable changes to this project are documented here. The format follows
 - `passalong init` writes a config file for an SSH server, pinning its host
   key only after you confirm the fingerprint, and tests the connection
   (PLAN-00002 STEP-07).
+- `passalong serve --daemon` runs `serve` in the background with a log file;
+  `serve --status` and `serve --stop` manage it, and a second `serve` is
+  refused (PLAN-00002 STEP-08).
 
 ### Changed
 

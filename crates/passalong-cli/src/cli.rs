@@ -64,7 +64,7 @@ pub enum Command {
     },
     /// Keep running: send every new clipboard text and every file dropped
     /// into the drop folder.
-    Serve,
+    Serve(ServeArgs),
     /// Delete items by age or count; asks for confirmation.
     Prune {
         /// Delete items created at least this long ago, such as 30d
@@ -100,12 +100,29 @@ impl Command {
             Self::File { .. } => "file",
             Self::List { .. } => "list",
             Self::Load { .. } => "load",
-            Self::Serve => "serve",
+            Self::Serve(_) => "serve",
             Self::Delete { .. } => "delete",
             Self::Prune { .. } => "prune",
             Self::Init(_) => "init",
         }
     }
+}
+
+/// Options of `passalong serve`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Args)]
+pub struct ServeArgs {
+    /// Run in the background, logging to a file (Linux and macOS).
+    #[arg(long, conflicts_with_all = ["status", "stop"])]
+    pub daemon: bool,
+    /// Report whether serve is running; exit code 3 when it is not.
+    #[arg(long, conflicts_with = "stop")]
+    pub status: bool,
+    /// Stop the running serve.
+    #[arg(long)]
+    pub stop: bool,
+    /// Set by `--daemon` on the background process it starts.
+    #[arg(long, hide = true)]
+    pub daemon_child: bool,
 }
 
 /// Options of `passalong init`. Anything not given is asked for, or takes
@@ -206,7 +223,39 @@ mod tests {
                 force: true
             }
         );
-        assert_eq!(parse(&["serve"]).command, Command::Serve);
+        assert_eq!(
+            parse(&["serve"]).command,
+            Command::Serve(ServeArgs::default())
+        );
+        assert_eq!(
+            parse(&["serve", "--daemon"]).command,
+            Command::Serve(ServeArgs {
+                daemon: true,
+                ..ServeArgs::default()
+            })
+        );
+        assert_eq!(
+            parse(&["serve", "--status"]).command,
+            Command::Serve(ServeArgs {
+                status: true,
+                ..ServeArgs::default()
+            })
+        );
+        assert_eq!(
+            parse(&["serve", "--stop"]).command,
+            Command::Serve(ServeArgs {
+                stop: true,
+                ..ServeArgs::default()
+            })
+        );
+        assert!(Cli::try_parse_from(["passalong", "serve", "--daemon", "--stop"]).is_err());
+        assert!(Cli::try_parse_from(["passalong", "serve", "--status", "--stop"]).is_err());
+        let help = Cli::command()
+            .find_subcommand_mut("serve")
+            .unwrap()
+            .render_help()
+            .to_string();
+        assert!(!help.contains("daemon-child"), "{help}");
         let init = parse(&[
             "init",
             "--host",
@@ -310,7 +359,7 @@ mod tests {
                 dest: None,
                 force: false,
             },
-            Command::Serve,
+            Command::Serve(ServeArgs::default()),
             Command::Delete { ids: vec![] },
             Command::Init(InitArgs::default()),
             Command::Prune {

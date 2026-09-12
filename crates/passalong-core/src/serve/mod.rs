@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::{Instant, MissedTickBehavior};
 
 use crate::clipboard::Clipboard;
@@ -116,7 +116,25 @@ pub async fn run(
     options: ServeOptions,
     clipboard: Option<Box<dyn Clipboard>>,
     open_store: StoreOpener,
+    shutdown: watch::Receiver<bool>,
+) -> Result<(), ServeError> {
+    let (ready, _) = oneshot::channel();
+    run_with_ready(options, clipboard, open_store, shutdown, ready).await
+}
+
+/// Like [`run`], and sends on `ready` once start-up has succeeded: the store
+/// is open, the drop folder exists and is watched, and the watchers run.
+/// `serve --daemon` uses it to report a successful start.
+///
+/// # Errors
+///
+/// As [`run`].
+pub async fn run_with_ready(
+    options: ServeOptions,
+    clipboard: Option<Box<dyn Clipboard>>,
+    open_store: StoreOpener,
     mut shutdown: watch::Receiver<bool>,
+    ready: oneshot::Sender<()>,
 ) -> Result<(), ServeError> {
     let store = open_store().await?;
     let folder = options.drop_folder.clone();
@@ -159,6 +177,8 @@ pub async fn run(
         "serving: watching the clipboard and the drop folder"
     );
 
+    // Nobody may be waiting for readiness; that is fine.
+    let _ = ready.send(());
     let mut uploader = Uploader::new(
         store,
         open_store,

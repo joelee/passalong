@@ -10,6 +10,14 @@ repository.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Exposes `passalong_core::testing` (test doubles) to other crates' tests.
+testing = []
+
 [dependencies]
+chrono.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
 
 [dev-dependencies]

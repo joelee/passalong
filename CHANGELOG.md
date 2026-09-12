@@ -11,3 +11,7 @@ All notable changes to this project are documented here. The format follows
 - Cargo workspace with `passalong-core`, `passalong-ssh`, and the `passalong`
   CLI; `just` recipes, pre-commit hook, GitHub Actions CI, Dockerfile, Docker
   OpenSSH test server, and the Apache-2.0 license (PLAN-00001 STEP-01).
+- Syslog-compatible logging with five levels (`error`, `warning`, `info`,
+  `verbose`, `debug`), per-operation correlation ids, and a field allow-list
+  that keeps clipboard text, file contents, and secrets out of logs
+  (PLAN-00001 STEP-02).

@@ -6,6 +6,12 @@
 //! telemetry. It must never depend on CLI or terminal crates so that future
 //! GUI and Android front-ends can reuse it.
 
+pub mod clock;
+pub mod random;
+pub mod telemetry;
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
+
 /// Version of this crate, shared by every crate in the workspace.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 

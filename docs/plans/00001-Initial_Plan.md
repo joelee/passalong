@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/initial-plan"
 execution_started_at: "2026-09-12T10:54:05Z"
-execution_updated_at: "2026-09-12T10:59:49Z"
+execution_updated_at: "2026-09-12T11:05:44Z"
 execution_completed_at: null
-current_step: "PLAN-00001-STEP-02"
+current_step: "PLAN-00001-STEP-03"
 ---
 
 # Delivery Plan 00001: Initial Plan
@@ -1480,7 +1480,7 @@ behavioural step.
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
 | PLAN-00001-STEP-01 | completed | 2026-09-12T10:54:05Z | 2026-09-12T10:59:49Z | Commit `build: complete PLAN-00001-STEP-01 - Workspace scaffold, tooling, and quality gates`; `just check` green, 82.35 % lines | User-directed additions: Apache-2.0 `LICENSE`, full initial `README.md`. Pinned deps: anyhow 1.0.104, arboard 3.6.1, async-trait 0.1.92, chrono 0.4.45, clap 4.6.6, dotenvy 0.15.7, gethostname 1.1.0, hex 0.4.3, mime_guess 2.0.5, notify 8.2.0, russh 0.63.3, russh-sftp 3.0.0, serde 1.0.229, serde_json 1.0.151, sha2 0.11.0, ssh-key 0.6.7, thiserror 2.0.20, tokio 1.53.1, toml 1.1.6, tracing 0.1.44, tracing-subscriber 0.3.23; dev: assert_cmd 2.2.2, predicates 3.1.4, tempfile 3.27.0, tokio-test 0.4.5 |
-| PLAN-00001-STEP-02 | not-started | — | — | — | — |
+| PLAN-00001-STEP-02 | completed | 2026-09-12T10:59:49Z | 2026-09-12T11:05:44Z | Commit `build: complete PLAN-00001-STEP-02 - Telemetry: levels, syslog-style formatter, operation ids`; `just check` green, 97.54 % lines | Third-party targets capped at warning except at `debug`; `op` span created at ERROR level so every record carries the id; `Targets` filter used instead of `EnvFilter` (no regex dependency) |
 | PLAN-00001-STEP-03 | not-started | — | — | — | — |
 | PLAN-00001-STEP-04 | not-started | — | — | — | — |
 | PLAN-00001-STEP-05 | not-started | — | — | — | — |
@@ -1505,6 +1505,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T10:54:05Z | — | Plan approved (commit ecdf1ed1bb3b6c7bf6d1078081f3ea49da550350); branch `feature/initial-plan` created from it | `git switch -c feature/initial-plan` | Begin STEP-01 |
 | 2026-09-12T10:54:05Z | PLAN-00001-STEP-01 | Started | User instruction: add LICENSE, README, .gitignore and implement STEP-01 to STEP-03 | Red phase |
 | 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | Verified; commit authorised by the user's instruction to implement STEP-01 to STEP-03 in one run | `build: complete PLAN-00001-STEP-01 - Workspace scaffold, tooling, and quality gates` | Begin STEP-02 |
+| 2026-09-12T10:59:49Z | PLAN-00001-STEP-02 | Started | — | Red phase |
+| 2026-09-12T11:05:44Z | PLAN-00001-STEP-02 | Verified; commit authorised by the user's instruction to implement STEP-01 to STEP-03 | `build: complete PLAN-00001-STEP-02 - Telemetry: levels, syslog-style formatter, operation ids` | Begin STEP-03 |
 
 ### Deviations and blockers
 
@@ -1514,6 +1516,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | Dockerfile uses `rust:1.98.1-slim-trixie` and `debian:trixie-slim` instead of `rust:1.98.1` and `debian:bookworm-slim` so builder and runtime glibc match; runtime runs as non-root user `passalong`. | None; AC-18 met | None (routine) |
 | 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | CI installs `just` and `cargo-llvm-cov` with `taiki-e/install-action@v2` instead of `extractions/setup-just`; `just ci` runs `check`, `test-integration`, then `coverage-full` to satisfy both REQ-02 and REQ-20. | None | None (routine) |
 | 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | Compose pins `lscr.io/linuxserver/openssh-server:10.3_p1-r1-ls236` and binds port 2222 to 127.0.0.1 only; `notify` 8.2.0 and `ssh-key` 0.6.7 are the latest stable releases (newest published are release candidates). | None | None (routine) |
+| 2026-09-12T11:05:44Z | PLAN-00001-STEP-02 | `Clock`/`SystemClock` (planned for STEP-04) and the `testing` feature with `FixedClock` (planned for STEP-05) were introduced here because the formatter needs an injected clock. Added `random::RandomSource`/`StdRandom` (std-only, no new dependency) for correlation ids, and `testing::SeqRandom` and `testing::LogBuffer` doubles. | STEP-04 and STEP-05 reuse these instead of creating them | None (routine) |
 
 ### Verification results
 
@@ -1525,11 +1528,17 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | `just docker-build`; `docker run --rm passalong:dev --help` and `--version` | Exit 0 | Usage printed; `passalong 0.1.0` |
 | 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | `just test-integration` | Exit 0 | Container healthy, 0 ignored tests yet, container removed; keys git-ignored |
 | 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | `cargo tree -p passalong-core -e normal` and `-p passalong-ssh`, grep -c clap | 0 and 0 | REQ-01, REQ-23 |
+| 2026-09-12T10:59:49Z | PLAN-00001-STEP-02 | Red: `cargo test -p passalong-core --all-features` | Exit 101 (expected) | E0425/E0433: missing `LogLevel`, `subscriber`, `op_span`, `new_op_id`, `syslog_name`, `init`, `StdRandom`, `SystemClock` |
+| 2026-09-12T11:05:44Z | PLAN-00001-STEP-02 | Green: `cargo test -p passalong-core --all-features` | Exit 0 | 19 unit and 1 integration test passed |
+| 2026-09-12T11:05:44Z | PLAN-00001-STEP-02 | Refactor: removed unused import, applied `cargo fmt --all` | — | No behaviour change |
+| 2026-09-12T11:05:44Z | PLAN-00001-STEP-02 | Determinism: telemetry tests run 5 times | 5 of 5 passed | Scoped subscribers per test |
+| 2026-09-12T11:05:44Z | PLAN-00001-STEP-02 | `just check` | Exit 0 | Lines 97.54 % (366 lines, 9 missed); telemetry.rs 98.97 % |
+| 2026-09-12T11:05:44Z | PLAN-00001-STEP-02 | `grep -rn println! crates/passalong-core/src crates/passalong-ssh/src` | Empty | Library crates log only through tracing |
 
 ### Completion summary
 
 - **Implementation status:** `in-progress`
-- **Completed requirements:** REQ-01, REQ-02, REQ-03, REQ-04, REQ-24 (scaffold parts)
+- **Completed requirements:** REQ-01, REQ-02, REQ-03, REQ-04, REQ-07, REQ-24 (scaffold parts); REQ-22 (log allow-list part)
 - **Incomplete requirements:** REQ-05 to REQ-23
 - **Outstanding blockers:** None
 - **Review request:** Not ready

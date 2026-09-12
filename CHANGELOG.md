@@ -19,3 +19,5 @@ All notable changes to this project are documented here. The format follows
   documented defaults, validation errors that name the key, `~` expansion,
   and the SSH key passphrase read only from the environment or `./.env`
   (PLAN-00001 STEP-03).
+- Item model: time-sortable ids (`<hex seconds>-<content key>`), SHA-256
+  content hashing, and the versioned `meta.json` schema (PLAN-00001 STEP-04).

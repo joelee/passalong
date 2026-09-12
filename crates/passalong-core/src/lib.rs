@@ -8,6 +8,7 @@
 
 pub mod clock;
 pub mod config;
+pub mod model;
 pub mod random;
 pub mod telemetry;
 #[cfg(any(test, feature = "testing"))]

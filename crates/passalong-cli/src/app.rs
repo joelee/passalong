@@ -85,6 +85,10 @@ async fn dispatch(command: Command, config: &Config, out: &mut dyn Write) -> any
             let store = backends.open(config).await?;
             commands::list::run(store.as_ref(), json, local_offset(), out).await
         }
+        Command::Delete { ids } => {
+            let store = backends.open(config).await?;
+            commands::delete::run(store.as_ref(), &ids, out).await
+        }
         Command::Load { id, dest, force } => {
             let store = backends.open(config).await?;
             let mut open_clipboard = || -> Result<Box<dyn Clipboard>, ClipboardError> {

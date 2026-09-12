@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Added
+
+- `passalong delete <ID>...` removes items; every id is resolved first, so a
+  typo deletes nothing (PLAN-00002 STEP-04).
+
 ### Changed
 
 - The CLI package is now named `passalong` (the binary name is unchanged),

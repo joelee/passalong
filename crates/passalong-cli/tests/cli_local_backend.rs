@@ -416,3 +416,30 @@ fn serve_sends_dropped_files_and_stops_cleanly_on_sigterm() {
         .collect();
     assert_eq!(names, ["hello.txt"], "exactly the dropped file was stored");
 }
+
+#[tokio::test]
+async fn delete_removes_named_items_and_rejects_unknown_ones() {
+    let sb = Sandbox::new();
+    let metas = sb.seed(&["first", "second"]).await;
+    sb.with_config()
+        .args(["delete", metas[0].id.as_str()])
+        .assert()
+        .success()
+        .stdout(format!("{}\n", metas[0].id));
+    let out = sb
+        .with_config()
+        .args(["list", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(json.as_array().unwrap().len(), 1);
+    assert_eq!(json[0]["id"], metas[1].id.as_str());
+    sb.with_config()
+        .args(["delete", "ffff"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("no item matches `ffff`"));
+}

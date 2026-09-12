@@ -3,6 +3,7 @@
 //! in-memory doubles.
 
 pub mod clipboard;
+pub mod delete;
 pub mod file;
 pub mod list;
 pub mod load;

@@ -89,6 +89,16 @@ the destination directory.
 
 A prefix that matches several items is refused, and the error lists them.
 
+## `passalong delete <ID>...`
+
+Deletes items from the store and prints each deleted id. Each `ID` is a full
+id or at least 4 characters of it, as for `load`.
+
+Every id is resolved before anything is deleted, so an unknown or ambiguous
+id deletes nothing and exits with code 1. An item named twice is deleted
+once. There is no confirmation prompt, as with `rm`; use `list` first if
+in doubt.
+
 ## `passalong serve`
 
 Keeps running and sends:

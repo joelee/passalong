@@ -60,6 +60,12 @@ pub enum Command {
     /// Keep running: send every new clipboard text and every file dropped
     /// into the drop folder.
     Serve,
+    /// Delete items from the store.
+    Delete {
+        /// The items: full ids, or at least 4 characters of each.
+        #[arg(required = true)]
+        ids: Vec<String>,
+    },
 }
 
 impl Command {
@@ -71,6 +77,7 @@ impl Command {
             Self::List { .. } => "list",
             Self::Load { .. } => "load",
             Self::Serve => "serve",
+            Self::Delete { .. } => "delete",
         }
     }
 }
@@ -135,6 +142,16 @@ mod tests {
             }
         );
         assert_eq!(parse(&["serve"]).command, Command::Serve);
+        assert_eq!(
+            parse(&["delete", "2cf2", "6aa52107-2c"]).command,
+            Command::Delete {
+                ids: vec!["2cf2".into(), "6aa52107-2c".into()]
+            }
+        );
+        assert!(
+            Cli::try_parse_from(["passalong", "delete"]).is_err(),
+            "delete needs at least one id"
+        );
     }
 
     #[test]
@@ -172,10 +189,14 @@ mod tests {
                 force: false,
             },
             Command::Serve,
+            Command::Delete { ids: vec![] },
         ]
         .iter()
         .map(Command::name)
         .collect();
-        assert_eq!(names, ["clipboard", "file", "list", "load", "serve"]);
+        assert_eq!(
+            names,
+            ["clipboard", "file", "list", "load", "serve", "delete"]
+        );
     }
 }

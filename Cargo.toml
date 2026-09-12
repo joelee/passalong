@@ -12,7 +12,8 @@ description = "Lightweight cross-platform clipboard and file sharing over SSH"
 
 # Exact pins (PLAN-00001 STEP-01). Cargo.lock is committed and builds use --locked.
 [workspace.dependencies]
-passalong-core = { path = "crates/passalong-core", version = "=0.1.0" }
+# Front-ends opt into the desktop clipboard with `features = ["desktop"]`.
+passalong-core = { path = "crates/passalong-core", version = "=0.1.0", default-features = false }
 passalong-ssh = { path = "crates/passalong-ssh", version = "=0.1.0" }
 
 anyhow = "=1.0.104"
@@ -25,12 +26,13 @@ gethostname = "=1.1.0"
 hex = "=0.4.3"
 mime_guess = "=2.0.5"
 notify = "=8.2.0"
-russh = "=0.63.3"
+# `ring` instead of the default `aws-lc-rs`: no cmake needed and friendlier
+# to cross-compilation (Android). `rsa` keeps RSA identity files working.
+russh = { version = "=0.63.3", default-features = false, features = ["ring", "flate2", "rsa"] }
 russh-sftp = "=3.0.0"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 sha2 = "=0.11.0"
-ssh-key = "=0.6.7"
 thiserror = "=2.0.20"
 tokio = { version = "=1.53.1", features = ["rt-multi-thread", "macros", "fs", "io-util", "signal", "time", "sync"] }
 toml = "=1.1.6"

@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/initial-plan"
 execution_started_at: "2026-09-12T10:54:05Z"
-execution_updated_at: "2026-09-12T12:31:18Z"
+execution_updated_at: "2026-09-12T12:38:58Z"
 execution_completed_at: null
-current_step: "PLAN-00001-STEP-11"
+current_step: "PLAN-00001-STEP-12"
 ---
 
 # Delivery Plan 00001: Initial Plan
@@ -1489,7 +1489,7 @@ behavioural step.
 | PLAN-00001-STEP-08 | completed | 2026-09-12T12:23:37Z | 2026-09-12T12:25:25Z | Commit `build: complete PLAN-00001-STEP-08 - CLI skeleton, `App` wiring, and `list``; `just check` green, 96.90% lines | Binary tests isolate HOME, XDG_CONFIG_HOME, passalong variables, and the working directory; `/etc/passalong` absent on the build host |
 | PLAN-00001-STEP-09 | completed | 2026-09-12T12:25:25Z | 2026-09-12T12:27:28Z | Commit `build: complete PLAN-00001-STEP-09 - `clipboard` and `file` commands`; `just check` green, 96.99% lines | AC-11 covered by binary tests `clipboard_from_stdin_prints_the_new_id` and `empty_stdin_is_refused`; 5 MiB digest test covers REQ-14 |
 | PLAN-00001-STEP-10 | completed | 2026-09-12T12:31:10Z | 2026-09-12T12:31:18Z | Commit `build: complete PLAN-00001-STEP-10 - `load` command with integrity check`; `just check` green, 97.21% lines | Coverage checkpoint (STEP-10) in the `just check` row; AC-12 (5 MiB file round trip) and AC-13 covered; the CLI is fully usable with `server.kind = "local"` |
-| PLAN-00001-STEP-11 | not-started | — | — | — | — |
+| PLAN-00001-STEP-11 | completed | 2026-09-12T12:34:04Z | 2026-09-12T12:38:58Z | Commit `build: complete PLAN-00001-STEP-11 - SSH backend: connection, host-key pinning, `SftpFs``; `just check` green, 91.94% lines | SFTP I/O paths are covered only by the ignored Docker tests; `just coverage-full` measures them in STEP-15 |
 | PLAN-00001-STEP-12 | not-started | — | — | — | — |
 | PLAN-00001-STEP-13 | not-started | — | — | — | — |
 | PLAN-00001-STEP-14 | not-started | — | — | — | — |
@@ -1526,6 +1526,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T12:27:28Z | PLAN-00001-STEP-09 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-09 - `clipboard` and `file` commands` | Begin PLAN-00001-STEP-10 |
 | 2026-09-12T12:31:10Z | PLAN-00001-STEP-10 | Started | — | Red phase |
 | 2026-09-12T12:31:18Z | PLAN-00001-STEP-10 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-10 - `load` command with integrity check` | Begin PLAN-00001-STEP-11 |
+| 2026-09-12T12:34:04Z | PLAN-00001-STEP-11 | Started | — | Red phase |
+| 2026-09-12T12:38:58Z | PLAN-00001-STEP-11 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-11 - SSH backend: connection, host-key pinning, `SftpFs`` | Begin PLAN-00001-STEP-12 |
 
 ### Deviations and blockers
 
@@ -1549,6 +1551,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T12:25:25Z | PLAN-00001-STEP-08 | A failed command prints one `error:` line on stderr and logs the failure at verbose level, so the default level does not show the error twice. `CREATED` is local time as `YYYY-MM-DD HH:MM`; `NAME` is the file name or text preview cut to 40 characters. Binary tests use `CARGO_BIN_EXE_passalong` rather than the deprecated `Command::cargo_bin`. | Documented in docs/usage.md | None (routine) |
 | 2026-09-12T12:27:28Z | PLAN-00001-STEP-09 | `clipboard::run` takes a `TextSource` (clipboard or reader) so `--stdin` and the clipboard share one code path; the system clipboard is opened only when `--stdin` is absent. The "already present" log record comes from the store's `put`, which already logs it at info level with the id. | None | None (routine) |
 | 2026-09-12T12:31:18Z | PLAN-00001-STEP-10 | Added `ModelError::InvalidFileName` for `sanitise_file_name`, which also strips control characters and trims spaces. `load` takes the clipboard as an on-demand opener so only loads to the clipboard need a desktop session, prints the written path for file destinations and nothing for the clipboard, and verifies size as well as SHA-256. Text loaded to the clipboard is read fully into memory; files are streamed. | None | None (routine) |
+| 2026-09-12T12:38:58Z | PLAN-00001-STEP-11 | `russh` uses the `ring` backend (`default-features = false`, features `ring`, `flate2`, `rsa`) instead of the default `aws-lc-rs`, which needs cmake (absent from the Rust builder image) and complicates Android cross-compiles. The `ssh-key` workspace dependency was removed because `russh` re-exports its pinned `ssh-key` 0.7 release candidate. The `passalong-core` workspace dependency is now `default-features = false`, with the CLI opting into `desktop`, so `passalong-ssh` never pulls in the desktop clipboard. | No cmake needed; `aws-lc` absent from Cargo.lock | None (routine) |
+| 2026-09-12T12:38:58Z | PLAN-00001-STEP-11 | `PinnedHostKey::parse` also accepts `ssh-keyscan` output with its leading host field. The identity key is loaded before connecting so key problems need no network. `SftpFs::open` creates the remote root; `rename` checks the target first because SFTP v3 failures do not say why; `remove_dir_all` is iterative; sessions send keepalives every 30 s for `serve`. The closed-port test sits with the ignored Docker tests because unit tests must not open sockets. | None | None (routine) |
 
 ### Verification results
 
@@ -1597,12 +1601,16 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T12:31:18Z | PLAN-00001-STEP-10 | `cargo test -p passalong-cli` | Pass | test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s |
 | 2026-09-12T12:31:18Z | PLAN-00001-STEP-10 | `cargo test -p passalong-core --all-features model::` | Pass | test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 79 filtered out; finished in 0.00s |
 | 2026-09-12T12:31:18Z | PLAN-00001-STEP-10 | `just check` | Exit 0 | Lines 97.21% (3507 lines, 98 missed); load.rs 98.18%; model.rs 97.50% |
+| 2026-09-12T12:34:04Z | PLAN-00001-STEP-11 | Red: `cargo test -p passalong-ssh` | Exit 101 (expected) | Missing `crate::error::SshError` `join_remote` `map_sftp_error` `PinnedHostKey` `resolve_remote_root` `SshParams` |
+| 2026-09-12T12:38:58Z | PLAN-00001-STEP-11 | `just test-integration` against `lscr.io/linuxserver/openssh-server:10.3_p1-r1-ls236` | Exit 0 | 5 of 5 ignored SSH tests passed: RemoteFs round trip, FsStore 1 MiB put/list/get/dedupe/resolve, host key mismatch refused, unauthorised identity refused, closed port is a connection error; container removed afterwards |
+| 2026-09-12T12:38:58Z | PLAN-00001-STEP-11 | `cargo test -p passalong-ssh` | Pass | test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s |
+| 2026-09-12T12:38:58Z | PLAN-00001-STEP-11 | `just check` | Exit 0 | Lines 91.94% (3981 lines, 321 missed); host_key.rs 98.55%; connect.rs 55.68%; sftp_fs.rs 32.55%; error.rs 94.12% |
 
 ### Completion summary
 
 - **Implementation status:** `in-progress`
-- **Completed requirements:** REQ-01 to REQ-10, REQ-12 to REQ-16, REQ-18, REQ-22, REQ-23, REQ-24 (scaffold parts); REQ-09 (local backend only until STEP-12)
-- **Incomplete requirements:** REQ-11, REQ-17, REQ-19 to REQ-21
+- **Completed requirements:** REQ-01 to REQ-16, REQ-18, REQ-22, REQ-23, REQ-24 (scaffold parts); REQ-09 (SSH not yet selectable from the CLI until STEP-12)
+- **Incomplete requirements:** REQ-17, REQ-19 to REQ-21
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

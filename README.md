@@ -8,8 +8,9 @@ Every other device pushes clipboard text and files there, lists what is stored,
 and pulls items back — no cloud service, no account, no custom server daemon.
 
 > **Status: under construction.** The project is being built in the open
-> against [Delivery Plan 00001](docs/plans/00001-Initial_Plan.md). The commands
-> below describe the v0.1.0 target; they are not usable yet.
+> against [Delivery Plan 00001](docs/plans/00001-Initial_Plan.md).
+> `clipboard`, `file`, `list`, and `load` work with a local storage
+> directory; the SSH backend is being wired in and `serve` is not finished.
 
 ## How it works
 
@@ -40,6 +41,35 @@ and pulls items back — no cloud service, no account, no custom server daemon.
 
 `serve` runs in the foreground by design; run it in the background with the
 systemd or launchd examples that will ship in `docs/service/`.
+
+## Server setup
+
+Any machine with an OpenSSH server can be the server. Do this once:
+
+1. Create a user and a storage directory for passalong:
+
+   ```sh
+   sudo useradd --create-home passalong
+   sudo install -d -o passalong -m 700 /srv/passalong
+   ```
+
+2. Append each client's public key, for example `~/.ssh/id_ed25519.pub`, to
+   `~passalong/.ssh/authorized_keys` on the server.
+
+3. On each client, fetch the server's host key:
+
+   ```sh
+   ssh-keyscan -t ed25519 192.168.1.10
+   ```
+
+   Copy the `ssh-ed25519 AAAA...` part into `server.ssh.host_key`. The whole
+   line as printed works too. passalong refuses to connect if the server
+   ever presents a different key.
+
+4. Copy `config.sample.toml` to `~/.config/passalong/config.toml` and set
+   `host`, `user`, `host_key`, `identity_file`, and `remote_path`. If the key
+   has a passphrase, put it in `PASSALONG_SSH_KEY_PASSPHRASE` in a `.env`
+   file, never in the config.
 
 ## Building from source
 

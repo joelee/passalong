@@ -11,3 +11,15 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+async-trait.workspace = true
+chrono.workspace = true
+passalong-core.workspace = true
+russh.workspace = true
+russh-sftp.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+passalong-core = { workspace = true, features = ["testing"] }
+tempfile.workspace = true

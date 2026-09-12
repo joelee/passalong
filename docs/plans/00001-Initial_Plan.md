@@ -25,10 +25,10 @@ previous_plan: null
 requirements_count: 24
 steps_count: 15
 acceptance_criteria_count: 20
-blocking_decisions: 3
+blocking_decisions: 0
 build_ready: false
 web_research_used: false
-confidence: medium                # high | medium | low
+confidence: high                  # high | medium | low
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; Delivery Planner initializes them.
@@ -48,9 +48,10 @@ current_step: null
 > Deliver `passalong` v0.1.0: a Rust CLI that pushes clipboard text and files to
 > an SSH/SFTP-backed store and lists/loads them back, with a reusable core
 > library, TDD, `just`-driven quality gates, containers, and full documentation.
-> Not Builder-ready: three material decisions (D-01, D-02, D-03) are proposed
-> with recommended defaults and await explicit user confirmation. The repository
-> also has no initial commit yet (see Repository baseline).
+> All material decisions are resolved (D-01 to D-03 confirmed by the user on
+> 2026-09-12; D-04 revised to time-sortable ids at the user's request). Not yet
+> Builder-ready only because the plan awaits explicit approval and the
+> repository has no initial commit yet (see Repository baseline).
 
 ## 1. Objective and outcome
 
@@ -185,18 +186,17 @@ material.
 
 | ID | Decision or blocker | Resolution | Owner | Status |
 |---|---|---|---|---|
-| D-01 | How does `passalong serve` run "in the background"? | **Proposed:** `serve` runs in the foreground with structured logs to stderr; background operation is provided by an OS service manager. The plan ships example units (`docs/service/passalong-serve.service` for systemd `--user`, `docs/service/com.passalong.serve.plist` for launchd). Self-daemonising is platform-specific, hard to test, and makes log capture worse. `--daemon` can be a later feature. | User | Proposed — awaiting confirmation (blocking) |
-| D-02 | What happens to a dropped file after it is sent? | **Proposed:** move it into `<drop_folder>/sent/` (config `serve.after_send = "move"`, alternative `"delete"`). The folder itself then shows what is pending versus done, restarts never re-send, and no local ledger database is needed. | User | Proposed — awaiting confirmation (blocking) |
-| D-03 | Clipboard content types in v0.1.0. | **Proposed:** UTF-8 text only. The item schema carries `kind` and `mime` so images can be added later without a storage migration. Image support goes to `docs/backlog.md`. | User | Proposed — awaiting confirmation (blocking) |
-| D-04 | Content identifier scheme. | **Resolved by planner (non-blocking, routine):** `id` is the first 12 lowercase hex characters of the SHA-256 of the item content. Identical content therefore maps to one item, which makes uploads idempotent and prevents `serve` from re-uploading text that `load` just placed on the clipboard. `load` and `list` accept any unique id prefix of at least 4 characters. | Planner | Resolved |
+| D-01 | How does `passalong serve` run "in the background"? | **Confirmed by user (2026-09-12):** `serve` runs in the foreground with structured logs to stderr; background operation is provided by an OS service manager. The plan ships example units (`docs/service/passalong-serve.service` for systemd `--user`, `docs/service/com.passalong.serve.plist` for launchd). Self-daemonising is platform-specific, hard to test, and makes log capture worse. `--daemon` can be a later feature. | User | Resolved |
+| D-02 | What happens to a dropped file after it is sent? | **Confirmed by user (2026-09-12):** move it into `<drop_folder>/sent/` (config `serve.after_send = "move"`, alternative `"delete"`). The folder itself then shows what is pending versus done, restarts never re-send, and no local ledger database is needed. | User | Resolved |
+| D-03 | Clipboard content types in v0.1.0. | **Confirmed by user (2026-09-12):** UTF-8 text only. The item schema carries `kind` and `mime` so images can be added later without a storage migration. Image support goes to `docs/backlog.md`. | User | Resolved |
+| D-04 | Content identifier scheme. | **Revised at user request (2026-09-12):** ids are time-sortable. `id = <ts>-<key>` where `<ts>` is the item's creation time as 8 lowercase hex characters (seconds since the Unix epoch, zero-padded, valid until 2106) and `<key>` (the *content key*) is the first 12 lowercase hex characters of the SHA-256 of the content; example `6aa52107-2cf24dba5fb0`. Because the width is fixed, plain lexical descending order of directory names is newest-first, so `list` sorts without reading every `meta.json`. Idempotency and echo-loop prevention are kept by deduplicating on the content key: `put` and the `serve` clipboard watcher skip content whose key already exists on the Server. Typeability is kept by resolving user input against the content key: `load 2cf2` matches the item whose key starts with `2cf2`; input containing `-` is matched as a prefix of the full id. The earlier pure-hash scheme was rejected because a hash prefix carries no ordering. | User | Resolved |
 | D-05 | SSH client library. | **Resolved by planner (non-blocking):** `russh` with `russh-sftp` (pure Rust, async, cross-compiles). `ssh2`/libssh2 rejected because of C dependencies; shelling out to `ssh`/`scp` rejected because it is unavailable on Android and hard to mock. | Planner | Resolved |
 | D-06 | Client authentication. | **Resolved by planner (non-blocking):** public-key authentication using `server.ssh.identity_file` (path in `config.toml`), optional passphrase from environment variable `PASSALONG_SSH_KEY_PASSPHRASE` loaded from `.env`. ssh-agent support is backlog. | Planner | Resolved |
 | D-07 | Integration-test SSH server. | **Resolved by planner (non-blocking):** a real OpenSSH server in Docker (`linuxserver/openssh-server` image) started by `just test-integration`, with an ephemeral key pair generated per run. Tests needing it are `#[ignore]` and run with `--ignored`; they fail loudly (not skip) if the environment variables are missing. | Planner | Resolved |
 | D-08 | `passalong clipboard --stdin`. | **Resolved by planner (non-blocking, additive):** add an optional `--stdin` flag that reads the text from standard input instead of the clipboard. Cost is one flag; benefit is scriptability and an end-to-end CLI test that runs on headless CI where no clipboard exists. | Planner | Resolved |
 
-Blocking decisions: 3 (D-01, D-02, D-03). The plan body is written against
-the proposed resolutions; if the user changes any of them the planner amends
-this draft before approval.
+Blocking decisions: 0. All decisions above are resolved; the plan body reflects
+them.
 
 ## 8. Affected architecture and components
 
@@ -247,7 +247,7 @@ are Builder's choice):
 pub enum ItemKind { Text, File }
 pub struct ItemMeta {
     pub schema: u32,            // 1
-    pub id: ItemId,             // 12 lowercase hex chars
+    pub id: ItemId,             // "<8 hex ts>-<12 hex content key>", 21 chars
     pub kind: ItemKind,
     pub name: Option<String>,   // file name for File; None for Text
     pub mime: String,           // "text/plain; charset=utf-8" or guessed from extension
@@ -264,7 +264,8 @@ pub trait Store: Send + Sync {
     async fn list(&self) -> Result<Vec<ItemMeta>, StoreError>;        // newest first
     async fn get(&self, id: &ItemId) -> Result<(ItemMeta, Box<dyn AsyncRead + Send + Unpin>), StoreError>;
     async fn exists(&self, id: &ItemId) -> Result<bool, StoreError>;
-    async fn resolve(&self, prefix: &str) -> Result<ItemId, StoreError>; // unique-prefix lookup
+    async fn resolve(&self, input: &str) -> Result<ItemId, StoreError>;  // unique match, see REQ-10
+    async fn find_by_content_key(&self, key: &ContentKey) -> Result<Option<ItemMeta>, StoreError>;
 }
 
 // passalong-core::fs — minimal SFTP-like surface shared by LocalFs and SftpFs
@@ -297,7 +298,7 @@ Server-side layout produced by `FsStore` (identical for SFTP and local):
 ```text
 <remote_path>/
 ├── items/
-│   └── <id>/
+│   └── <ts>-<key>/          # id; fixed width so `ls | sort -r` is newest first
 │       ├── content          # raw bytes (UTF-8 for Text)
 │       └── meta.json        # ItemMeta, written last
 └── tmp/
@@ -453,17 +454,22 @@ Environment: `PASSALONG_CONFIG_FILE` (config path override),
 ### PLAN-00001-REQ-08 — Item model and identifiers
 
 - **Requirement:** `ItemMeta` as in § 8 with `schema = 1`. `ItemId` is exactly
-  12 lowercase hex characters derived from the first 6 bytes of the SHA-256 of
-  the content; parsing rejects anything else. Serialisation to JSON is stable
+  `^[0-9a-f]{8}-[0-9a-f]{12}$`: the first 8 characters are the creation time
+  (seconds since the Unix epoch from the injected `Clock`, lowercase hex,
+  zero-padded), the last 12 are the `ContentKey` (first 6 bytes of the SHA-256
+  of the content, lowercase hex). Parsing rejects anything else. `ItemId`
+  exposes `timestamp() -> DateTime<Utc>` and `content_key() -> &ContentKey`.
+  Lexical order of ids equals chronological order (ties broken by key). Serialisation to JSON is stable
   (field order as declared) and deserialisation ignores unknown fields so newer
   writers do not break older readers. `mime` for text is
   `text/plain; charset=utf-8`; for files it is guessed from the extension with
   `application/octet-stream` fallback.
-- **Rationale:** Stable ids for `list`/`load`; idempotent uploads (D-04).
+- **Rationale:** Time-sortable ids so newest items sort first (user
+  instruction); content key for idempotent uploads (D-04).
 - **Source:** User request; D-04.
-- **Acceptance evidence:** Unit tests for id derivation against a known
-  SHA-256 vector, id parsing rejections, JSON round-trip, unknown-field
-  tolerance.
+- **Acceptance evidence:** Unit tests for id construction from a fixed clock
+  and a known SHA-256 vector, lexical-order-equals-time-order property, id
+  parsing rejections, JSON round-trip, unknown-field tolerance.
 
 ### PLAN-00001-REQ-09 — Backend-agnostic `Store` trait and factory
 
@@ -483,12 +489,18 @@ Environment: `PASSALONG_CONFIG_FILE` (config path override),
   test double that can inject failures per operation. `FsStore` writes
   `tmp/<id>-<random>/content` then `meta.json`, then renames the directory to
   `items/<id>/`; if `items/<id>/` already exists the upload is skipped and the
-  existing meta is returned (idempotent). `list` reads `items/*/meta.json`,
-  ignores directories without a readable `meta.json`, and sorts by `created_at`
-  descending then `id`. `get` streams `content`. `resolve` returns the single
-  id matching a prefix of at least 4 characters, `NotFound` for zero matches,
-  `Ambiguous(Vec<ItemId>)` for more than one. Content is streamed in chunks;
-  no whole-file buffering for `File` items.
+  existing meta is returned; before staging, `put` calls
+  `find_by_content_key` and, if an item with the same content key exists,
+  returns its meta without uploading (idempotent). `find_by_content_key`
+  scans the `items/` directory names for the suffix `-<key>` (no `meta.json`
+  reads). `list` sorts directory names descending (newest first), then reads
+  each `meta.json`, ignoring directories without a readable one. `get`
+  streams `content`. `resolve(input)`: if `input` contains `-` it is matched
+  as a prefix of the full id; otherwise it must be at least 4 characters and
+  is matched as a prefix of the content key; exactly one match returns the
+  id, zero returns `NotFound`, more than one returns
+  `Ambiguous(Vec<ItemId>)`, shorter input returns `InvalidPrefix`. Content is
+  streamed in chunks; no whole-file buffering for `File` items.
 - **Rationale:** Readers never observe partial items; the same code serves SFTP
   and local backends.
 - **Source:** User request (storage path on the Server); D-04.
@@ -568,7 +580,8 @@ Environment: `PASSALONG_CONFIG_FILE` (config path override),
 
 ### PLAN-00001-REQ-16 — `passalong load <id> [dest] [--force]`
 
-- **Requirement:** Resolves `id` as a unique prefix (ambiguous → exit 1 listing
+- **Requirement:** Resolves `id` via `Store::resolve` (content-key prefix, or
+  full-id prefix when the input contains `-`; ambiguous → exit 1 listing
   candidates; not found → exit 1). With no `dest`: `Text` items are written to
   the clipboard; `File` items exit 1 with `destination required for file items`.
   With `dest`: if `dest` is an existing directory the item is written to
@@ -589,7 +602,7 @@ Environment: `PASSALONG_CONFIG_FILE` (config path override),
      errors, then scans `drop_folder` and enqueues existing regular files.
   2. Polls the clipboard every `clipboard_poll_interval_ms`; when the text
      changes (compared by SHA-256 of the text) and is non-empty, uploads it.
-     Content already present on the Server (by id) is not re-uploaded.
+     Content already present on the Server (by content key) is not re-uploaded.
   3. Watches `drop_folder` (crate `notify`, non-recursive) for created/modified
      files; ignores `sent/`, names starting with `.`, and suffixes `.part`,
      `.crdownload`, `.tmp`; waits until size and mtime are unchanged for
@@ -916,16 +929,21 @@ behavioural step.
   `preview_of(text) -> String`, `mime_for_file_name`), `clock.rs` (`Clock`,
   `SystemClock`, testing `FixedClock`), `error.rs` (top-level error enums).
 - **Preconditions:** STEP-01 complete.
-- **Test or evidence first:** Unit tests: `ItemId::from_sha256(&digest)` for
-  the SHA-256 of `"hello"` equals `2cf24dba5fb0`; `ItemId::parse` rejects
-  uppercase, 11/13 chars, non-hex, `../abc123abc1`; `ItemMeta` JSON round trip
+- **Test or evidence first:** Unit tests: `ContentKey::from_sha256(&digest)`
+  for the SHA-256 of `"hello"` equals `2cf24dba5fb0`; `ItemId::new(ts, key)`
+  with `ts = 2026-09-12T09:53:11Z` (epoch `1789206791`) yields
+  `6aa52107-2cf24dba5fb0`; ids built at increasing clock instants compare
+  ascending as strings (property test over 100 random pairs);
+  `ItemId::parse` rejects uppercase, missing `-`, 7/9-char timestamps, 11/13-char
+  keys, non-hex, `../abc123abc1`; `ItemMeta` JSON round trip
   with exact expected string; JSON with an extra field deserialises; `preview_of`
   collapses newlines and truncates to 80 chars with `…`;
   `mime_for_file_name("a.png")` = `image/png`, unknown → `application/octet-stream`;
   `FixedClock` returns the configured instant.
 - **Implementation tasks:**
-  1. Implement types with `serde` derives; `ItemId` newtype with `Display`,
-     `FromStr`, `as_str`.
+  1. Implement `ContentKey` and `ItemId` newtypes with `Display`, `FromStr`,
+     `as_str`, `ItemId::new(DateTime<Utc>, ContentKey)`, `timestamp()`,
+     `content_key()`; `serde` derives on all model types.
   2. Implement `Hasher` helper (`sha2`) usable incrementally on streams.
   3. Implement `Clock` trait and impls.
 - **Documentation/configuration/operations:** `docs/architecture.md` "Item
@@ -971,26 +989,35 @@ behavioural step.
 - **Requirements:** `PLAN-00001-REQ-09`, `PLAN-00001-REQ-10`
 - **Depends on:** `PLAN-00001-STEP-05`
 - **Affected components:** `crates/passalong-core/src/store/mod.rs` (`Store`,
-  `StoreError { NotFound, Ambiguous(Vec<ItemId>), UnsupportedBackend(String),
-  Fs(FsError), Integrity, .. }`), `store/fs_store.rs` (`FsStore<F> { fs,
+  `StoreError { NotFound, Ambiguous(Vec<ItemId>), InvalidPrefix,
+  UnsupportedBackend(String), Fs(FsError), Integrity, .. }`), `store/fs_store.rs` (`FsStore<F> { fs,
   root, clock, rng }`), `store/factory.rs` (`open_store` supporting only
   `"local"` in this step; `"ssh"` added in STEP-12).
 - **Preconditions:** STEP-05 complete.
 - **Test or evidence first:** Unit tests with `FsStore<LocalFs>`: `put` text
   creates `items/<id>/{content,meta.json}` and no `tmp/` residue; `put` of a
-  2 MiB stream stores exact bytes and size; re-`put` of identical content
-  returns the existing meta without rewriting (`meta.json` mtime unchanged);
-  `list` order newest first then id; `list` ignores `items/x/` without
-  `meta.json`; `get` streams identical bytes; `resolve("2cf2")` → id,
-  `resolve("2c")` → `InvalidPrefix`, two items sharing a prefix → `Ambiguous`;
+  2 MiB stream stores exact bytes and size; re-`put` of identical content at
+  a later clock instant returns the existing meta (original id and timestamp)
+  without writing anything (`items/` entry count unchanged, no `tmp/`
+  residue); `find_by_content_key` finds by directory-name suffix; `list`
+  order is descending id (three items put at ascending clock instants come
+  back newest first) and ignores `items/x/` without `meta.json`; `get`
+  streams identical bytes; `resolve("2cf2")` → id, `resolve("6aa52107-2c")`
+  → id, `resolve("2c")` → `InvalidPrefix`, two items whose keys share a
+  4-char prefix → `Ambiguous`, `resolve("zzzz")` → `NotFound`;
   with `FaultyFs` failing `rename`, `put` returns `Err` and `items/` has no new
   entry; `open_store` with kind `"nope"` → `UnsupportedBackend`.
 - **Implementation tasks:**
-  1. Implement `put`: hash while streaming to `tmp/<rand>/content`, compute id,
-     if `items/<id>/meta.json` exists remove tmp and return existing; else write
+  1. Implement `put`: hash while streaming to `tmp/<rand>/content`, derive
+     the content key, call `find_by_content_key`; if found, remove tmp and
+     return the existing meta; else build `id = <clock now>-<key>`, write
      `meta.json`, rename `tmp/<rand>` → `items/<id>`; on any error remove tmp
-     best-effort and propagate.
-  2. Implement `list`, `get`, `exists`, `resolve`.
+     best-effort and propagate. (Hashing happens before the key lookup
+     because the content must be read once anyway; for `Text` items the
+     caller may pre-compute the key and the watcher uses `find_by_content_key`
+     directly to avoid staging.)
+  2. Implement `list` (sort directory names descending before reading meta),
+     `get`, `exists`, `find_by_content_key`, `resolve`.
   3. Implement `open_store` for `"local"`.
 - **Documentation/configuration/operations:** `docs/architecture.md` storage
   layout section drafted.
@@ -1084,7 +1111,7 @@ behavioural step.
   same id and logs `already present`. `file`: regular file → meta name/mime/size
   correct; directory → error naming path; missing → error naming path; 5 MiB
   random-but-seeded content → `sha256` matches locally computed digest.
-  `assert_cmd`: `echo hi | passalong clipboard --stdin` prints a 12-hex id;
+  `assert_cmd`: `echo hi | passalong clipboard --stdin` prints an id matching `^[0-9a-f]{8}-[0-9a-f]{12}$`;
   `passalong file <tmp>` prints id.
 - **Preconditions:** STEP-07 and STEP-08 complete.
 - **Implementation tasks:**
@@ -1236,8 +1263,8 @@ behavioural step.
 - **Preconditions:** STEP-12 complete.
 - **Test or evidence first:** Unit tests with `tokio::time::pause`:
   `ClipboardWatcher` emits a job once for "a", not again for "a", again for
-  "b", never for empty/whitespace, and not for content whose id already exists
-  in the store; `Backoff` yields exactly 1,2,4,8,16,32,60,60; `with_retry`
+  "b", never for empty/whitespace, and not for content whose content key
+  already exists in the store (`find_by_content_key`); `Backoff` yields exactly 1,2,4,8,16,32,60,60; `with_retry`
   calls a failing op N times then succeeds and rebuilds the store via the
   injected factory each time; `DropWatcher` ignores `.hidden`, `x.part`,
   `sent/y`, waits for stability (mtime change resets the timer), moves the
@@ -1251,7 +1278,7 @@ behavioural step.
   in `sent/`; cancel; assert exit.
 - **Implementation tasks:**
   1. Implement `Backoff` and `with_retry`.
-  2. Implement `ClipboardWatcher` (hash compare; consult `Store::exists`).
+  2. Implement `ClipboardWatcher` (hash compare; consult `Store::find_by_content_key`).
   3. Implement `DropWatcher` with `notify` and stability polling.
   4. Implement the orchestrator: start-up store probe, startup scan, job
      queue, single uploader task with retry, structured `op` span per job.
@@ -1388,10 +1415,10 @@ behavioural step.
 - [ ] `PLAN-00001-AC-05` Config discovery follows the six-position order and each position is covered by a unit test that passes.
 - [ ] `PLAN-00001-AC-06` `Passphrase` `Debug` output is `Passphrase(<redacted>)` (unit test) and `grep -rn PASSALONG_SSH_KEY_PASSPHRASE crates/` shows only the env-var name, never a value.
 - [ ] `PLAN-00001-AC-07` A unit test renders a log event as `<RFC3339Z> <syslog-level> <target> op=<16 hex> <message> …` and `verbose` maps to `notice`.
-- [ ] `PLAN-00001-AC-08` `ItemId` for the SHA-256 of `hello` is `2cf24dba5fb0`; `ItemId::parse` rejects `../abc123abc1`.
+- [ ] `PLAN-00001-AC-08` `ItemId::new(2026-09-12T09:53:11Z, key_of("hello"))` is `6aa52107-2cf24dba5fb0`; ids created at increasing instants sort ascending as strings; `ItemId::parse` rejects `../abc123abc1` and `2cf24dba5fb0`.
 - [ ] `PLAN-00001-AC-09` `FsStore` never leaves a directory under `items/` without `meta.json` after a failed `put` (unit test with injected rename failure).
-- [ ] `PLAN-00001-AC-10` Re-uploading identical content returns the same id and does not rewrite `meta.json` (unit test).
-- [ ] `PLAN-00001-AC-11` `echo hi | passalong clipboard --stdin` against a `local` backend prints a 12-character lowercase hex id and exits 0; `passalong clipboard --stdin < /dev/null` exits 1 with `error: clipboard is empty`.
+- [ ] `PLAN-00001-AC-10` Re-uploading identical content at a later time returns the original id (same timestamp) and adds nothing under `items/` (unit test); `passalong list` prints items newest first by id.
+- [ ] `PLAN-00001-AC-11` `echo hi | passalong clipboard --stdin` against a `local` backend prints an id matching `^[0-9a-f]{8}-[0-9a-f]{12}$` and exits 0; `passalong clipboard --stdin < /dev/null` exits 1 with `error: clipboard is empty`.
 - [ ] `PLAN-00001-AC-12` `passalong file <5 MiB file>` then `passalong load <id> <dir>` yields byte-identical output (assert_cmd test).
 - [ ] `PLAN-00001-AC-13` `passalong load <id>` for a text item writes the text to the (mock) clipboard; for a file item exits 1 with `destination required for file items`.
 - [ ] `PLAN-00001-AC-14` `passalong list` prints newest first with columns `ID KIND NAME SIZE DEVICE CREATED`; `--json` parses as an array of objects each containing `id`, `kind`, `size`, `sha256`, `created_at`, `device`.
@@ -1410,11 +1437,11 @@ behavioural step.
 | Headless CI has no clipboard, so the real adapter is untested automatically | High | Low | Adapter kept to a few lines; all logic tested via `MockClipboard`; manual acceptance listed in § 13 | STEP-07, STEP-15 |
 | Coverage below 80 % because SSH I/O code is exercised only by ignored tests | Medium | High (gate) | Keep `SftpFs` thin; unit-test host-key, params, and path logic; `just coverage-full` includes ignored tests on Linux CI; STEP-15 adds tests for real gaps | STEP-11, STEP-15 |
 | `notify` events unreliable on some filesystems (network mounts, CI) | Medium | Medium | Stability polling plus a periodic 5 s rescan fallback (STEP-13 stop condition) | STEP-13 |
-| `serve` re-uploads text that `load` just placed on the clipboard | Low (by design) | Low | Content-addressed ids + `Store::exists` check; unit test in STEP-13 | STEP-13 |
+| `serve` re-uploads text that `load` just placed on the clipboard | Low (by design) | Low | Content-key deduplication via `Store::find_by_content_key`; unit test in STEP-13 | STEP-13 |
+| Client clocks skewed across devices make `list` order differ from true send order | Medium | Low | Ids use the sending client's clock by design; documented in `docs/usage.md`; ties and skew do not affect correctness or dedup | STEP-14 |
 | Docker unavailable on the Builder machine | Medium | Medium | `just check` needs no Docker; SSH integration evidence then comes from CI and must be recorded; Builder must not mark STEP-11/12 complete without that evidence | STEP-11, STEP-12 |
 | `linuxserver/openssh-server` image changes its key-only configuration | Low | Medium | Compose pins an image tag; failure surfaces in `just test-integration` | STEP-01 |
 | macOS runner lacks Docker, so `just ci` cannot run there | Certain | Low | macOS job runs `just check` only; documented in CI file and developer guide | STEP-01 |
-| User changes D-01/D-02/D-03 after this draft | Medium | Medium | Draft amended before approval; affected steps are STEP-13 (D-01, D-02) and STEP-07/09 (D-03) | Planner |
 | Repository has no initial commit; Builder cannot validate an approval commit | Certain until fixed | High | User creates the initial commit, commits this draft, then requests approval | User |
 
 ## 16. Builder hand-off
@@ -1503,6 +1530,7 @@ None
 | Timestamp (UTC) | Plan status | Change | Reason | Requested/approved by |
 |---|---|---|---|---|
 | 2026-09-12T09:53:11Z | draft | Initial draft created. Repository was not a git repository; planner ran `git init -b main` (no commit) so the plan workflow can proceed. Clean-state gate could not pass (unborn branch, untracked instruction files); plan written on explicit user instruction. | User requested the initial plan | User (joel@joeworks.com) |
+| 2026-09-12T10:35:32Z | draft | D-01, D-02, D-03 marked resolved as recommended; `blocking_decisions` 3 → 0. D-04 revised from pure content-hash ids to time-sortable `<ts>-<key>` ids with content-key deduplication; updated § 8 interfaces and layout, REQ-08, REQ-10, REQ-16, REQ-17, STEP-04, STEP-06, STEP-09, STEP-13, AC-08, AC-10, AC-11, § 15 risks, § 20 confidence. Draft still uncommitted at amendment time; amended on explicit user instruction. | User confirmed decisions and asked for timestamp-sortable ids | User (joel@joeworks.com) |
 
 ## 19. External references
 
@@ -1512,10 +1540,9 @@ STEP-01 (versions recorded in the work log).
 
 ## 20. Confidence
 
-**Medium.** Repository coverage is complete (it contains only instruction files),
-and the user request plus `AGENTS.md` define the target precisely. Confidence is
-not high because three behavioural decisions (D-01 to D-03) await user
-confirmation, the repository has no baseline commit, and third-party crate APIs
-(`russh`, `russh-sftp`, `arboard`, `notify`) were not verified against current
-releases during planning; STEP-01 and STEP-11 carry explicit stop conditions for
-that residual uncertainty.
+**High.** Repository coverage is complete (it contains only instruction files),
+and the user request, the confirmed decisions D-01 to D-04, and `AGENTS.md`
+define the target precisely. Residual uncertainty: the repository has no
+baseline commit yet, and third-party crate APIs (`russh`, `russh-sftp`,
+`arboard`, `notify`) were not verified against current releases during
+planning; STEP-01 and STEP-11 carry explicit stop conditions for that.

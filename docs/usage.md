@@ -198,7 +198,8 @@ put on the clipboard, is not sent again.
 When the server cannot be reached, `serve` logs a warning and retries the
 same item after 1, 2, 4 … seconds, up to one minute apart, reconnecting each
 time. It never gives up on an item because of a network problem. A file
-that cannot be read is skipped until `serve` restarts.
+that cannot be read, for example because of its permissions, is skipped
+and sent once it changes, such as after you fix its permissions.
 
 `serve` stops cleanly on Ctrl-C or SIGTERM. It exits with code 1 only when
 it cannot start: invalid configuration, an unreachable server at start-up,

@@ -28,7 +28,7 @@ use crate::store::{BackendFuture, StoreError};
 
 use self::clipboard_watcher::ClipboardWatcher;
 use self::drop_watcher::DropTracker;
-use self::upload::Uploader;
+use self::upload::{JobOutcome, Uploader};
 
 /// Folder inside the drop folder that sent files move to.
 pub const SENT_DIR: &str = "sent";
@@ -164,12 +164,14 @@ pub async fn run_with_ready(
         ))),
         None => tracing::warn!("no clipboard available; only the drop folder is watched"),
     }
+    let (skipped_tx, skipped_rx) = mpsc::unbounded_channel();
     tasks.push(tokio::spawn(drop_loop(
         folder,
         options.file_stable_wait,
         options.rescan_interval,
         jobs_tx,
         changed_rx,
+        skipped_rx,
         shutdown.clone(),
     )));
     tracing::info!(
@@ -191,7 +193,16 @@ pub async fn run_with_ready(
             () = stopped(&mut shutdown) => break,
             job = jobs_rx.recv() => match job {
                 Some(job) => {
-                    uploader.handle(job, &mut shutdown).await;
+                    let file = match &job {
+                        Job::File(path) => Some(path.clone()),
+                        Job::Text(_) => None,
+                    };
+                    if uploader.handle(job, &mut shutdown).await == JobOutcome::Skipped
+                        && let Some(path) = file
+                    {
+                        // The drop watcher offers it again once it changes.
+                        let _ = skipped_tx.send(path);
+                    }
                 }
                 None => break,
             },
@@ -254,6 +265,7 @@ async fn drop_loop(
     rescan: Duration,
     jobs: mpsc::Sender<Job>,
     mut changed: mpsc::Receiver<()>,
+    mut skipped: mpsc::UnboundedReceiver<PathBuf>,
     mut shutdown: watch::Receiver<bool>,
 ) {
     let mut tracker = DropTracker::new(stable_wait);
@@ -286,6 +298,7 @@ async fn drop_loop(
                     watching = false;
                 }
             }
+            Some(path) = skipped.recv() => tracker.mark_skipped(&path),
             () = tokio::time::sleep(wait) => {}
         }
     }

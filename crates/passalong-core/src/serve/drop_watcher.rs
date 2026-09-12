@@ -80,7 +80,15 @@ struct Candidate {
 pub struct DropTracker {
     stable_wait: Duration,
     candidates: HashMap<PathBuf, Candidate>,
-    in_flight: HashSet<PathBuf>,
+    in_flight: HashMap<PathBuf, InFlight>,
+}
+
+/// A file handed to the uploader, with the state it had then.
+#[derive(Debug)]
+struct InFlight {
+    size: u64,
+    modified: SystemTime,
+    skipped: bool,
 }
 
 impl DropTracker {
@@ -89,7 +97,15 @@ impl DropTracker {
         Self {
             stable_wait,
             candidates: HashMap::new(),
-            in_flight: HashSet::new(),
+            in_flight: HashMap::new(),
+        }
+    }
+
+    /// Records that the uploader skipped `path` for a local reason, such as
+    /// missing permissions. The file is offered again once it changes.
+    pub fn mark_skipped(&mut self, path: &Path) {
+        if let Some(sent) = self.in_flight.get_mut(path) {
+            sent.skipped = true;
         }
     }
 
@@ -103,18 +119,30 @@ impl DropTracker {
     /// sent file's name is tracked from scratch.
     pub fn observe(&mut self, files: Vec<FileState>, now: Instant) -> Vec<PathBuf> {
         let present: HashSet<&PathBuf> = files.iter().map(|file| &file.path).collect();
-        self.in_flight.retain(|path| present.contains(path));
+        self.in_flight.retain(|path, _| present.contains(path));
         self.candidates.retain(|path, _| present.contains(path));
         let mut ready = Vec::new();
         for file in files {
-            if self.in_flight.contains(&file.path) {
-                continue;
+            if let Some(sent) = self.in_flight.get(&file.path) {
+                let changed = sent.size != file.size || sent.modified != file.modified;
+                if !(sent.skipped && changed) {
+                    continue;
+                }
+                // A skipped file that changed may have been fixed: settle it again.
+                self.in_flight.remove(&file.path);
             }
             match self.candidates.get_mut(&file.path) {
                 Some(seen) if seen.size == file.size && seen.modified == file.modified => {
                     if now.duration_since(seen.since) >= self.stable_wait {
                         self.candidates.remove(&file.path);
-                        self.in_flight.insert(file.path.clone());
+                        self.in_flight.insert(
+                            file.path.clone(),
+                            InFlight {
+                                size: file.size,
+                                modified: file.modified,
+                                skipped: false,
+                            },
+                        );
                         ready.push(file.path);
                     }
                 }
@@ -291,6 +319,60 @@ mod tests {
         assert_eq!(
             tracker.observe(vec![state("a", 5, 20), state("b", 1, 10)], start + ms(400)),
             [PathBuf::from("/drop/a")]
+        );
+    }
+
+    #[test]
+    fn skipped_files_are_offered_again_once_they_change() {
+        let start = Instant::now();
+        let mut tracker = DropTracker::new(ms(100));
+        tracker.observe(vec![state("a", 1, 10)], start);
+        assert_eq!(
+            tracker
+                .observe(vec![state("a", 1, 10)], start + ms(100))
+                .len(),
+            1
+        );
+        tracker.mark_skipped(std::path::Path::new("/drop/a"));
+        tracker.mark_skipped(std::path::Path::new("/drop/never-seen"));
+        assert!(
+            tracker
+                .observe(vec![state("a", 1, 10)], start + ms(5_000))
+                .is_empty(),
+            "unchanged: stays skipped"
+        );
+        assert!(
+            tracker
+                .observe(vec![state("a", 1, 11)], start + ms(5_100))
+                .is_empty(),
+            "changed: settles again"
+        );
+        assert_eq!(
+            tracker.observe(vec![state("a", 1, 11)], start + ms(5_200)),
+            [PathBuf::from("/drop/a")]
+        );
+    }
+
+    #[test]
+    fn files_in_flight_are_not_offered_again_even_if_they_change() {
+        let start = Instant::now();
+        let mut tracker = DropTracker::new(ms(100));
+        tracker.observe(vec![state("b", 1, 10)], start);
+        assert_eq!(
+            tracker
+                .observe(vec![state("b", 1, 10)], start + ms(100))
+                .len(),
+            1
+        );
+        assert!(
+            tracker
+                .observe(vec![state("b", 2, 12)], start + ms(5_000))
+                .is_empty()
+        );
+        assert!(
+            tracker
+                .observe(vec![state("b", 2, 12)], start + ms(9_000))
+                .is_empty()
         );
     }
 

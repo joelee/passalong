@@ -33,6 +33,10 @@ All notable changes to this project are documented here. The format follows
 - On Linux, text that `load` copies to the clipboard stays available after
   the command exits, without needing a clipboard manager (PLAN-00002
   STEP-09).
+- A config location that exists but cannot be read is reported as such
+  instead of "no config file found" (PLAN-00002 STEP-10).
+- `serve` sends a dropped file it could not read once the file changes,
+  instead of skipping it until restart (PLAN-00002 STEP-10).
 
 ## v0.1.0 - 2026-09-12T14:24:52Z
 

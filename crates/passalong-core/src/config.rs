@@ -171,7 +171,7 @@ pub fn locate(
                 .map(|path| (absolute(Path::new(&path)), ConfigOrigin::EnvVar))
         });
     if let Some((path, origin)) = pinned {
-        return if path.is_file() {
+        return if probe(&path)? {
             tracing::debug!(path = %path.display(), "using config file from {origin}");
             Ok(LocatedConfig { path, origin })
         } else {
@@ -210,16 +210,42 @@ pub fn locate(
         ConfigOrigin::WorkingDir,
     ));
 
-    match candidates.iter().find(|(path, _)| path.is_file()) {
-        Some((path, origin)) => {
+    for (path, origin) in &candidates {
+        if probe(path)? {
             tracing::debug!(path = %path.display(), "using config file from {origin}");
-            Ok(LocatedConfig {
+            return Ok(LocatedConfig {
                 path: path.clone(),
                 origin: *origin,
-            })
+            });
         }
-        None => Err(ConfigError::NotFound {
-            searched: candidates.into_iter().map(|(path, _)| path).collect(),
+    }
+    Err(ConfigError::NotFound {
+        searched: candidates.into_iter().map(|(path, _)| path).collect(),
+    })
+}
+
+/// Whether a config file exists at `path`. A missing file, or a path running
+/// through a regular file, counts as absent; anything that stops us looking,
+/// such as a directory we may not enter, is an error rather than a silent
+/// skip to the next location.
+fn probe(path: &Path) -> Result<bool, ConfigError> {
+    match fs::metadata(path) {
+        Ok(meta) => Ok(meta.is_file()),
+        Err(err)
+            if matches!(
+                err.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+            ) =>
+        {
+            Ok(false)
+        }
+        Err(err) => Err(ConfigError::Unreadable {
+            path: path.to_path_buf(),
+            reason: if err.kind() == io::ErrorKind::PermissionDenied {
+                "permission denied".to_owned()
+            } else {
+                err.to_string()
+            },
         }),
     }
 }
@@ -358,6 +384,15 @@ pub enum ConfigError {
         path: PathBuf,
         /// Which of the two explicit positions named it.
         origin: ConfigOrigin,
+    },
+    /// A lookup location exists but cannot be inspected, for example
+    /// because a directory on its path may not be entered.
+    #[error("cannot read config file {}: {reason}", path.display())]
+    Unreadable {
+        /// The config file path.
+        path: PathBuf,
+        /// Why it cannot be read.
+        reason: String,
     },
     /// The file exists but cannot be read.
     #[error("cannot read config file {}: {source}", path.display())]
@@ -1001,6 +1036,40 @@ mod tests {
         let roots = SearchRoots::from_system().unwrap();
         assert_eq!(roots.system_config_dir, PathBuf::from("/etc"));
         assert_eq!(roots.working_dir, std::env::current_dir().unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_candidate_is_reported_instead_of_skipped() {
+        use std::os::unix::fs::PermissionsExt;
+        let sb = Sandbox::new();
+        let file = sb.touch(&sb.xdg_file());
+        sb.touch(&sb.home_file());
+        let locked = sb.xdg.join("passalong");
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        let enforced = fs::metadata(&file).is_err();
+        let result = locate(None, &sb.env(), &sb.roots());
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        if !enforced {
+            return; // running as root: permissions are not enforced
+        }
+        let err = result.unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            format!(
+                "cannot read config file {}: permission denied",
+                file.display()
+            )
+        );
+        assert!(matches!(err, ConfigError::Unreadable { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn a_path_through_a_regular_file_counts_as_absent() {
+        let sb = Sandbox::new();
+        fs::write(sb.xdg.join("passalong"), b"a file, not a directory").unwrap();
+        let home = sb.touch(&sb.home_file());
+        assert_eq!(locate(None, &sb.env(), &sb.roots()).unwrap().path, home);
     }
 
     // ---------- parsing and validation ----------

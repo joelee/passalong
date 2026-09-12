@@ -21,6 +21,9 @@ A path named by `--config` or `PASSALONG_CONFIG_FILE` must exist; passalong
 reports the typo instead of falling back to another file. Relative paths
 resolve against the working directory. Empty environment variables count as
 unset, and a relative `XDG_CONFIG_HOME` is ignored.
+A location that exists but cannot be read, for example because a directory
+on its path may not be entered, is reported as
+`cannot read config file <path>: permission denied` rather than skipped.
 
 ## Keys
 

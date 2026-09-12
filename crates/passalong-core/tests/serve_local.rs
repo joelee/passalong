@@ -187,3 +187,49 @@ async fn serve_signals_readiness_after_start_up() {
         .unwrap()
         .unwrap();
 }
+
+/// A file `serve` cannot read is skipped, then sent once it is fixed.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn serve_retries_a_skipped_file_after_it_changes() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = TempDir::new().unwrap();
+    let (store, drop_folder) = (dir.path().join("store"), dir.path().join("drop"));
+    std::fs::create_dir_all(&drop_folder).unwrap();
+    let locked = drop_folder.join("locked.txt");
+    std::fs::write(&locked, b"secret until fixed").unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::read(&locked).is_ok() {
+        return; // running as root: permissions are not enforced
+    }
+    let (stop, stopped) = watch::channel(false);
+    let task = tokio::spawn(serve::run(
+        options(&drop_folder),
+        None,
+        local_opener(store.clone()),
+        stopped,
+    ));
+    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    assert!(!drop_folder.join("sent/locked.txt").exists());
+    assert!(items(&store).await.is_empty());
+
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let later = std::time::SystemTime::now() + Duration::from_secs(2);
+    std::fs::File::options()
+        .write(true)
+        .open(&locked)
+        .unwrap()
+        .set_modified(later)
+        .unwrap();
+    wait_for("the fixed file to be sent", async || {
+        drop_folder.join("sent/locked.txt").exists()
+    })
+    .await;
+    assert_eq!(items(&store).await.len(), 1);
+    stop.send(true).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+}

@@ -173,7 +173,9 @@ that lists the candidates.
 
 A failed upload is retried after 1, 2, 4 … seconds, capped at 60, and the
 store is reopened before each retry so a dropped SSH connection recovers.
-Local problems, such as a file that cannot be read, skip the job instead.
+Local problems, such as a file that cannot be read, skip the job instead;
+the drop watcher offers a skipped file again once its size or modification
+time changes.
 Shutdown on Ctrl-C or SIGTERM stops the watchers and abandons any upload in
 progress; the atomic publish means an abandoned upload never appears under
 `items/`.

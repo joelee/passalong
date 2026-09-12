@@ -580,7 +580,11 @@ fn serve_daemon_starts_reports_refuses_a_second_copy_and_stops() {
         .parse()
         .unwrap();
     let _guard = DaemonGuard(Some(pid));
-    let log = sb.path("home/.local/state/passalong/serve.log");
+    let log = if cfg!(target_os = "macos") {
+        sb.path("home/Library/Logs/passalong/serve.log")
+    } else {
+        sb.path("home/.local/state/passalong/serve.log")
+    };
     assert!(out.contains(&log.display().to_string()), "{out}");
 
     sb.with_config()

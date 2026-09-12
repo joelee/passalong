@@ -12,6 +12,7 @@ pub mod config;
 pub mod fs;
 pub mod model;
 pub mod random;
+pub mod retention;
 pub mod serve;
 pub mod store;
 pub mod telemetry;

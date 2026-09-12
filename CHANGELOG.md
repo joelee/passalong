@@ -10,6 +10,9 @@ All notable changes to this project are documented here. The format follows
 
 - `passalong delete <ID>...` removes items; every id is resolved first, so a
   typo deletes nothing (PLAN-00002 STEP-04).
+- `passalong prune --older-than <AGE> --keep <N>` deletes old items after
+  confirmation, supports `--dry-run` and `--yes`, and clears stale upload
+  leftovers on the server (PLAN-00002 STEP-05).
 
 ### Changed
 

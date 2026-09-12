@@ -4,6 +4,7 @@ mod app;
 mod cli;
 mod commands;
 mod output;
+mod prompt;
 
 use std::process::ExitCode;
 

@@ -443,3 +443,59 @@ async fn delete_removes_named_items_and_rejects_unknown_ones() {
         .code(1)
         .stderr(predicate::str::contains("no item matches `ffff`"));
 }
+
+#[tokio::test]
+async fn prune_lists_confirms_and_deletes() {
+    let sb = Sandbox::new();
+    let metas = sb.seed(&["one", "two", "three"]).await;
+    let count = |sb: &Sandbox| {
+        let out = sb
+            .with_config()
+            .args(["list", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        serde_json::from_slice::<serde_json::Value>(&out)
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len()
+    };
+    sb.with_config()
+        .args(["prune", "--keep", "1", "--dry-run"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::starts_with("2 items to delete:")
+                .and(predicate::str::ends_with("dry run: nothing deleted\n")),
+        );
+    assert_eq!(count(&sb), 3);
+    sb.with_config()
+        .args(["prune", "--keep", "1"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("--yes"));
+    assert_eq!(count(&sb), 3);
+    sb.with_config()
+        .args(["prune", "--keep", "1", "--yes"])
+        .assert()
+        .success()
+        .stdout(predicate::str::ends_with("deleted 2 items\n"));
+    let out = sb
+        .with_config()
+        .args(["list", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(json[0]["id"], metas[2].id.as_str());
+    sb.with_config()
+        .args(["prune"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("--older-than"));
+}

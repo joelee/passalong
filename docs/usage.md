@@ -99,6 +99,36 @@ id deletes nothing and exits with code 1. An item named twice is deleted
 once. There is no confirmation prompt, as with `rm`; use `list` first if
 in doubt.
 
+## `passalong prune`
+
+Deletes items by age or count. At least one of `--older-than` and `--keep`
+is required:
+
+| Option | Meaning |
+|---|---|
+| `--older-than <AGE>` | Delete items created at least this long ago. `AGE` is a whole number followed by `m`, `h`, `d`, or `w`, such as `90m` or `30d`. |
+| `--keep <N>` | Always keep the newest `N` items. |
+| `--dry-run` | Show what would be deleted, then stop. |
+| `--yes` | Delete without asking. Required when not running in a terminal. |
+
+With both options, an item survives if either protects it:
+`prune --older-than 30d --keep 20` deletes items older than 30 days but
+never leaves fewer than the newest 20.
+
+`prune` shows the items it will delete and asks `Delete N items? [y/N]`.
+When standard input is not a terminal, as in a cron job, it refuses unless
+`--yes` is given. A real run also removes staging directories older than
+one hour that interrupted uploads left on the server.
+
+```text
+$ passalong prune --older-than 30d --dry-run
+2 items to delete:
+ID                     KIND  NAME     SIZE     DEVICE  CREATED
+6a8a1c07-9f3b2e11aa04  file  old.pdf  2.0 MiB  laptop  2026-08-01 10:12
+6a8a0a55-c7d0e4f19b20  text  hello    5 B      box     2026-08-01 09:40
+dry run: nothing deleted
+```
+
 ## `passalong serve`
 
 Keeps running and sends:

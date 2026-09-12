@@ -7,6 +7,7 @@ pub mod delete;
 pub mod file;
 pub mod list;
 pub mod load;
+pub mod prune;
 pub mod serve;
 
 /// Helpers shared by the command tests.

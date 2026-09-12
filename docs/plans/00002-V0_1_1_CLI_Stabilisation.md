@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00002-v0.1.1-CLI_Stabilisation"
 execution_started_at: "2026-09-12T17:42:30Z"
-execution_updated_at: "2026-09-12T17:49:23Z"
+execution_updated_at: "2026-09-12T17:53:56Z"
 execution_completed_at: null
-current_step: "PLAN-00002-STEP-05"
+current_step: "PLAN-00002-STEP-06"
 ---
 
 # Delivery Plan 00002: V0 1 1 CLI Stabilisation
@@ -939,7 +939,7 @@ run at STEP-03, STEP-06, STEP-07, STEP-11, and STEP-14.
 | PLAN-00002-STEP-02 | completed | 2026-09-12T17:43:07Z | 2026-09-12T17:45:33Z | Commit `build: complete PLAN-00002-STEP-02 - Crate metadata, package rename, caret requirements, publish dry run`; `just check` green, 92.84% lines | Package `passalong` lives in `crates/passalong-cli/` (directory unchanged); libraries get READMEs and docs.rs all-features builds |
 | PLAN-00002-STEP-03 | completed | 2026-09-12T17:45:48Z | 2026-09-12T17:47:55Z | Commit `build: complete PLAN-00002-STEP-03 - Store deletion and staging clean-up`; `just check` green, 92.89% lines | AC-05 by `a_failed_removal_still_hides_the_item_at_once`; AC-07 store part by `clean_staging_removes_only_entries_older_than_the_threshold` |
 | PLAN-00002-STEP-04 | completed | 2026-09-12T17:49:04Z | 2026-09-12T17:49:23Z | Commit `build: complete PLAN-00002-STEP-04 - `passalong delete``; `just check` green, 92.99% lines | AC-04 by unit tests and the binary test `delete_removes_named_items_and_rejects_unknown_ones` |
-| PLAN-00002-STEP-05 | not-started | — | — | — | — |
+| PLAN-00002-STEP-05 | completed | 2026-09-12T17:49:23Z | 2026-09-12T17:53:56Z | Commit `build: complete PLAN-00002-STEP-05 - `passalong prune``; `just check` green, 93.43% lines | Coverage checkpoint (STEP-05) in the `just check` row; AC-06 by unit and binary tests; AC-07 by `stale_staging_is_cleaned_except_in_dry_runs` |
 | PLAN-00002-STEP-06 | not-started | — | — | — | — |
 | PLAN-00002-STEP-07 | not-started | — | — | — | — |
 | PLAN-00002-STEP-08 | not-started | — | — | — | — |
@@ -966,6 +966,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T17:47:55Z | PLAN-00002-STEP-03 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00002-STEP-03 - Store deletion and staging clean-up` | Begin PLAN-00002-STEP-04 |
 | 2026-09-12T17:49:04Z | PLAN-00002-STEP-04 | Started | — | Red phase |
 | 2026-09-12T17:49:23Z | PLAN-00002-STEP-04 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00002-STEP-04 - `passalong delete`` | Begin PLAN-00002-STEP-05 |
+| 2026-09-12T17:49:23Z | PLAN-00002-STEP-05 | Started | — | Red phase |
+| 2026-09-12T17:53:56Z | PLAN-00002-STEP-05 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00002-STEP-05 - `passalong prune`` | Begin PLAN-00002-STEP-06 |
 
 ### Deviations and blockers
 
@@ -974,6 +976,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T17:42:44Z | PLAN-00002-STEP-01 | Builder works on the user's branch `feature/00002-v0.1.1-CLI_Stabilisation` (the plan's § 5 was updated at approval). `docs/release/v0.1.0.md` also records the test counts per suite and the known limitations. The root `AGENTS.md` was restored verbatim from the text read at the start of PLAN-00001 (D-05 b), and the matching backlog entry was removed. The consistency script now also checks release documents, the CHANGELOG release sections, the repository URL, and a non-empty `AGENTS.md`. | None | None (routine) |
 | 2026-09-12T17:45:33Z | PLAN-00002-STEP-02 | STEP-01's commit did not set the Builder front-matter fields (branch, start time, builder, status); this step records them and the approval event. The CLI package's `readme` points at the root README and its `documentation` at docs/usage.md, since docs.rs is not useful for a binary. The published v0.1.0 notes keep the old `passalong-cli` name because that was correct for v0.1.0. | None | None (routine) |
 | 2026-09-12T17:47:55Z | PLAN-00002-STEP-03 | `clean_staging` only removes directories (staging entries are always directories) and skips entries without a modification time. An item whose `meta.json` is corrupt cannot be deleted through `Store::delete`, which returns its metadata; listings already skip such items. Recorded as a backlog candidate rather than widening the trait. | Corrupt items stay until removed by hand | None (routine) |
+| 2026-09-12T17:53:56Z | PLAN-00002-STEP-05 | `prune` prints the selection as the same table `list` uses, then `deleted N items`; ages larger than date arithmetic can subtract are rejected; `--keep 0` is accepted and, with no age, selects everything for confirmation. The `Prompt` trait lives in the CLI crate (`prompt.rs`) with a test-only scripted double that `init` will extend. | Documented in docs/usage.md | None (routine) |
 
 ### Verification results
 
@@ -996,12 +999,17 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T17:49:23Z | PLAN-00002-STEP-04 | `cargo test -p passalong` | Pass | test result: ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s |
 | 2026-09-12T17:49:23Z | PLAN-00002-STEP-04 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
 | 2026-09-12T17:49:23Z | PLAN-00002-STEP-04 | `just check` | Exit 0 | Lines 92.99% (5166 lines, 362 missed); delete.rs 98.90% |
+| 2026-09-12T17:49:23Z | PLAN-00002-STEP-05 | Red: `cargo test -p passalong-core retention`; `cargo test -p passalong` | Exit 101 (expected) | Missing `crate::prompt::ScriptedPrompt` `is_yes` `parse_age` `Prune` `PruneOptions` `run` `ScriptedPrompt` `select` |
+| 2026-09-12T17:53:56Z | PLAN-00002-STEP-05 | `cargo test -p passalong-core --all-features retention` | Pass | test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 124 filtered out; finished in 0.00s |
+| 2026-09-12T17:53:56Z | PLAN-00002-STEP-05 | `cargo test -p passalong` | Pass | test result: ok. 48 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s |
+| 2026-09-12T17:53:56Z | PLAN-00002-STEP-05 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
+| 2026-09-12T17:53:56Z | PLAN-00002-STEP-05 | `just check` | Exit 0 | Lines 93.43% (5664 lines, 372 missed); retention.rs 100.00%; prune.rs 99.14%; prompt.rs 86.44% |
 
 ### Completion summary
 
 - **Implementation status:** `in-progress`
-- **Completed requirements:** REQ-03 to REQ-07, REQ-13, REQ-14 (local recipe)
-- **Incomplete requirements:** REQ-01, REQ-02, REQ-08 to REQ-12, REQ-15 to REQ-24
+- **Completed requirements:** REQ-03 to REQ-08, REQ-13, REQ-14 (local recipe)
+- **Incomplete requirements:** REQ-01, REQ-02, REQ-09 to REQ-12, REQ-15 to REQ-24
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

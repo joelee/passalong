@@ -5,7 +5,7 @@ use std::io::{self, Write};
 use std::process::ExitCode;
 
 use anyhow::Context as _;
-use chrono::{FixedOffset, Local, Offset};
+use chrono::{FixedOffset, Local, Offset, Utc};
 use passalong_core::clipboard::{ArboardClipboard, Clipboard, ClipboardError};
 use passalong_core::config::{self, Config, EnvProvider, SearchRoots};
 use passalong_core::random::StdRandom;
@@ -16,6 +16,7 @@ use tracing::Instrument;
 use crate::cli::{Cli, Command};
 use crate::commands;
 use crate::commands::clipboard::TextSource;
+use crate::prompt::TerminalPrompt;
 
 /// Runs one invocation and maps the outcome to the process exit code:
 /// 0 on success, 1 on any runtime error. Usage errors never get here; clap
@@ -88,6 +89,30 @@ async fn dispatch(command: Command, config: &Config, out: &mut dyn Write) -> any
         Command::Delete { ids } => {
             let store = backends.open(config).await?;
             commands::delete::run(store.as_ref(), &ids, out).await
+        }
+        Command::Prune {
+            older_than,
+            keep,
+            dry_run,
+            yes,
+        } => {
+            let store = backends.open(config).await?;
+            let options = commands::prune::PruneOptions {
+                older_than,
+                keep,
+                dry_run,
+                yes,
+            };
+            let mut prompt = TerminalPrompt;
+            commands::prune::run(
+                store.as_ref(),
+                &options,
+                Utc::now(),
+                &mut prompt,
+                local_offset(),
+                out,
+            )
+            .await
         }
         Command::Load { id, dest, force } => {
             let store = backends.open(config).await?;

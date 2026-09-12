@@ -1,9 +1,14 @@
 //! Command-line interface definition.
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 use passalong_core::telemetry::LogLevel;
+
+fn parse_age(text: &str) -> Result<Duration, String> {
+    passalong_core::retention::parse_age(text).map_err(|err| err.to_string())
+}
 
 /// Command-line arguments.
 #[derive(Debug, Parser)]
@@ -60,6 +65,22 @@ pub enum Command {
     /// Keep running: send every new clipboard text and every file dropped
     /// into the drop folder.
     Serve,
+    /// Delete items by age or count; asks for confirmation.
+    Prune {
+        /// Delete items created at least this long ago, such as 30d
+        /// (units: m, h, d, w).
+        #[arg(long, value_name = "AGE", value_parser = parse_age)]
+        older_than: Option<Duration>,
+        /// Always keep this many of the newest items.
+        #[arg(long, value_name = "N")]
+        keep: Option<usize>,
+        /// Show what would be deleted without deleting anything.
+        #[arg(long)]
+        dry_run: bool,
+        /// Delete without asking; required when not running in a terminal.
+        #[arg(long)]
+        yes: bool,
+    },
     /// Delete items from the store.
     Delete {
         /// The items: full ids, or at least 4 characters of each.
@@ -78,6 +99,7 @@ impl Command {
             Self::Load { .. } => "load",
             Self::Serve => "serve",
             Self::Delete { .. } => "delete",
+            Self::Prune { .. } => "prune",
         }
     }
 }
@@ -143,6 +165,26 @@ mod tests {
         );
         assert_eq!(parse(&["serve"]).command, Command::Serve);
         assert_eq!(
+            parse(&[
+                "prune",
+                "--older-than",
+                "30d",
+                "--keep",
+                "5",
+                "--dry-run",
+                "--yes"
+            ])
+            .command,
+            Command::Prune {
+                older_than: Some(std::time::Duration::from_secs(30 * 86_400)),
+                keep: Some(5),
+                dry_run: true,
+                yes: true
+            }
+        );
+        let err = Cli::try_parse_from(["passalong", "prune", "--older-than", "soon"]).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::ValueValidation);
+        assert_eq!(
             parse(&["delete", "2cf2", "6aa52107-2c"]).command,
             Command::Delete {
                 ids: vec!["2cf2".into(), "6aa52107-2c".into()]
@@ -190,13 +232,27 @@ mod tests {
             },
             Command::Serve,
             Command::Delete { ids: vec![] },
+            Command::Prune {
+                older_than: None,
+                keep: None,
+                dry_run: false,
+                yes: false,
+            },
         ]
         .iter()
         .map(Command::name)
         .collect();
         assert_eq!(
             names,
-            ["clipboard", "file", "list", "load", "serve", "delete"]
+            [
+                "clipboard",
+                "file",
+                "list",
+                "load",
+                "serve",
+                "delete",
+                "prune"
+            ]
         );
     }
 }

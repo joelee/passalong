@@ -15,6 +15,18 @@ just setup            # llvm-tools-preview + cargo-llvm-cov
 pre-commit install    # optional: run `just check` before every commit
 ```
 
+## Repository layout
+
+```text
+crates/
+├── passalong-core/   config, item model, storage (RemoteFs, FsStore, Store),
+│                     clipboard trait, serve loop, telemetry, test doubles
+├── passalong-ssh/    SftpFs over russh, host-key pinning, the `ssh` backend
+└── passalong-cli/    the `passalong` binary: argument parsing, commands, output
+docs/                 user and developer documentation; plans in docs/plans/
+tests/docker/         OpenSSH server for the integration tests
+```
+
 ## Recipes
 
 | Recipe | Runs |
@@ -68,3 +80,23 @@ cargo test -p passalong-core --all-features -- --ignored desktop_
 
 `cargo build -p passalong-core --no-default-features` builds the core
 without the desktop clipboard, as GUI and Android front-ends will.
+
+## Coverage
+
+`just coverage` measures line coverage without the Docker-backed tests and
+must stay at 80 % or more. The SFTP code paths in `passalong-ssh` run only
+against the real server, so `just coverage-full`, which `just ci` runs on
+Linux, gives the complete figure. Both use the same 80 % gate.
+
+## Container image
+
+`just docker-build` builds `passalong:dev` from the `Dockerfile`: a Debian
+trixie Rust builder and a slim trixie runtime running as the unprivileged
+user `passalong`. `docker run --rm passalong:dev --help` is a quick smoke
+test.
+
+## Plans
+
+Work is planned in numbered delivery plans under `docs/plans/`. Each plan's
+Builder Work Log records per-step test evidence, verification results, and
+deviations.

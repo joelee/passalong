@@ -1,6 +1,8 @@
 # Configuration
 
-> Draft. Completed in PLAN-00001 STEP-14.
+Settings live in `config.toml`; the only secret, the SSH key passphrase,
+comes from the environment. [`config.sample.toml`](../config.sample.toml) is
+an annotated example with every key.
 
 ## Lookup order
 
@@ -12,8 +14,6 @@ The first existing file wins:
 4. `$HOME/.config/passalong/config.toml`
 5. `/etc/passalong/config.toml`
 6. `./config.toml`
-
-See `config.sample.toml` for an annotated example.
 
 A path named by `--config` or `PASSALONG_CONFIG_FILE` must exist; passalong
 reports the typo instead of falling back to another file. Relative paths

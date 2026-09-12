@@ -1,7 +1,8 @@
 # Usage
 
-> Draft. Each command's section is written when the command lands
-> (PLAN-00001 STEP-08 to STEP-13) and completed in STEP-14.
+Every command reads the configuration described in
+[configuration](configuration.md). Set up the server first, as described in
+the [README](../README.md#server-setup).
 
 ## Global options
 

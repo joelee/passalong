@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/initial-plan"
 execution_started_at: "2026-09-12T10:54:05Z"
-execution_updated_at: "2026-09-12T12:53:40Z"
+execution_updated_at: "2026-09-12T12:56:36Z"
 execution_completed_at: null
-current_step: "PLAN-00001-STEP-14"
+current_step: "PLAN-00001-STEP-15"
 ---
 
 # Delivery Plan 00001: Initial Plan
@@ -1492,7 +1492,7 @@ behavioural step.
 | PLAN-00001-STEP-11 | completed | 2026-09-12T12:34:04Z | 2026-09-12T12:38:58Z | Commit `build: complete PLAN-00001-STEP-11 - SSH backend: connection, host-key pinning, `SftpFs``; `just check` green, 91.94% lines | SFTP I/O paths are covered only by the ignored Docker tests; `just coverage-full` measures them in STEP-15 |
 | PLAN-00001-STEP-12 | completed | 2026-09-12T12:41:35Z | 2026-09-12T12:42:00Z | Commit `build: complete PLAN-00001-STEP-12 - Wire the `ssh` backend into the factory and CLI`; `just check` green, 92.13% lines | The CLI resolves backends only through the registry; `passalong-core` has no dependency on `passalong-ssh` |
 | PLAN-00001-STEP-13 | completed | 2026-09-12T12:46:06Z | 2026-09-12T12:53:40Z | Commit `build: complete PLAN-00001-STEP-13 - `serve`: clipboard watcher, drop-folder watcher, retry loop`; `just check` green, 92.84% lines | Coverage checkpoint (STEP-13) in the `just check` row; AC-16 and AC-17 covered by `serve_sends_clipboard_text_and_dropped_files_then_stops` and `failed_uploads_are_retried_with_a_fresh_store` |
-| PLAN-00001-STEP-14 | not-started | — | — | — | — |
+| PLAN-00001-STEP-14 | completed | 2026-09-12T12:56:27Z | 2026-09-12T12:56:36Z | Commit `build: complete PLAN-00001-STEP-14 - Documentation, samples, and backlog`; `just check` green, 92.84% lines | Consistency script checks config keys, env vars (docs and .env.sample), CLI flags from every `--help`, `just` recipes, and relative Markdown links |
 | PLAN-00001-STEP-15 | not-started | — | — | — | — |
 
 Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
@@ -1532,6 +1532,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T12:42:00Z | PLAN-00001-STEP-12 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-12 - Wire the `ssh` backend into the factory and CLI` | Begin PLAN-00001-STEP-13 |
 | 2026-09-12T12:46:06Z | PLAN-00001-STEP-13 | Started | — | Red phase |
 | 2026-09-12T12:53:40Z | PLAN-00001-STEP-13 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-13 - `serve`: clipboard watcher, drop-folder watcher, retry loop` | Begin PLAN-00001-STEP-14 |
+| 2026-09-12T12:56:27Z | PLAN-00001-STEP-14 | Started | — | Evidence first |
+| 2026-09-12T12:56:36Z | PLAN-00001-STEP-14 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-14 - Documentation, samples, and backlog` | Begin PLAN-00001-STEP-15 |
 
 ### Deviations and blockers
 
@@ -1560,6 +1562,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T12:42:00Z | PLAN-00001-STEP-12 | The registry maps kinds to plain function openers (`fn(&Config) -> BackendFuture`) rather than boxed closures, which keeps higher-ranked lifetimes simple; `open_store` stays as a shortcut for the built-in kinds. A new backend must also add its `[server.<kind>]` section to the config module because unknown keys are rejected; documented in docs/architecture.md. | None | None (routine) |
 | 2026-09-12T12:53:40Z | PLAN-00001-STEP-13 | Shutdown is a `tokio::sync::watch<bool>` rather than a `tokio-util` `CancellationToken` (no new dependency); dropping the sender also stops `serve`. Tokio's paused clock replaces a custom `Sleeper`, and `tokio`'s `test-util` feature was added to `passalong-core` dev-dependencies for it. Filesystem events are only hints: the drop folder is always rescanned at least every 5 s, so missed events cannot lose files. | None | None (routine) |
 | 2026-09-12T12:53:40Z | PLAN-00001-STEP-13 | The echo check (`find_by_content_key` before uploading text) lives in the uploader, the store's only user, rather than in the clipboard watcher; the first text seen after start-up is sent. Sent-name collisions become `name (1).ext`. Files failing for local reasons are skipped until `serve` restarts, while store failures retry forever with a reconnect before each attempt. Clipboard read errors are logged once per distinct message. The CLI now opens the store inside each one-shot command so `serve` can open and reopen its own. | Documented in docs/usage.md | None (routine) |
+| 2026-09-12T12:56:36Z | PLAN-00001-STEP-14 | README gained Quick start and Container sections, and `just run -- --help` became `just run --help` (the extra `--` reached the binary). docs/architecture.md gained Command flow, `serve`, and Security model sections with a component diagram. Backlog entries beyond the plan's list come from build findings: Linux clipboard holder (STEP-07), retrying skipped files (STEP-13), `rsa` advisory review (STEP-11), Xvfb desktop test, and the empty root `AGENTS.md`. | None | None (routine) |
 
 ### Verification results
 
@@ -1623,12 +1626,15 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T12:53:40Z | PLAN-00001-STEP-13 | `cargo test -p passalong-core --all-features serve` | Pass | test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 0.00s |
 | 2026-09-12T12:53:40Z | PLAN-00001-STEP-13 | `cargo test -p passalong-cli` | Pass | test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s |
 | 2026-09-12T12:53:40Z | PLAN-00001-STEP-13 | `just check` | Exit 0 | Lines 92.84% (4956 lines, 355 missed); mod.rs 89.40%; upload.rs 95.24%; drop_watcher.rs 99.12%; clipboard_watcher.rs 100.00%; retry.rs 100.00%; serve.rs 95.00% |
+| 2026-09-12T12:56:36Z | PLAN-00001-STEP-14 | Evidence first (documentation-only step, no TDD) | — | Baseline consistency checks before editing: no missing keys, variables, flags, or recipes |
+| 2026-09-12T12:56:36Z | PLAN-00001-STEP-14 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck.sh` | Pass | documentation consistent: 15 keys, 3 variables, all flags, all recipes, all relative links |
+| 2026-09-12T12:56:36Z | PLAN-00001-STEP-14 | `just check` | Exit 0 | Lines 92.84% (4956 lines, 355 missed) |
 
 ### Completion summary
 
 - **Implementation status:** `in-progress`
-- **Completed requirements:** REQ-01 to REQ-18, REQ-22, REQ-23, REQ-24 (scaffold parts)
-- **Incomplete requirements:** REQ-19 to REQ-21 (final evidence and documentation in STEP-14 and STEP-15)
+- **Completed requirements:** REQ-01 to REQ-18, REQ-21, REQ-22, REQ-23, REQ-24 (scaffold parts)
+- **Incomplete requirements:** REQ-19, REQ-20 (final evidence in STEP-15)
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

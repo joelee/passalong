@@ -42,3 +42,6 @@ All notable changes to this project are documented here. The format follows
   with reconnection when the server is unreachable, and stops cleanly on
   Ctrl-C or SIGTERM; systemd and launchd examples in `docs/service/`
   (PLAN-00001 STEP-13).
+- Documentation: quick start, container use, command and configuration
+  references, architecture and security model, developer guide, and
+  backlog (PLAN-00001 STEP-14).

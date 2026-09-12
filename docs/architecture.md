@@ -1,8 +1,5 @@
 # Architecture
 
-> Draft. Completed in PLAN-00001 STEP-14; sections are filled in as the
-> components land.
-
 ## Crates
 
 | Crate | Kind | Responsibility |
@@ -12,7 +9,43 @@
 | `passalong-cli` | binary `passalong` | Argument parsing, command handlers, output formatting. |
 
 Future GUI and Android front-ends depend on `passalong-core` and
-`passalong-ssh` only.
+`passalong-ssh` only. `passalong-core` keeps the desktop clipboard behind its
+`desktop` feature, so it also builds with `--no-default-features`.
+
+```mermaid
+flowchart LR
+  CLI["passalong-cli<br/>commands and output"] --> REG["BackendRegistry"]
+  CLI --> SERVE["serve loop<br/>passalong-core"]
+  SERVE --> REG
+  CLI --> CLIP["Clipboard trait<br/>ArboardClipboard"]
+  SERVE --> CLIP
+  REG --> LOCAL["FsStore over LocalFs<br/>kind = local"]
+  REG --> SSH["FsStore over SftpFs<br/>passalong-ssh, kind = ssh"]
+  SSH --> SERVER[("SSH server<br/>remote_path")]
+```
+
+## Command flow
+
+Every invocation goes through the same start-up:
+
+1. Load `./.env` if it exists, without overriding the environment.
+2. Parse the command line; usage errors exit with code 2.
+3. Find and validate `config.toml` (see [configuration](configuration.md)).
+4. Choose the log level and start logging to standard error.
+5. Open a correlation span, so every log line of this run shares one `op`
+   id.
+6. Build the backend registry (`local`, `ssh`) and run the command.
+
+| Command | What it does after start-up |
+|---|---|
+| `clipboard` | Reads the clipboard or standard input, then `Store::put` |
+| `file` | Streams the file into `Store::put` |
+| `list` | `Store::list`, then renders a table or JSON |
+| `load` | `Store::resolve`, `Store::get`, verifies SHA-256, then writes a file or the clipboard |
+| `serve` | Runs the loop below until stopped |
+
+Each one-shot command opens its own connection; `serve` keeps one and
+reopens it when needed.
 
 ## Item schema (version 1)
 
@@ -116,6 +149,46 @@ matches the start of the content key, so `2cf2` finds
 `6aa52107-2cf24dba5fb0`; input with a `-` matches the start of the full id.
 Case and surrounding spaces are ignored. More than one match is an error
 that lists the candidates.
+
+## `serve`
+
+`serve` runs three cooperating tasks:
+
+- **Clipboard watcher.** Reads the clipboard every poll interval and queues
+  text whose SHA-256 differs from the last text seen. Blank text is ignored.
+- **Drop watcher.** Scans the drop folder whenever the operating system
+  reports a change, and at least every 5 seconds in case events are missed.
+  A file is queued once two scans at least `file_stable_wait_ms` apart show
+  the same size and modification time.
+- **Uploader.** Sends queued jobs one at a time. Before uploading text it
+  checks whether that content key is already stored, which is how text that
+  `load` just put on the clipboard is not sent back. After a file is sent,
+  it moves to `sent/` or is deleted.
+
+A failed upload is retried after 1, 2, 4 … seconds, capped at 60, and the
+store is reopened before each retry so a dropped SSH connection recovers.
+Local problems, such as a file that cannot be read, skip the job instead.
+Shutdown on Ctrl-C or SIGTERM stops the watchers and abandons any upload in
+progress; the atomic publish means an abandoned upload never appears under
+`items/`.
+
+## Security model
+
+- **Server identity.** The server's host key is pinned in the
+  configuration. Any other key is refused with both fingerprints in the
+  error. There is no trust-on-first-use and no `known_hosts` fallback.
+- **Client identity.** Public-key authentication only. The optional key
+  passphrase comes from the environment or `./.env` and is redacted from
+  debug output.
+- **Paths from the server.** Item ids are parsed strictly (hex digits and
+  one `-`), so they are safe path components. File names from the server
+  are reduced to their last component before `load` writes them.
+- **Integrity.** `load` verifies the SHA-256 and size of the content before
+  renaming it into place.
+- **Logs.** Only an allow-list of fields is written. Clipboard text, file
+  contents, and secrets are never logged.
+- **Not covered.** The server operator can read every item. Encryption at
+  rest is on the [backlog](backlog.md).
 
 ## Adding a backend
 

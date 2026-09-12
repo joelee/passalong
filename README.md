@@ -1,16 +1,16 @@
 # passalong
 
-A lightweight, cross-platform clipboard and file sharing tool for macOS, Linux,
-and (later) Android.
+A lightweight, cross-platform clipboard and file sharing tool for macOS and
+Linux, with Android planned.
 
-One machine you already own runs a plain SSH server with a storage directory.
-Every other device pushes clipboard text and files there, lists what is stored,
-and pulls items back — no cloud service, no account, no custom server daemon.
+One machine you already own runs a plain SSH server with a storage
+directory. Every other device pushes clipboard text and files there, lists
+what is stored, and pulls items back. There is no cloud service, no account,
+and no custom server daemon.
 
-> **Status: under construction.** The project is being built in the open
-> against [Delivery Plan 00001](docs/plans/00001-Initial_Plan.md).
-> All five commands work with an SSH server or a local storage directory;
-> final documentation and release checks are in progress.
+> **Status:** v0.1.0 is feature-complete against
+> [Delivery Plan 00001](docs/plans/00001-Initial_Plan.md) and not yet
+> released.
 
 ## How it works
 
@@ -24,12 +24,35 @@ and pulls items back — no cloud service, no account, no custom server daemon.
 - The server needs nothing but `sshd` and a directory.
 - Each client pins the server's SSH host public key, so there is no
   trust-on-first-use.
-- Items are identified by a time-sortable id (`<time>-<content hash>`), so the
-  newest items list first and identical content is stored only once.
-- The storage layer sits behind a trait, so other backends such as a web API or
-  an S3 bucket can be added later.
+- Items are identified by a time-sortable id (`<time>-<content hash>`), so
+  the newest items list first and identical content is stored only once.
+- Downloads are checked against the item's SHA-256 before anything is
+  written.
+- Storage sits behind a trait. Besides SSH there is a `local` backend for a
+  mounted share, and others such as S3 can be added.
 
-## Commands (v0.1.0 target)
+## Quick start
+
+1. Prepare the server once, as described in [Server setup](#server-setup).
+2. Install the client: `cargo install --locked --path crates/passalong-cli`
+   from a clone of this repository puts `passalong` in `~/.cargo/bin`.
+3. Copy [`config.sample.toml`](config.sample.toml) to
+   `~/.config/passalong/config.toml` and fill in the `[server.ssh]` section.
+4. Use it:
+
+   ```sh
+   passalong clipboard               # send what you copied
+   passalong list                    # see what is stored, newest first
+   passalong load 2cf2               # put that text back on the clipboard
+   passalong file report.pdf         # send a file
+   passalong load 8f3a ~/Downloads   # fetch a file into a directory
+   ```
+
+5. Keep `passalong serve` running with the systemd or launchd unit in
+   [`docs/service/`](docs/service/), so everything you copy and every file you
+   drop into `~/PassAlong` is sent automatically.
+
+## Commands
 
 | Command | What it does |
 |---|---|
@@ -37,10 +60,10 @@ and pulls items back — no cloud service, no account, no custom server daemon.
 | `passalong file <path>` | Send a file |
 | `passalong list` | List stored items, newest first (`--json` for scripts) |
 | `passalong load <id> [dest]` | Copy an item to `dest`, or to the clipboard when `dest` is omitted |
-| `passalong serve` | Run in the foreground, sending every new clipboard text and every file dropped into the drop folder |
+| `passalong serve` | Keep running, sending every new clipboard text and every file dropped into the drop folder |
 
-`serve` runs in the foreground by design; run it in the background with the
-systemd or launchd examples that will ship in `docs/service/`.
+An id can be shortened to its first 4 or more distinctive characters. See
+[docs/usage.md](docs/usage.md) for every option and exit code.
 
 ## Server setup
 
@@ -66,10 +89,23 @@ Any machine with an OpenSSH server can be the server. Do this once:
    line as printed works too. passalong refuses to connect if the server
    ever presents a different key.
 
-4. Copy `config.sample.toml` to `~/.config/passalong/config.toml` and set
-   `host`, `user`, `host_key`, `identity_file`, and `remote_path`. If the key
-   has a passphrase, put it in `PASSALONG_SSH_KEY_PASSPHRASE` in a `.env`
-   file, never in the config.
+4. In `~/.config/passalong/config.toml`, set `host`, `user`, `host_key`,
+   `identity_file`, and `remote_path`. If the key has a passphrase, put it in
+   `PASSALONG_SSH_KEY_PASSPHRASE` in a `.env` file, never in the config.
+
+## Container
+
+The image has no clipboard, but `file`, `list`, `load <id> <dest>`, and
+`serve` with a mounted drop folder work. Run it as your own user so it can
+read your SSH key:
+
+```sh
+just docker-build
+docker run --rm --user "$(id -u):$(id -g)" -e HOME=/home/passalong \
+  -v ~/.config/passalong:/home/passalong/.config/passalong:ro \
+  -v ~/.ssh:/home/passalong/.ssh:ro \
+  passalong:dev list
+```
 
 ## Building from source
 
@@ -77,22 +113,22 @@ Requires Rust 1.98.1 (pinned in `rust-toolchain.toml`; `rustup` installs it
 automatically) and [`just`](https://github.com/casey/just).
 
 ```sh
-just setup    # one-time: coverage tooling
-just build    # debug build of the whole workspace
-just run -- --help
+just setup        # one-time: coverage tooling
+just build        # debug build of the whole workspace
+just run --help   # run the CLI from source
 ```
 
 ## Development
 
-Development is test-driven and every change must pass `just check` (format,
-clippy, tests, coverage ≥ 80 %, locked build). See
-[docs/developer-guide.md](docs/developer-guide.md).
+Development is test-driven, and every change must pass `just check`:
+format, clippy, tests, line coverage of at least 80 %, and a locked build.
+See [docs/developer-guide.md](docs/developer-guide.md).
 
 | Document | Contents |
 |---|---|
-| [docs/architecture.md](docs/architecture.md) | Crates, traits, storage layout |
-| [docs/configuration.md](docs/configuration.md) | Every configuration key and environment variable |
 | [docs/usage.md](docs/usage.md) | Command reference |
+| [docs/configuration.md](docs/configuration.md) | Every configuration key and environment variable |
+| [docs/architecture.md](docs/architecture.md) | Crates, storage layout, `serve`, security model |
 | [docs/developer-guide.md](docs/developer-guide.md) | Toolchain, `just` recipes, testing |
 | [docs/backlog.md](docs/backlog.md) | Planned future work |
 | [CHANGELOG.md](CHANGELOG.md) | Release notes |

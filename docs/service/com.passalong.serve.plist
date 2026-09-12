@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd agent for `passalong serve` on macOS.
+
+  Install:
+    cp docs/service/com.passalong.serve.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.passalong.serve.plist
+
+  Replace YOU with your user name and adjust the binary path if passalong
+  is installed elsewhere.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.passalong.serve</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/YOU/.cargo/bin/passalong</string>
+    <string>serve</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>StandardErrorPath</key>
+  <string>/Users/YOU/Library/Logs/passalong-serve.log</string>
+</dict>
+</plist>

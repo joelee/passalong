@@ -1,0 +1,30 @@
+# systemd user unit for `passalong serve`.
+#
+# Install:
+#   mkdir -p ~/.config/systemd/user
+#   cp docs/service/passalong-serve.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now passalong-serve.service
+# Logs:
+#   journalctl --user -u passalong-serve.service -f
+#
+# The unit starts with the graphical session so the clipboard is reachable.
+# If your session does not start graphical-session.target, import the
+# display variables once per login instead:
+#   systemctl --user import-environment WAYLAND_DISPLAY DISPLAY
+
+[Unit]
+Description=passalong: send clipboard text and dropped files
+PartOf=graphical-session.target
+After=graphical-session.target network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.cargo/bin/passalong serve
+Restart=on-failure
+RestartSec=10
+# error, warning, info, verbose, or debug
+Environment=PASSALONG_LOG_LEVEL=info
+
+[Install]
+WantedBy=graphical-session.target

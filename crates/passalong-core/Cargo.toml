@@ -1,0 +1,45 @@
+[package]
+name = "passalong-core"
+description = "Core library for passalong: configuration, item model, storage traits, and telemetry"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["desktop"]
+# Real desktop clipboard access through `arboard` (macOS, Linux X11/Wayland).
+desktop = ["dep:arboard"]
+# Exposes `passalong_core::testing` (test doubles) to other crates' tests.
+testing = []
+
+[dependencies]
+async-trait.workspace = true
+chrono.workspace = true
+gethostname.workspace = true
+hex.workspace = true
+mime_guess.workspace = true
+notify.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+arboard = { workspace = true, optional = true, features = ["wayland-data-control"] }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+arboard = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true
+# Paused clock for retry and backoff tests.
+tokio = { workspace = true, features = ["test-util"] }

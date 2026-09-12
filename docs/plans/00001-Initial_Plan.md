@@ -8,17 +8,17 @@ tags:
   - opencode
 type: delivery-plan
 plan_id: "PLAN-00001"
-plan_status: draft                 # draft | approved | cancelled
+plan_status: approved              # draft | approved | cancelled
 plan_kind: initial                 # initial | superseding
 created_at: "2026-09-12T09:53:11Z"
-approved_at: null
+approved_at: "2026-09-12T10:54:05Z"
 planner_agent: "Claude Code"
 planner_model: "anthropic/claude-fable-5-1"
 triggered_by: user                 # user | agent:<agent-name>
 request_kind: direct               # idea | review | idea-and-review | direct | unplanned-query
 repository: "passalong (local repository, no remote configured)"
 baseline_branch: "main"
-baseline_commit: null
+baseline_commit: "c164d2310f2d5efff368a0d7ff3326384d07c4e7"
 source_ideas: []
 source_reviews: []
 previous_plan: null
@@ -26,32 +26,31 @@ requirements_count: 24
 steps_count: 15
 acceptance_criteria_count: 20
 blocking_decisions: 0
-build_ready: false
+build_ready: true
 web_research_used: false
 confidence: high                  # high | medium | low
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; Delivery Planner initializes them.
-implementation_status: not-started # not-started | in-progress | blocked | completed | abandoned
-builder_agent: null
-builder_model: null
-execution_branch: null
-execution_started_at: null
-execution_updated_at: null
-execution_completed_at: null
+implementation_status: completed # not-started | in-progress | blocked | completed | abandoned
+builder_agent: "Claude Code"
+builder_model: "anthropic/claude-opus-5"
+execution_branch: "feature/initial-plan"
+execution_started_at: "2026-09-12T10:54:05Z"
+execution_updated_at: "2026-09-12T13:00:18Z"
+execution_completed_at: "2026-09-12T13:00:18Z"
 current_step: null
 ---
 
 # Delivery Plan 00001: Initial Plan
 
-> [!abstract] Plan status: `draft`
+> [!abstract] Plan status: `approved`
 > Deliver `passalong` v0.1.0: a Rust CLI that pushes clipboard text and files to
 > an SSH/SFTP-backed store and lists/loads them back, with a reusable core
 > library, TDD, `just`-driven quality gates, containers, and full documentation.
 > All material decisions are resolved (D-01 to D-03 confirmed by the user on
-> 2026-09-12; D-04 revised to time-sortable ids at the user's request). Not yet
-> Builder-ready only because the plan awaits explicit approval and the
-> repository has no initial commit yet (see Repository baseline).
+> 2026-09-12; D-04 revised to time-sortable ids at the user's request). Approved
+> by the user at 2026-09-12T10:54:05Z; Builder-ready.
 
 ## 1. Objective and outcome
 
@@ -110,7 +109,7 @@ added behind one storage trait without touching commands.
 |---|---|
 | Repository | `/home/joel/Projects/GitHub/passalong` (git initialised on 2026-09-12 by the planner with `git init -b main`; no remote) |
 | Branch | `main` (unborn; no commits yet) |
-| HEAD | None. `baseline_commit` is `null` because the repository has no commit. The user must create the initial commit containing `AGENTS.md`, the `docs/*/AGENTS.md` symlinks, the `.agents/skills` symlink, and this plan before approval. |
+| HEAD | `c164d2310f2d5efff368a0d7ff3326384d07c4e7` ("Initial Commit", instruction files and this plan; no application code). `eb196a60cb60367ce752969676ecd3b60fcf5732` changed only this plan. |
 | Working tree at publication | Not clean: the six pre-existing untracked paths listed in the planner's hand-off. No application code exists; the only repository content is instruction files and this plan. |
 | Applicable instructions | `AGENTS.md` (root); `docs/plans/AGENTS.md` (plan format, numbering, immutability); `~/.claude/CLAUDE.md` (graphify trigger; not relevant to this plan) |
 | Toolchain verified on planner machine | `rustc 1.98.1`, `cargo 1.98.1`, `just`, `docker`. Not installed: `cargo-llvm-cov`, `cargo-nextest`, `pre-commit`. |
@@ -1480,21 +1479,21 @@ behavioural step.
 
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
-| PLAN-00001-STEP-01 | not-started | — | — | — | — |
-| PLAN-00001-STEP-02 | not-started | — | — | — | — |
-| PLAN-00001-STEP-03 | not-started | — | — | — | — |
-| PLAN-00001-STEP-04 | not-started | — | — | — | — |
-| PLAN-00001-STEP-05 | not-started | — | — | — | — |
-| PLAN-00001-STEP-06 | not-started | — | — | — | — |
-| PLAN-00001-STEP-07 | not-started | — | — | — | — |
-| PLAN-00001-STEP-08 | not-started | — | — | — | — |
-| PLAN-00001-STEP-09 | not-started | — | — | — | — |
-| PLAN-00001-STEP-10 | not-started | — | — | — | — |
-| PLAN-00001-STEP-11 | not-started | — | — | — | — |
-| PLAN-00001-STEP-12 | not-started | — | — | — | — |
-| PLAN-00001-STEP-13 | not-started | — | — | — | — |
-| PLAN-00001-STEP-14 | not-started | — | — | — | — |
-| PLAN-00001-STEP-15 | not-started | — | — | — | — |
+| PLAN-00001-STEP-01 | completed | 2026-09-12T10:54:05Z | 2026-09-12T10:59:49Z | Commit `build: complete PLAN-00001-STEP-01 - Workspace scaffold, tooling, and quality gates`; `just check` green, 82.35 % lines | User-directed additions: Apache-2.0 `LICENSE`, full initial `README.md`. Pinned deps: anyhow 1.0.104, arboard 3.6.1, async-trait 0.1.92, chrono 0.4.45, clap 4.6.6, dotenvy 0.15.7, gethostname 1.1.0, hex 0.4.3, mime_guess 2.0.5, notify 8.2.0, russh 0.63.3, russh-sftp 3.0.0, serde 1.0.229, serde_json 1.0.151, sha2 0.11.0, ssh-key 0.6.7, thiserror 2.0.20, tokio 1.53.1, toml 1.1.6, tracing 0.1.44, tracing-subscriber 0.3.23; dev: assert_cmd 2.2.2, predicates 3.1.4, tempfile 3.27.0, tokio-test 0.4.5 |
+| PLAN-00001-STEP-02 | completed | 2026-09-12T10:59:49Z | 2026-09-12T11:05:44Z | Commit `build: complete PLAN-00001-STEP-02 - Telemetry: levels, syslog-style formatter, operation ids`; `just check` green, 97.54 % lines | Third-party targets capped at warning except at `debug`; `op` span created at ERROR level so every record carries the id; `Targets` filter used instead of `EnvFilter` (no regex dependency) |
+| PLAN-00001-STEP-03 | completed | 2026-09-12T11:05:44Z | 2026-09-12T11:23:44Z | Commit `build: complete PLAN-00001-STEP-03 - Configuration loading and validation`; checkpoint digest `5cb46dc13d60493bd662f540e872f4e9ad5fc4e663e58040d93dcd70cade87af` re-verified before commit | `just check` green, 97.23 % lines; config.rs 97.71 % |
+| PLAN-00001-STEP-04 | completed | 2026-09-12T11:23:44Z | 2026-09-12T12:08:41Z | Commit `build: complete PLAN-00001-STEP-04 - Item model, ids, hashing, and clock`; checkpoint digest `8e1ba738…2dc5` re-verified before commit | `just check` green, 97.26 % lines; model.rs 97.31 % |
+| PLAN-00001-STEP-05 | completed | 2026-09-12T12:09:54Z | 2026-09-12T12:11:51Z | Commit `build: complete PLAN-00001-STEP-05 - `RemoteFs` trait, `LocalFs`, and failing test double`; `just check` green, 97.68% lines | `Box<dyn RemoteFs>` compiles (object-safety test) |
+| PLAN-00001-STEP-06 | completed | 2026-09-12T12:14:02Z | 2026-09-12T12:17:43Z | Commit `build: complete PLAN-00001-STEP-06 - `FsStore` layout with atomic publish and `Store` trait`; `just check` green, 97.51% lines | Coverage checkpoint (STEP-06) recorded in the `just check` row |
+| PLAN-00001-STEP-07 | completed | 2026-09-12T12:19:33Z | 2026-09-12T12:19:56Z | Commit `build: complete PLAN-00001-STEP-07 - Clipboard trait, arboard adapter, mock`; `just check` green, 96.37% lines | `arboard` absent from `cargo tree -p passalong-core --no-default-features`; desktop round-trip test is `#[ignore]` and excluded from Docker recipes with `--skip desktop_` |
+| PLAN-00001-STEP-08 | completed | 2026-09-12T12:23:37Z | 2026-09-12T12:25:25Z | Commit `build: complete PLAN-00001-STEP-08 - CLI skeleton, `App` wiring, and `list``; `just check` green, 96.90% lines | Binary tests isolate HOME, XDG_CONFIG_HOME, passalong variables, and the working directory; `/etc/passalong` absent on the build host |
+| PLAN-00001-STEP-09 | completed | 2026-09-12T12:25:25Z | 2026-09-12T12:27:28Z | Commit `build: complete PLAN-00001-STEP-09 - `clipboard` and `file` commands`; `just check` green, 96.99% lines | AC-11 covered by binary tests `clipboard_from_stdin_prints_the_new_id` and `empty_stdin_is_refused`; 5 MiB digest test covers REQ-14 |
+| PLAN-00001-STEP-10 | completed | 2026-09-12T12:31:10Z | 2026-09-12T12:31:18Z | Commit `build: complete PLAN-00001-STEP-10 - `load` command with integrity check`; `just check` green, 97.21% lines | Coverage checkpoint (STEP-10) in the `just check` row; AC-12 (5 MiB file round trip) and AC-13 covered; the CLI is fully usable with `server.kind = "local"` |
+| PLAN-00001-STEP-11 | completed | 2026-09-12T12:34:04Z | 2026-09-12T12:38:58Z | Commit `build: complete PLAN-00001-STEP-11 - SSH backend: connection, host-key pinning, `SftpFs``; `just check` green, 91.94% lines | SFTP I/O paths are covered only by the ignored Docker tests; `just coverage-full` measures them in STEP-15 |
+| PLAN-00001-STEP-12 | completed | 2026-09-12T12:41:35Z | 2026-09-12T12:42:00Z | Commit `build: complete PLAN-00001-STEP-12 - Wire the `ssh` backend into the factory and CLI`; `just check` green, 92.13% lines | The CLI resolves backends only through the registry; `passalong-core` has no dependency on `passalong-ssh` |
+| PLAN-00001-STEP-13 | completed | 2026-09-12T12:46:06Z | 2026-09-12T12:53:40Z | Commit `build: complete PLAN-00001-STEP-13 - `serve`: clipboard watcher, drop-folder watcher, retry loop`; `just check` green, 92.84% lines | Coverage checkpoint (STEP-13) in the `just check` row; AC-16 and AC-17 covered by `serve_sends_clipboard_text_and_dropped_files_then_stops` and `failed_uploads_are_retried_with_a_fresh_store` |
+| PLAN-00001-STEP-14 | completed | 2026-09-12T12:56:27Z | 2026-09-12T12:56:36Z | Commit `build: complete PLAN-00001-STEP-14 - Documentation, samples, and backlog`; `just check` green, 92.84% lines | Consistency script checks config keys, env vars (docs and .env.sample), CLI flags from every `--help`, `just` recipes, and relative Markdown links |
+| PLAN-00001-STEP-15 | completed | 2026-09-12T12:57:03Z | 2026-09-12T13:00:18Z | Commit `build: complete PLAN-00001-STEP-15 - Final quality gate and coverage report`; `just check` green, 92.84% lines | All five commands verified end to end: local backend in binary tests, SSH backend against OpenSSH 10.3 in Docker, container image with mapped user. Manual acceptance on a desktop (real clipboard round trip, real server) remains for the user |
 
 Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 `skipped`. A skipped step requires explicit user approval recorded in Evidence.
@@ -1503,26 +1502,156 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 
 | Timestamp (UTC) | Step | Event | Evidence or reference | Next action |
 |---|---|---|---|---|
+| 2026-09-12T10:54:05Z | — | Plan approved (commit ecdf1ed1bb3b6c7bf6d1078081f3ea49da550350); branch `feature/initial-plan` created from it | `git switch -c feature/initial-plan` | Begin STEP-01 |
+| 2026-09-12T10:54:05Z | PLAN-00001-STEP-01 | Started | User instruction: add LICENSE, README, .gitignore and implement STEP-01 to STEP-03 | Red phase |
+| 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | Verified; commit authorised by the user's instruction to implement STEP-01 to STEP-03 in one run | `build: complete PLAN-00001-STEP-01 - Workspace scaffold, tooling, and quality gates` | Begin STEP-02 |
+| 2026-09-12T10:59:49Z | PLAN-00001-STEP-02 | Started | — | Red phase |
+| 2026-09-12T11:05:44Z | PLAN-00001-STEP-02 | Verified; commit authorised by the user's instruction to implement STEP-01 to STEP-03 | `build: complete PLAN-00001-STEP-02 - Telemetry: levels, syslog-style formatter, operation ids` | Begin STEP-03 |
+| 2026-09-12T11:05:44Z | PLAN-00001-STEP-03 | Started | — | Red phase |
+| 2026-09-12T11:13:51Z | PLAN-00001-STEP-03 | Awaiting user review: verified and staged, not committed | `git diff --cached`; digest `5cb46dc13d60493bd662f540e872f4e9ad5fc4e663e58040d93dcd70cade87af` | User asks to continue; Builder commits STEP-03, then begins STEP-04 |
+| 2026-09-12T11:23:44Z | PLAN-00001-STEP-03 | User said "continue"; staged-checkpoint gate passed (digest, path set, branch, HEAD 043e574) | `build: complete PLAN-00001-STEP-03 - Configuration loading and validation` | Begin STEP-04 |
+| 2026-09-12T11:23:44Z | PLAN-00001-STEP-04 | Started | — | Red phase |
+| 2026-09-12T11:27:52Z | PLAN-00001-STEP-04 | Awaiting user review: verified and staged, not committed | `git diff --cached`; digest `8e1ba73851e6a855fb9c91866e7ee31ca88c877e027d8d505342e50a7a1b2dc5` | User asks to continue; Builder commits STEP-04, then begins STEP-05 |
+| 2026-09-12T12:08:41Z | PLAN-00001-STEP-04 | User said "continue"; staged-checkpoint gate passed | `build: complete PLAN-00001-STEP-04 - Item model, ids, hashing, and clock` | Begin STEP-05 |
+| 2026-09-12T12:08:41Z | — | User instruction: "Continue all the remaining steps without pausing for my review, unless there is a blocker. Still do a git commit on each step." From STEP-05 on, each verified step is committed immediately with no review pause. | User message | STEP-05 |
+| 2026-09-12T12:09:54Z | PLAN-00001-STEP-05 | Started | — | Red phase |
+| 2026-09-12T12:11:51Z | PLAN-00001-STEP-05 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-05 - `RemoteFs` trait, `LocalFs`, and failing test double` | Begin PLAN-00001-STEP-06 |
+| 2026-09-12T12:14:02Z | PLAN-00001-STEP-06 | Started | — | Red phase |
+| 2026-09-12T12:17:43Z | PLAN-00001-STEP-06 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-06 - `FsStore` layout with atomic publish and `Store` trait` | Begin PLAN-00001-STEP-07 |
+| 2026-09-12T12:19:33Z | PLAN-00001-STEP-07 | Started | — | Red phase |
+| 2026-09-12T12:19:56Z | PLAN-00001-STEP-07 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-07 - Clipboard trait, arboard adapter, mock` | Begin PLAN-00001-STEP-08 |
+| 2026-09-12T12:23:37Z | PLAN-00001-STEP-08 | Started | — | Red phase |
+| 2026-09-12T12:25:25Z | PLAN-00001-STEP-08 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-08 - CLI skeleton, `App` wiring, and `list`` | Begin PLAN-00001-STEP-09 |
+| 2026-09-12T12:25:25Z | PLAN-00001-STEP-09 | Started | — | Red phase |
+| 2026-09-12T12:27:28Z | PLAN-00001-STEP-09 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-09 - `clipboard` and `file` commands` | Begin PLAN-00001-STEP-10 |
+| 2026-09-12T12:31:10Z | PLAN-00001-STEP-10 | Started | — | Red phase |
+| 2026-09-12T12:31:18Z | PLAN-00001-STEP-10 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-10 - `load` command with integrity check` | Begin PLAN-00001-STEP-11 |
+| 2026-09-12T12:34:04Z | PLAN-00001-STEP-11 | Started | — | Red phase |
+| 2026-09-12T12:38:58Z | PLAN-00001-STEP-11 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-11 - SSH backend: connection, host-key pinning, `SftpFs`` | Begin PLAN-00001-STEP-12 |
+| 2026-09-12T12:41:35Z | PLAN-00001-STEP-12 | Started | — | Red phase |
+| 2026-09-12T12:42:00Z | PLAN-00001-STEP-12 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-12 - Wire the `ssh` backend into the factory and CLI` | Begin PLAN-00001-STEP-13 |
+| 2026-09-12T12:46:06Z | PLAN-00001-STEP-13 | Started | — | Red phase |
+| 2026-09-12T12:53:40Z | PLAN-00001-STEP-13 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-13 - `serve`: clipboard watcher, drop-folder watcher, retry loop` | Begin PLAN-00001-STEP-14 |
+| 2026-09-12T12:56:27Z | PLAN-00001-STEP-14 | Started | — | Evidence first |
+| 2026-09-12T12:56:36Z | PLAN-00001-STEP-14 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-14 - Documentation, samples, and backlog` | Begin PLAN-00001-STEP-15 |
+| 2026-09-12T12:57:03Z | PLAN-00001-STEP-15 | Started | — | Evidence first |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-15 - Final quality gate and coverage report` | Builder hand-off |
 
 ### Deviations and blockers
 
 | Timestamp (UTC) | Step | Deviation or blocker | Impact | Decision required from |
 |---|---|---|---|---|
-
-None
+| 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | Root `AGENTS.md` is empty (0 bytes) in commits c164d23 and eb196a6. The rules this plan cites were read before they were emptied and are reproduced in the plan; Builder followed the plan. | None on delivery; future agents lose the repository rules | User |
+| 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | Dockerfile uses `rust:1.98.1-slim-trixie` and `debian:trixie-slim` instead of `rust:1.98.1` and `debian:bookworm-slim` so builder and runtime glibc match; runtime runs as non-root user `passalong`. | None; AC-18 met | None (routine) |
+| 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | CI installs `just` and `cargo-llvm-cov` with `taiki-e/install-action@v2` instead of `extractions/setup-just`; `just ci` runs `check`, `test-integration`, then `coverage-full` to satisfy both REQ-02 and REQ-20. | None | None (routine) |
+| 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | Compose pins `lscr.io/linuxserver/openssh-server:10.3_p1-r1-ls236` and binds port 2222 to 127.0.0.1 only; `notify` 8.2.0 and `ssh-key` 0.6.7 are the latest stable releases (newest published are release candidates). | None | None (routine) |
+| 2026-09-12T11:05:44Z | PLAN-00001-STEP-02 | `Clock`/`SystemClock` (planned for STEP-04) and the `testing` feature with `FixedClock` (planned for STEP-05) were introduced here because the formatter needs an injected clock. Added `random::RandomSource`/`StdRandom` (std-only, no new dependency) for correlation ids, and `testing::SeqRandom` and `testing::LogBuffer` doubles. | STEP-04 and STEP-05 reuse these instead of creating them | None (routine) |
+| 2026-09-12T11:13:51Z | PLAN-00001-STEP-03 | `locate` returns `LocatedConfig { path, origin }`; the plan's `ConfigSource` is named `ConfigOrigin` because `thiserror` treats a field called `source` as the error cause. `SearchRoots` injects the `/etc` and working-directory positions for tests; `EnvProvider` also provides `hostname()` so the `device_name` default is injectable. | None; interfaces are additive | None (routine) |
+| 2026-09-12T11:13:51Z | PLAN-00001-STEP-03 | Positions 1 and 2 (`--config`, `PASSALONG_CONFIG_FILE`) must exist when given (`ConfigError::Missing`) instead of falling through; `ConfigError::NotFound` therefore lists the up to four probed standard paths, not six. | Typos in an explicit path are reported | None (interpretation of REQ-05) |
+| 2026-09-12T11:13:51Z | PLAN-00001-STEP-03 | Chosen bounds and defaults not spelled out in the plan: `connect_timeout_secs` 1 to 3600, poll interval 1 to 3600000 ms, stable wait 0 to 3600000 ms, `serve.drop_folder` default `~/PassAlong`; unknown keys rejected; relative `XDG_CONFIG_HOME` ignored. Added `effective_log_level` now so STEP-08 can apply the REQ-07 precedence. The CLI loads only `./.env` (no parent-directory search) and prints a warning for a malformed file. | Documented in docs/configuration.md | None (routine) |
+| 2026-09-12T11:27:52Z | PLAN-00001-STEP-04 | No `error.rs`: each module owns its error enum (`model::ModelError`, `config::ConfigError`, `telemetry::TelemetryError`) and nothing needs a top-level enum yet. `ItemId::new` returns `Result` because times before 1970 or after 2106-02-07 cannot be encoded. Added `ContentDigest` (SHA-256 plus byte count) returned by `ContentHasher`, and `NewItem::text`, `NewItem::file`, `NewItem::finish` so stores build metadata in one place. `preview_of` collapses every whitespace run, not only newlines. `name` and `preview` default to null when absent from older JSON. | None; interfaces are additive | None (routine) |
+| 2026-09-12T12:11:51Z | PLAN-00001-STEP-05 | Added `RemotePath::new` (validated multi-component parse), `BoxRead`/`BoxWrite` aliases, and `FaultyFs::fail_nth`/`fail_next`/`calls` with an `FsOp` selector. `LocalFs::rename` checks the target first because POSIX would replace an empty target directory; `remove_dir_all` succeeds on a missing path so clean-up is idempotent. `FsError` is `Clone` with an `Other { path, message }` variant. | None; interfaces are additive | None (routine) |
+| 2026-09-12T12:17:43Z | PLAN-00001-STEP-06 | `Store::put` returns `PutOutcome { meta, created }` instead of bare `ItemMeta`, so callers can report "already present" (REQ-13). `StoreError::Ambiguous` carries the typed input as well as the candidates; extra variants `Config`, `Content`, `Corrupt`, `Model`, `Backend` classify failures for one-line CLI errors. `resolve` requires 4 characters for both forms and does not require hex, so `zzzz` is `NotFound` as the plan's test expects. | None; interfaces are additive | None (routine) |
+| 2026-09-12T12:17:43Z | PLAN-00001-STEP-06 | The same-second publish race (rename hits `AlreadyExists`) returns the existing item but has no unit test: reproducing it needs a filesystem double that hides an item from listing but not from rename. Added `testing::ManualClock` for tests that advance time. | Two lines uncovered | None (routine) |
+| 2026-09-12T12:19:56Z | PLAN-00001-STEP-07 | The adapter lives in `clipboard/desktop.rs` (not `clipboard/arboard.rs`) to avoid shadowing the `arboard` crate name. On Linux, writes use arboard's `wait_until` with a 2-second deadline so a clipboard manager can take the content over; without one, text loaded by the short-lived `load` command vanishes when it exits. Documented in docs/usage.md; a detached clipboard holder is a backlog candidate for STEP-14. | Linux users without a clipboard manager must load into a file | None (routine) |
+| 2026-09-12T12:19:56Z | PLAN-00001-STEP-07 | `just test-integration` and `just coverage-full` pass `--skip desktop_` so the desktop-only ignored test never runs in CI; docs/developer-guide.md shows how to run it by hand. `MockClipboard` clones share state and support scripted reads, read errors, and write failures. | None | None (routine) |
+| 2026-09-12T12:25:25Z | PLAN-00001-STEP-08 | No `App` struct: `app::run` loads config, sets up logging, opens the store, and dispatches; each command takes its dependencies (store, output, UTC offset, later the clipboard) as arguments, so a clipboard is created only by commands that need one and `list` works headless. `clipboard`, `file`, `load`, and `serve` answer `not implemented yet` until their steps. | None | None (routine) |
+| 2026-09-12T12:25:25Z | PLAN-00001-STEP-08 | A failed command prints one `error:` line on stderr and logs the failure at verbose level, so the default level does not show the error twice. `CREATED` is local time as `YYYY-MM-DD HH:MM`; `NAME` is the file name or text preview cut to 40 characters. Binary tests use `CARGO_BIN_EXE_passalong` rather than the deprecated `Command::cargo_bin`. | Documented in docs/usage.md | None (routine) |
+| 2026-09-12T12:27:28Z | PLAN-00001-STEP-09 | `clipboard::run` takes a `TextSource` (clipboard or reader) so `--stdin` and the clipboard share one code path; the system clipboard is opened only when `--stdin` is absent. The "already present" log record comes from the store's `put`, which already logs it at info level with the id. | None | None (routine) |
+| 2026-09-12T12:31:18Z | PLAN-00001-STEP-10 | Added `ModelError::InvalidFileName` for `sanitise_file_name`, which also strips control characters and trims spaces. `load` takes the clipboard as an on-demand opener so only loads to the clipboard need a desktop session, prints the written path for file destinations and nothing for the clipboard, and verifies size as well as SHA-256. Text loaded to the clipboard is read fully into memory; files are streamed. | None | None (routine) |
+| 2026-09-12T12:38:58Z | PLAN-00001-STEP-11 | `russh` uses the `ring` backend (`default-features = false`, features `ring`, `flate2`, `rsa`) instead of the default `aws-lc-rs`, which needs cmake (absent from the Rust builder image) and complicates Android cross-compiles. The `ssh-key` workspace dependency was removed because `russh` re-exports its pinned `ssh-key` 0.7 release candidate. The `passalong-core` workspace dependency is now `default-features = false`, with the CLI opting into `desktop`, so `passalong-ssh` never pulls in the desktop clipboard. | No cmake needed; `aws-lc` absent from Cargo.lock | None (routine) |
+| 2026-09-12T12:38:58Z | PLAN-00001-STEP-11 | `PinnedHostKey::parse` also accepts `ssh-keyscan` output with its leading host field. The identity key is loaded before connecting so key problems need no network. `SftpFs::open` creates the remote root; `rename` checks the target first because SFTP v3 failures do not say why; `remove_dir_all` is iterative; sessions send keepalives every 30 s for `serve`. The closed-port test sits with the ignored Docker tests because unit tests must not open sockets. | None | None (routine) |
+| 2026-09-12T12:42:00Z | PLAN-00001-STEP-12 | The registry maps kinds to plain function openers (`fn(&Config) -> BackendFuture`) rather than boxed closures, which keeps higher-ranked lifetimes simple; `open_store` stays as a shortcut for the built-in kinds. A new backend must also add its `[server.<kind>]` section to the config module because unknown keys are rejected; documented in docs/architecture.md. | None | None (routine) |
+| 2026-09-12T12:53:40Z | PLAN-00001-STEP-13 | Shutdown is a `tokio::sync::watch<bool>` rather than a `tokio-util` `CancellationToken` (no new dependency); dropping the sender also stops `serve`. Tokio's paused clock replaces a custom `Sleeper`, and `tokio`'s `test-util` feature was added to `passalong-core` dev-dependencies for it. Filesystem events are only hints: the drop folder is always rescanned at least every 5 s, so missed events cannot lose files. | None | None (routine) |
+| 2026-09-12T12:53:40Z | PLAN-00001-STEP-13 | The echo check (`find_by_content_key` before uploading text) lives in the uploader, the store's only user, rather than in the clipboard watcher; the first text seen after start-up is sent. Sent-name collisions become `name (1).ext`. Files failing for local reasons are skipped until `serve` restarts, while store failures retry forever with a reconnect before each attempt. Clipboard read errors are logged once per distinct message. The CLI now opens the store inside each one-shot command so `serve` can open and reopen its own. | Documented in docs/usage.md | None (routine) |
+| 2026-09-12T12:56:36Z | PLAN-00001-STEP-14 | README gained Quick start and Container sections, and `just run -- --help` became `just run --help` (the extra `--` reached the binary). docs/architecture.md gained Command flow, `serve`, and Security model sections with a component diagram. Backlog entries beyond the plan's list come from build findings: Linux clipboard holder (STEP-07), retrying skipped files (STEP-13), `rsa` advisory review (STEP-11), Xvfb desktop test, and the empty root `AGENTS.md`. | None | None (routine) |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | Two defects found by this gate and fixed within scope: a rustdoc link to the feature-gated `testing` module (doc text only), and the container home directory permissions that broke the README's documented `docker run --user` command (Dockerfile only). No behaviour or interface changed. | None | None (routine) |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | `pre-commit` is not installed here, so `pre-commit run --all-files` was not executed; the hook's entry `just check` passed as part of `just ci`. Acceptance-criteria checkboxes are left for independent Review or Validate, as the Builder contract requires. | Hook runner itself unverified on this host | None (routine) |
 
 ### Verification results
 
 | Timestamp (UTC) | Step | Command or check | Result | Evidence |
 |---|---|---|---|---|
+| 2026-09-12T10:54:05Z | PLAN-00001-STEP-01 | Red: `cargo test --workspace --all-targets --all-features` | Exit 101 (expected) | E0425 cannot find value `VERSION` in passalong-core and passalong-ssh |
+| 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | `just check` (fmt-check, clippy -D warnings, tests, llvm-cov ≥ 80, locked build) | Exit 0 | 4 tests passed; lines 82.35 % (17 lines, 3 missed) |
+| 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | `just --list` | Pass | All REQ-02 recipes listed |
+| 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | `just docker-build`; `docker run --rm passalong:dev --help` and `--version` | Exit 0 | Usage printed; `passalong 0.1.0` |
+| 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | `just test-integration` | Exit 0 | Container healthy, 0 ignored tests yet, container removed; keys git-ignored |
+| 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | `cargo tree -p passalong-core -e normal` and `-p passalong-ssh`, grep -c clap | 0 and 0 | REQ-01, REQ-23 |
+| 2026-09-12T10:59:49Z | PLAN-00001-STEP-02 | Red: `cargo test -p passalong-core --all-features` | Exit 101 (expected) | E0425/E0433: missing `LogLevel`, `subscriber`, `op_span`, `new_op_id`, `syslog_name`, `init`, `StdRandom`, `SystemClock` |
+| 2026-09-12T11:05:44Z | PLAN-00001-STEP-02 | Green: `cargo test -p passalong-core --all-features` | Exit 0 | 19 unit and 1 integration test passed |
+| 2026-09-12T11:05:44Z | PLAN-00001-STEP-02 | Refactor: removed unused import, applied `cargo fmt --all` | — | No behaviour change |
+| 2026-09-12T11:05:44Z | PLAN-00001-STEP-02 | Determinism: telemetry tests run 5 times | 5 of 5 passed | Scoped subscribers per test |
+| 2026-09-12T11:05:44Z | PLAN-00001-STEP-02 | `just check` | Exit 0 | Lines 97.54 % (366 lines, 9 missed); telemetry.rs 98.97 % |
+| 2026-09-12T11:05:44Z | PLAN-00001-STEP-02 | `grep -rn println! crates/passalong-core/src crates/passalong-ssh/src` | Empty | Library crates log only through tracing |
+| 2026-09-12T11:05:44Z | PLAN-00001-STEP-03 | Red: `cargo test -p passalong-core --all-features` | Exit 101 (expected) | Missing `ConfigError`, `ConfigOrigin`, `locate`, `parse`, `load`, `effective_log_level`, `Passphrase`, `AfterSend`, `SearchRoots`, `StdEnv`, `MapEnv`, `expand_tilde` |
+| 2026-09-12T11:13:51Z | PLAN-00001-STEP-03 | Green: `cargo test -p passalong-core --all-features`; `cargo build -p passalong-cli` | Exit 0 | 45 unit and 1 integration test passed; CLI builds with `.env` loading |
+| 2026-09-12T11:13:51Z | PLAN-00001-STEP-03 | `just check` | Exit 0 | Lines 97.23 % (1048 lines, 29 missed) |
+| 2026-09-12T11:13:51Z | PLAN-00001-STEP-03 | `grep -rnE 'set_var|remove_var' crates/` | Empty | No test mutates the process environment |
+| 2026-09-12T11:13:51Z | PLAN-00001-STEP-03 | Every key in the `Raw*` config structs appears in docs/configuration.md | Pass | 15 keys documented |
+| 2026-09-12T11:13:51Z | PLAN-00001-STEP-03 | Committed sample `config.sample.toml` parses (unit test `the_committed_sample_config_is_valid`) | Pass | Sample stays in sync with the schema |
+| 2026-09-12T11:23:44Z | PLAN-00001-STEP-04 | Red: `cargo test -p passalong-core --all-features` | Exit 101 (expected) | Missing `ItemId`, `ItemMeta`, `ContentKey`, `ContentHasher`, `ContentDigest`, `NewItem`, `ItemKind`, `ModelError`, `preview_of`, `mime_for_file_name`, `TEXT_MIME` |
+| 2026-09-12T11:27:52Z | PLAN-00001-STEP-04 | Green: `cargo test -p passalong-core --all-features` | Exit 0 | 65 unit and 1 integration test passed on the first run |
+| 2026-09-12T11:27:52Z | PLAN-00001-STEP-04 | `cargo test -p passalong-core model`; `cargo test -p passalong-core clock` | Pass | test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 46 filtered out; finished in 0.00s; test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 63 filtered out; finished in 0.00s |
+| 2026-09-12T11:27:52Z | PLAN-00001-STEP-04 | `just check` | Exit 0 | Lines 97.26% (1388 lines, 38 missed); model.rs 97.31% |
+| 2026-09-12T11:27:52Z | PLAN-00001-STEP-04 | Ordering property: 100 deterministic pseudo-random id pairs | Pass | String order and `Ord` both equal (time, key) order |
+| 2026-09-12T12:09:54Z | PLAN-00001-STEP-05 | Red: `cargo test -p passalong-core --all-features` | Exit 101 (expected) | Missing `LocalFs`, `RemotePath`, `FsError`, `RemoteFs`, `FaultyFs` |
+| 2026-09-12T12:11:51Z | PLAN-00001-STEP-05 | `cargo test -p passalong-core --all-features fs::` | Pass | test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 65 filtered out; finished in 0.00s |
+| 2026-09-12T12:11:51Z | PLAN-00001-STEP-05 | `just check` | Exit 0 | Lines 97.68% (1768 lines, 41 missed); mod.rs 99.38%; local.rs 98.75%; testing.rs 97.35% |
+| 2026-09-12T12:14:02Z | PLAN-00001-STEP-06 | Red: `cargo test -p passalong-core --all-features` | Exit 101 (expected) | Missing `FsStore`, `open_store`, `Store`, `StoreError`, `ManualClock` |
+| 2026-09-12T12:17:43Z | PLAN-00001-STEP-06 | `cargo test -p passalong-core --all-features store::` | Pass | test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 77 filtered out; finished in 0.09s |
+| 2026-09-12T12:17:43Z | PLAN-00001-STEP-06 | `just check` | Exit 0 | Lines 97.51% (2414 lines, 60 missed); mod.rs 0.00%; fs_store.rs 97.79%; factory.rs 98.85% |
+| 2026-09-12T12:19:33Z | PLAN-00001-STEP-07 | Red: `cargo test -p passalong-core --all-features` | Exit 101 (expected) | Missing `ArboardClipboard` `Clipboard` `ClipboardError` `crate::testing::MockClipboard` |
+| 2026-09-12T12:19:56Z | PLAN-00001-STEP-07 | `cargo test -p passalong-core --all-features clipboard::` | Pass | test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 93 filtered out; finished in 0.00s |
+| 2026-09-12T12:19:56Z | PLAN-00001-STEP-07 | `cargo build -p passalong-core --no-default-features` | Pass | Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s |
+| 2026-09-12T12:19:56Z | PLAN-00001-STEP-07 | `just check` | Exit 0 | Lines 96.37% (2533 lines, 92 missed); mod.rs 86.05%; desktop.rs 0.00% |
+| 2026-09-12T12:23:37Z | PLAN-00001-STEP-08 | Red: `cargo test -p passalong-cli` | Exit 101 (expected) | Missing `Cli` `Command` `human_size` `render_json` `render_table` `run` |
+| 2026-09-12T12:25:25Z | PLAN-00001-STEP-08 | `cargo test -p passalong-cli` | Pass | test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s |
+| 2026-09-12T12:25:25Z | PLAN-00001-STEP-08 | `just check` | Exit 0 | Lines 96.90% (2903 lines, 90 missed); app.rs 96.97%; cli.rs 100.00%; output.rs 100.00%; list.rs 100.00%; main.rs 68.75% |
+| 2026-09-12T12:25:25Z | PLAN-00001-STEP-09 | Red: `cargo test -p passalong-cli` | Exit 101 (expected) | Missing `run` `TextSource` |
+| 2026-09-12T12:27:28Z | PLAN-00001-STEP-09 | `cargo test -p passalong-cli` | Pass | test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s |
+| 2026-09-12T12:27:28Z | PLAN-00001-STEP-09 | `just check` | Exit 0 | Lines 96.99% (3151 lines, 95 missed); clipboard.rs 100.00%; file.rs 97.62%; app.rs 90.00% |
+| 2026-09-12T12:31:10Z | PLAN-00001-STEP-10 | Red: `cargo test -p passalong-core model::`; `cargo test -p passalong-cli` | Exit 101 (expected) | Missing `Clipboard` `InvalidFileName` `PART_SUFFIX` `Path` `PathBuf` `run` `sanitise_file_name` |
+| 2026-09-12T12:31:18Z | PLAN-00001-STEP-10 | `cargo test -p passalong-cli` | Pass | test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s |
+| 2026-09-12T12:31:18Z | PLAN-00001-STEP-10 | `cargo test -p passalong-core --all-features model::` | Pass | test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 79 filtered out; finished in 0.00s |
+| 2026-09-12T12:31:18Z | PLAN-00001-STEP-10 | `just check` | Exit 0 | Lines 97.21% (3507 lines, 98 missed); load.rs 98.18%; model.rs 97.50% |
+| 2026-09-12T12:34:04Z | PLAN-00001-STEP-11 | Red: `cargo test -p passalong-ssh` | Exit 101 (expected) | Missing `crate::error::SshError` `join_remote` `map_sftp_error` `PinnedHostKey` `resolve_remote_root` `SshParams` |
+| 2026-09-12T12:38:58Z | PLAN-00001-STEP-11 | `just test-integration` against `lscr.io/linuxserver/openssh-server:10.3_p1-r1-ls236` | Exit 0 | 5 of 5 ignored SSH tests passed: RemoteFs round trip, FsStore 1 MiB put/list/get/dedupe/resolve, host key mismatch refused, unauthorised identity refused, closed port is a connection error; container removed afterwards |
+| 2026-09-12T12:38:58Z | PLAN-00001-STEP-11 | `cargo test -p passalong-ssh` | Pass | test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s |
+| 2026-09-12T12:38:58Z | PLAN-00001-STEP-11 | `just check` | Exit 0 | Lines 91.94% (3981 lines, 321 missed); host_key.rs 98.55%; connect.rs 55.68%; sftp_fs.rs 32.55%; error.rs 94.12% |
+| 2026-09-12T12:41:35Z | PLAN-00001-STEP-12 | Red: `cargo test -p passalong-core store::`; `cargo test -p passalong-ssh` | Exit 101 (expected) | Missing `BackendFuture` `BackendRegistry` `Config` `open_ssh_store` `passalong_core::store::BackendRegistry` `register` |
+| 2026-09-12T12:42:00Z | PLAN-00001-STEP-12 | `just test-integration` (Docker OpenSSH) | Exit 0 | 7 of 7 ignored tests passed, including the CLI round trip `clipboard --stdin` → `list --json` → `load` over SSH and `error: host key mismatch` for a wrong pinned key (AC-15); container removed |
+| 2026-09-12T12:42:00Z | PLAN-00001-STEP-12 | `cargo test -p passalong-ssh` | Pass | test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s |
+| 2026-09-12T12:42:00Z | PLAN-00001-STEP-12 | `cargo test -p passalong-core --all-features store::factory` | Pass | test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 95 filtered out; finished in 0.00s |
+| 2026-09-12T12:42:00Z | PLAN-00001-STEP-12 | `just check` | Exit 0 | Lines 92.13% (4117 lines, 324 missed); factory.rs 98.11%; backend.rs 91.94%; app.rs 85.42% |
+| 2026-09-12T12:46:06Z | PLAN-00001-STEP-13 | Red: `cargo test -p passalong-core --all-features` | Exit 101 (expected) | Missing `Backoff` `ClipboardWatcher` `crate::serve::Job` `DropTracker` `FileState` `is_ignored` `JobOutcome` `passalong_core::serve::ServeError` `run` `scan` `unique_target` `Uploader` |
+| 2026-09-12T12:53:40Z | PLAN-00001-STEP-13 | `for i in 1 2 3; do cargo test -p passalong-core --all-features serve; done` | 3 of 3 passed | Determinism check required by STEP-13 completion criteria |
+| 2026-09-12T12:53:40Z | PLAN-00001-STEP-13 | Binary test `serve_sends_dropped_files_and_stops_cleanly_on_sigterm` | Pass | Real process: dropped file sent and moved to `sent/`, SIGTERM gives exit 0 with `serve stopped`; no clipboard (display variables removed) |
+| 2026-09-12T12:53:40Z | PLAN-00001-STEP-13 | `cargo test -p passalong-core --all-features serve` | Pass | test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 0.00s |
+| 2026-09-12T12:53:40Z | PLAN-00001-STEP-13 | `cargo test -p passalong-cli` | Pass | test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s |
+| 2026-09-12T12:53:40Z | PLAN-00001-STEP-13 | `just check` | Exit 0 | Lines 92.84% (4956 lines, 355 missed); mod.rs 89.40%; upload.rs 95.24%; drop_watcher.rs 99.12%; clipboard_watcher.rs 100.00%; retry.rs 100.00%; serve.rs 95.00% |
+| 2026-09-12T12:56:36Z | PLAN-00001-STEP-14 | Evidence first (documentation-only step, no TDD) | — | Baseline consistency checks before editing: no missing keys, variables, flags, or recipes |
+| 2026-09-12T12:56:36Z | PLAN-00001-STEP-14 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck.sh` | Pass | documentation consistent: 15 keys, 3 variables, all flags, all recipes, all relative links |
+| 2026-09-12T12:56:36Z | PLAN-00001-STEP-14 | `just check` | Exit 0 | Lines 92.84% (4956 lines, 355 missed) |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | `just ci` (Linux, Docker): `check`, `test-integration`, `coverage-full` | Exit 0 | First run before the fixes and a second run after them both passed; all 7 Docker-backed tests ran (SFTP round trip, FsStore over SFTP, host key mismatch, unauthorised identity, closed port, CLI round trip over SSH, CLI host key mismatch) |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | `cargo llvm-cov` via `just coverage-full` (includes Docker tests) | 96.45 % lines | 4956 lines, 176 missed; `just coverage` without Docker: 92.82 % (both above the 80 % gate) |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | `RUSTDOCFLAGS=-D warnings cargo doc --workspace --no-deps` | Exit 0 after fix | First run failed on an intra-doc link to `testing::MockClipboard`, which exists only with the `testing` feature; changed to plain text |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | `cargo tree -p passalong-core -e normal` and `-p passalong-ssh`, grep clap; `-p passalong-ssh` grep arboard | 0, 0, 0 | REQ-01, REQ-23, AC-04 |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | `cargo build -p passalong-core -p passalong-ssh --no-default-features` | Exit 0 | AC-04 |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | `just docker-build`; `docker run --rm passalong:dev --help` and `--version` | Exit 0 | Usage printed; `passalong 0.1.0`; image 33 MB (AC-18) |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | README container command (`--user $(id -u):$(id -g)`, config and data mounted) with a local backend: `list`, `file`, `list`, `load <id> <dir>` | Pass after fix | First run failed with `no config file found`: `/home/passalong` was mode 700, so a mapped UID could not reach the mounted config; Dockerfile now sets 755 and all four commands succeed with byte-identical content |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | `pre-commit run --all-files` | Not run | `pre-commit` is not installed on the build host; its only hook entry is `just check`, which `just ci` ran |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | Scan for `unsafe` in crate sources; `aws-lc` in Cargo.lock | 0 and 0 | `#![forbid(unsafe_code)]` via workspace lints |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck.sh` | Pass | documentation consistent: 15 keys, 3 variables, all flags, all recipes, all relative links |
+| 2026-09-12T13:00:18Z | PLAN-00001-STEP-15 | `just check` | Exit 0 | Lines 92.84% (4956 lines, 355 missed) |
 
 ### Completion summary
 
-- **Implementation status:** `not-started`
-- **Completed requirements:** None
-- **Incomplete requirements:** All
-- **Outstanding blockers:** None
-- **Review request:** Not ready
+- **Implementation status:** `completed` — awaiting independent Review or Validate
+- **Completed requirements:** All: REQ-01 to REQ-24
+- **Incomplete requirements:** None
+- **Outstanding blockers:** None. User follow-ups: restore the empty root `AGENTS.md`; manual desktop acceptance (real clipboard round trip against a real server)
+- **Review request:** Ready for Review or Validate
 <!-- BUILDER_WORK_LOG_END -->
 
 ## 18. Planning change log
@@ -1531,6 +1660,7 @@ None
 |---|---|---|---|---|
 | 2026-09-12T09:53:11Z | draft | Initial draft created. Repository was not a git repository; planner ran `git init -b main` (no commit) so the plan workflow can proceed. Clean-state gate could not pass (unborn branch, untracked instruction files); plan written on explicit user instruction. | User requested the initial plan | User (joel@joeworks.com) |
 | 2026-09-12T10:35:32Z | draft | D-01, D-02, D-03 marked resolved as recommended; `blocking_decisions` 3 → 0. D-04 revised from pure content-hash ids to time-sortable `<ts>-<key>` ids with content-key deduplication; updated § 8 interfaces and layout, REQ-08, REQ-10, REQ-16, REQ-17, STEP-04, STEP-06, STEP-09, STEP-13, AC-08, AC-10, AC-11, § 15 risks, § 20 confidence. Draft still uncommitted at amendment time; amended on explicit user instruction. | User confirmed decisions and asked for timestamp-sortable ids | User (joel@joeworks.com) |
+| 2026-09-12T10:54:05Z | approved | Plan approved; `plan_status` → approved, `build_ready` → true, `approved_at` set, `baseline_commit` set to the initial commit, § 3 HEAD row filled in. No scope, requirement, step, or acceptance-criteria change. | User stated "Plans approved" | User (joel@joeworks.com) |
 
 ## 19. External references
 

@@ -1,0 +1,37 @@
+# passalong configuration. Copy to ~/.config/passalong/config.toml and edit.
+# Every key is documented in docs/configuration.md. Secrets never go here:
+# the SSH key passphrase comes from PASSALONG_SSH_KEY_PASSPHRASE (see .env.sample).
+
+[client]
+# Name recorded on every item you send. Default: this machine's hostname.
+# device_name = "laptop"
+# error | warning | info | verbose | debug
+log_level = "info"
+
+[server]
+# Storage backend: "ssh" or "local".
+kind = "ssh"
+
+[server.ssh]
+host = "192.168.1.10"
+port = 22
+user = "passalong"
+# The server's public host key, pinned. Obtain it with:
+#   ssh-keyscan -t ed25519 192.168.1.10
+# and paste the "ssh-ed25519 AAAA..." part here.
+host_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIReplaceWithTheServersRealHostKey"
+identity_file = "~/.ssh/id_ed25519"
+# Absolute, or relative to the SSH user's home directory.
+remote_path = "/srv/passalong"
+connect_timeout_secs = 10
+
+# Used when kind = "local", for example a mounted network share.
+# [server.local]
+# path = "/mnt/share/passalong"
+
+[serve]
+drop_folder = "~/PassAlong"
+clipboard_poll_interval_ms = 750
+file_stable_wait_ms = 1000
+# What to do with a dropped file after it is sent: "move" (into drop_folder/sent/) or "delete".
+after_send = "move"

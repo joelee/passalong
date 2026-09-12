@@ -1,0 +1,32 @@
+[package]
+name = "passalong-cli"
+description = "The passalong command-line client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "passalong"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+dotenvy.workspace = true
+passalong-core = { workspace = true, features = ["desktop"] }
+passalong-ssh.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+assert_cmd.workspace = true
+passalong-core = { workspace = true, features = ["testing"] }
+predicates.workspace = true
+tempfile.workspace = true

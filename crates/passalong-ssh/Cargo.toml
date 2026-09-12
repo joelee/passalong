@@ -1,0 +1,25 @@
+[package]
+name = "passalong-ssh"
+description = "SSH/SFTP storage backend for passalong"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait.workspace = true
+chrono.workspace = true
+passalong-core.workspace = true
+russh.workspace = true
+russh-sftp.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+passalong-core = { workspace = true, features = ["testing"] }
+tempfile.workspace = true

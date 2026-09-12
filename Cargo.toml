@@ -1,0 +1,54 @@
+[workspace]
+resolver = "3"
+members = ["crates/passalong-core", "crates/passalong-ssh", "crates/passalong-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "Apache-2.0"
+repository = "https://github.com/joeworks/passalong"
+description = "Lightweight cross-platform clipboard and file sharing over SSH"
+
+# Exact pins (PLAN-00001 STEP-01). Cargo.lock is committed and builds use --locked.
+[workspace.dependencies]
+# Front-ends opt into the desktop clipboard with `features = ["desktop"]`.
+passalong-core = { path = "crates/passalong-core", version = "=0.1.0", default-features = false }
+passalong-ssh = { path = "crates/passalong-ssh", version = "=0.1.0" }
+
+anyhow = "=1.0.104"
+arboard = { version = "=3.6.1", default-features = false }
+async-trait = "=0.1.92"
+chrono = { version = "=0.4.45", default-features = false, features = ["clock", "serde", "std"] }
+clap = { version = "=4.6.6", features = ["derive"] }
+dotenvy = "=0.15.7"
+gethostname = "=1.1.0"
+hex = "=0.4.3"
+mime_guess = "=2.0.5"
+notify = "=8.2.0"
+# `ring` instead of the default `aws-lc-rs`: no cmake needed and friendlier
+# to cross-compilation (Android). `rsa` keeps RSA identity files working.
+russh = { version = "=0.63.3", default-features = false, features = ["ring", "flate2", "rsa"] }
+russh-sftp = "=3.0.0"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+sha2 = "=0.11.0"
+thiserror = "=2.0.20"
+tokio = { version = "=1.53.1", features = ["rt-multi-thread", "macros", "fs", "io-util", "signal", "time", "sync"] }
+toml = "=1.1.6"
+tracing = "=0.1.44"
+tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["fmt", "registry", "std"] }
+
+# Test-only
+assert_cmd = "=2.2.2"
+predicates = "=3.1.4"
+tempfile = "=3.27.0"
+tokio-test = "=0.4.5"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[profile.release]
+strip = true
+lto = "thin"

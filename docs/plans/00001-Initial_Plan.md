@@ -8,17 +8,17 @@ tags:
   - opencode
 type: delivery-plan
 plan_id: "PLAN-00001"
-plan_status: draft                 # draft | approved | cancelled
+plan_status: approved              # draft | approved | cancelled
 plan_kind: initial                 # initial | superseding
 created_at: "2026-09-12T09:53:11Z"
-approved_at: null
+approved_at: "2026-09-12T10:54:05Z"
 planner_agent: "Claude Code"
 planner_model: "anthropic/claude-fable-5-1"
 triggered_by: user                 # user | agent:<agent-name>
 request_kind: direct               # idea | review | idea-and-review | direct | unplanned-query
 repository: "passalong (local repository, no remote configured)"
 baseline_branch: "main"
-baseline_commit: null
+baseline_commit: "c164d2310f2d5efff368a0d7ff3326384d07c4e7"
 source_ideas: []
 source_reviews: []
 previous_plan: null
@@ -26,7 +26,7 @@ requirements_count: 24
 steps_count: 15
 acceptance_criteria_count: 20
 blocking_decisions: 0
-build_ready: false
+build_ready: true
 web_research_used: false
 confidence: high                  # high | medium | low
 
@@ -44,14 +44,13 @@ current_step: null
 
 # Delivery Plan 00001: Initial Plan
 
-> [!abstract] Plan status: `draft`
+> [!abstract] Plan status: `approved`
 > Deliver `passalong` v0.1.0: a Rust CLI that pushes clipboard text and files to
 > an SSH/SFTP-backed store and lists/loads them back, with a reusable core
 > library, TDD, `just`-driven quality gates, containers, and full documentation.
 > All material decisions are resolved (D-01 to D-03 confirmed by the user on
-> 2026-09-12; D-04 revised to time-sortable ids at the user's request). Not yet
-> Builder-ready only because the plan awaits explicit approval and the
-> repository has no initial commit yet (see Repository baseline).
+> 2026-09-12; D-04 revised to time-sortable ids at the user's request). Approved
+> by the user at 2026-09-12T10:54:05Z; Builder-ready.
 
 ## 1. Objective and outcome
 
@@ -110,7 +109,7 @@ added behind one storage trait without touching commands.
 |---|---|
 | Repository | `/home/joel/Projects/GitHub/passalong` (git initialised on 2026-09-12 by the planner with `git init -b main`; no remote) |
 | Branch | `main` (unborn; no commits yet) |
-| HEAD | None. `baseline_commit` is `null` because the repository has no commit. The user must create the initial commit containing `AGENTS.md`, the `docs/*/AGENTS.md` symlinks, the `.agents/skills` symlink, and this plan before approval. |
+| HEAD | `c164d2310f2d5efff368a0d7ff3326384d07c4e7` ("Initial Commit", instruction files and this plan; no application code). `eb196a60cb60367ce752969676ecd3b60fcf5732` changed only this plan. |
 | Working tree at publication | Not clean: the six pre-existing untracked paths listed in the planner's hand-off. No application code exists; the only repository content is instruction files and this plan. |
 | Applicable instructions | `AGENTS.md` (root); `docs/plans/AGENTS.md` (plan format, numbering, immutability); `~/.claude/CLAUDE.md` (graphify trigger; not relevant to this plan) |
 | Toolchain verified on planner machine | `rustc 1.98.1`, `cargo 1.98.1`, `just`, `docker`. Not installed: `cargo-llvm-cov`, `cargo-nextest`, `pre-commit`. |
@@ -1531,6 +1530,7 @@ None
 |---|---|---|---|---|
 | 2026-09-12T09:53:11Z | draft | Initial draft created. Repository was not a git repository; planner ran `git init -b main` (no commit) so the plan workflow can proceed. Clean-state gate could not pass (unborn branch, untracked instruction files); plan written on explicit user instruction. | User requested the initial plan | User (joel@joeworks.com) |
 | 2026-09-12T10:35:32Z | draft | D-01, D-02, D-03 marked resolved as recommended; `blocking_decisions` 3 → 0. D-04 revised from pure content-hash ids to time-sortable `<ts>-<key>` ids with content-key deduplication; updated § 8 interfaces and layout, REQ-08, REQ-10, REQ-16, REQ-17, STEP-04, STEP-06, STEP-09, STEP-13, AC-08, AC-10, AC-11, § 15 risks, § 20 confidence. Draft still uncommitted at amendment time; amended on explicit user instruction. | User confirmed decisions and asked for timestamp-sortable ids | User (joel@joeworks.com) |
+| 2026-09-12T10:54:05Z | approved | Plan approved; `plan_status` → approved, `build_ready` → true, `approved_at` set, `baseline_commit` set to the initial commit, § 3 HEAD row filled in. No scope, requirement, step, or acceptance-criteria change. | User stated "Plans approved" | User (joel@joeworks.com) |
 
 ## 19. External references
 

@@ -2,6 +2,8 @@
 
 mod app;
 mod cli;
+// Only Linux needs a process to keep loaded text on the clipboard.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod clipboard_holder;
 mod commands;
 mod daemon;

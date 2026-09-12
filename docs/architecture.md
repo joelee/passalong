@@ -6,7 +6,7 @@
 |---|---|---|
 | `passalong-core` | library | Configuration, item model, storage traits, clipboard trait, `serve` loop, telemetry. No CLI or terminal dependencies. |
 | `passalong-ssh` | library | SSH/SFTP storage backend (`russh`), host-key pinning. |
-| `passalong-cli` | binary `passalong` | Argument parsing, command handlers, output formatting. |
+| `passalong` (in `crates/passalong-cli/`) | binary `passalong` | Argument parsing, command handlers, output formatting. |
 
 Future GUI and Android front-ends depend on `passalong-core` and
 `passalong-ssh` only. `passalong-core` keeps the desktop clipboard behind its
@@ -14,7 +14,7 @@ Future GUI and Android front-ends depend on `passalong-core` and
 
 ```mermaid
 flowchart LR
-  CLI["passalong-cli<br/>commands and output"] --> REG["BackendRegistry"]
+  CLI["passalong (CLI)<br/>commands and output"] --> REG["BackendRegistry"]
   CLI --> SERVE["serve loop<br/>passalong-core"]
   SERVE --> REG
   CLI --> CLIP["Clipboard trait<br/>ArboardClipboard"]

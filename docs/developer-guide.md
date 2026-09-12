@@ -22,7 +22,7 @@ crates/
 ├── passalong-core/   config, item model, storage (RemoteFs, FsStore, Store),
 │                     clipboard trait, serve loop, telemetry, test doubles
 ├── passalong-ssh/    SftpFs over russh, host-key pinning, the `ssh` backend
-└── passalong-cli/    the `passalong` binary: argument parsing, commands, output
+└── passalong-cli/    package `passalong`, the binary: argument parsing, commands, output
 docs/                 user and developer documentation; plans in docs/plans/
 tests/docker/         OpenSSH server for the integration tests
 ```
@@ -42,7 +42,8 @@ tests/docker/         OpenSSH server for the integration tests
 | `just check` | `fmt-check`, `lint`, `test`, `coverage`, `build` |
 | `just ci` | `check`, `test-integration`, `coverage-full` |
 | `just docker-build` | Builds the `passalong:dev` image |
-| `just run <args>` | `cargo run -p passalong-cli -- <args>` |
+| `just run <args>` | `cargo run -p passalong -- <args>` |
+| `just publish-dry-run` | `cargo publish --workspace --dry-run --locked`: packages and verifies every crate without uploading |
 | `just setup` | Installs coverage tooling |
 
 CI runs `just ci` on Linux and `just check` on macOS, because GitHub's macOS
@@ -101,3 +102,11 @@ test.
 Work is planned in numbered delivery plans under `docs/plans/`. Each plan's
 Builder Work Log records per-step test evidence, verification results, and
 deviations.
+
+## Publishing
+
+Three crates are published to crates.io, in dependency order:
+`passalong-core`, `passalong-ssh`, and `passalong`, the CLI package in
+`crates/passalong-cli/`. `just publish-dry-run` packages and verifies all
+three exactly as crates.io would, without uploading. The published CLI
+installs with `cargo install passalong`.

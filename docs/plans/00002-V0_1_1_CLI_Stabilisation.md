@@ -32,14 +32,14 @@ confidence: medium                # high | medium | low
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; Delivery Planner initializes them.
-implementation_status: not-started # not-started | in-progress | blocked | completed | abandoned
-builder_agent: null
-builder_model: null
-execution_branch: null
-execution_started_at: null
-execution_updated_at: "2026-09-12T17:42:44Z"
+implementation_status: in-progress # not-started | in-progress | blocked | completed | abandoned
+builder_agent: "Claude Code"
+builder_model: "anthropic/claude-opus-5"
+execution_branch: "feature/00002-v0.1.1-CLI_Stabilisation"
+execution_started_at: "2026-09-12T17:42:30Z"
+execution_updated_at: "2026-09-12T17:45:33Z"
 execution_completed_at: null
-current_step: "PLAN-00002-STEP-02"
+current_step: "PLAN-00002-STEP-03"
 ---
 
 # Delivery Plan 00002: V0 1 1 CLI Stabilisation
@@ -936,7 +936,7 @@ run at STEP-03, STEP-06, STEP-07, STEP-11, and STEP-14.
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
 | PLAN-00002-STEP-01 | completed | 2026-09-12T17:42:30Z | 2026-09-12T17:42:44Z | Commit `build: complete PLAN-00002-STEP-01 - v0.1.0 release records and metadata fixes`; `just check` green, 92.84% lines | Plans under docs/plans keep their historical text; the repository URL finding stays documented there |
-| PLAN-00002-STEP-02 | not-started | — | — | — | — |
+| PLAN-00002-STEP-02 | completed | 2026-09-12T17:43:07Z | 2026-09-12T17:45:33Z | Commit `build: complete PLAN-00002-STEP-02 - Crate metadata, package rename, caret requirements, publish dry run`; `just check` green, 92.84% lines | Package `passalong` lives in `crates/passalong-cli/` (directory unchanged); libraries get READMEs and docs.rs all-features builds |
 | PLAN-00002-STEP-03 | not-started | — | — | — | — |
 | PLAN-00002-STEP-04 | not-started | — | — | — | — |
 | PLAN-00002-STEP-05 | not-started | — | — | — | — |
@@ -959,12 +959,16 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 |---|---|---|---|---|
 | 2026-09-12T17:42:30Z | PLAN-00002-STEP-01 | Started | — | Evidence first |
 | 2026-09-12T17:42:44Z | PLAN-00002-STEP-01 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00002-STEP-01 - v0.1.0 release records and metadata fixes` | Begin PLAN-00002-STEP-02 |
+| 2026-09-12T17:42:30Z | — | Plan approved (commit d86a411e26d5916a40bba8176163db9223e1ba77) on the user's branch `feature/00002-v0.1.1-CLI_Stabilisation` | User: "The defaults are acceptable. Please proceed as before." | STEP-01 |
+| 2026-09-12T17:43:07Z | PLAN-00002-STEP-02 | Started | — | Evidence first |
+| 2026-09-12T17:45:33Z | PLAN-00002-STEP-02 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00002-STEP-02 - Crate metadata, package rename, caret requirements, publish dry run` | Begin PLAN-00002-STEP-03 |
 
 ### Deviations and blockers
 
 | Timestamp (UTC) | Step | Deviation or blocker | Impact | Decision required from |
 |---|---|---|---|---|
 | 2026-09-12T17:42:44Z | PLAN-00002-STEP-01 | Builder works on the user's branch `feature/00002-v0.1.1-CLI_Stabilisation` (the plan's § 5 was updated at approval). `docs/release/v0.1.0.md` also records the test counts per suite and the known limitations. The root `AGENTS.md` was restored verbatim from the text read at the start of PLAN-00001 (D-05 b), and the matching backlog entry was removed. The consistency script now also checks release documents, the CHANGELOG release sections, the repository URL, and a non-empty `AGENTS.md`. | None | None (routine) |
+| 2026-09-12T17:45:33Z | PLAN-00002-STEP-02 | STEP-01's commit did not set the Builder front-matter fields (branch, start time, builder, status); this step records them and the approval event. The CLI package's `readme` points at the root README and its `documentation` at docs/usage.md, since docs.rs is not useful for a binary. The published v0.1.0 notes keep the old `passalong-cli` name because that was correct for v0.1.0. | None | None (routine) |
 
 ### Verification results
 
@@ -973,12 +977,18 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T17:42:44Z | PLAN-00002-STEP-01 | Evidence first (documentation step, no TDD) | — | `grep` found `github.com/joeworks/passalong` in Cargo.toml before the fix; `docs/release/` did not exist; root `AGENTS.md` was 0 bytes |
 | 2026-09-12T17:42:44Z | PLAN-00002-STEP-01 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
 | 2026-09-12T17:42:44Z | PLAN-00002-STEP-01 | `just check` | Exit 0 | Lines 92.84% (4956 lines, 355 missed) |
+| 2026-09-12T17:45:33Z | PLAN-00002-STEP-02 | Evidence first: `cargo publish --workspace --dry-run --locked` before changes | Exit 0 | Already packaged, but as `passalong-cli`, without readme, keywords, categories, homepage, or documentation, and with exact `=` pins; crates.io still returned 404 for all four names at 2026-09-12T17:43:02Z |
+| 2026-09-12T17:45:33Z | PLAN-00002-STEP-02 | Cargo.lock locked third-party versions before and after | Identical | Only the workspace package rename changed the lock |
+| 2026-09-12T17:45:33Z | PLAN-00002-STEP-02 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/p2check02.sh` | Pass | publish dry run verified passalong-core, passalong-ssh, passalong; cargo install --path gave 'passalong 0.1.0'; 0 exact third-party pins |
+| 2026-09-12T17:45:33Z | PLAN-00002-STEP-02 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
+| 2026-09-12T17:45:33Z | PLAN-00002-STEP-02 | `cargo test -p passalong` | Pass | test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s |
+| 2026-09-12T17:45:33Z | PLAN-00002-STEP-02 | `just check` | Exit 0 | Lines 92.84% (4956 lines, 355 missed) |
 
 ### Completion summary
 
 - **Implementation status:** `in-progress`
-- **Completed requirements:** REQ-03, REQ-04, REQ-05
-- **Incomplete requirements:** REQ-01, REQ-02, REQ-06 to REQ-24
+- **Completed requirements:** REQ-03, REQ-04, REQ-05, REQ-13, REQ-14 (local recipe; CI job in STEP-12)
+- **Incomplete requirements:** REQ-01, REQ-02, REQ-06 to REQ-12, REQ-15 to REQ-24
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

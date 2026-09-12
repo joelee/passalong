@@ -55,9 +55,13 @@ ci: check test-integration coverage-full
 docker-build:
     docker build -t {{image}} .
 
+# Package and verify every crate for crates.io without uploading
+publish-dry-run *ARGS:
+    cargo publish --workspace --dry-run --locked {{ARGS}}
+
 # Run the CLI, e.g. `just run list`
 run *ARGS:
-    cargo run -p passalong-cli -- {{ARGS}}
+    cargo run -p passalong -- {{ARGS}}
 
 # Start the throwaway OpenSSH server, export its connection details as
 # PASSALONG_IT_SSH_* variables, run CMD, and always tear the server down.

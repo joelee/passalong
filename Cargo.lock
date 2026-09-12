@@ -1540,7 +1540,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "passalong-cli"
+name = "passalong"
 version = "0.1.0"
 dependencies = [
  "anyhow",

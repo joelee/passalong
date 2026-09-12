@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Changed
+
+- The CLI package is now named `passalong` (the binary name is unchanged),
+  and all crates carry crates.io metadata; third-party dependency
+  requirements are caret requirements (PLAN-00002 STEP-02).
+
 ### Fixed
 
 - Crate metadata now points at the correct repository,

@@ -19,6 +19,9 @@ All notable changes to this project are documented here. The format follows
 - `passalong serve --daemon` runs `serve` in the background with a log file;
   `serve --status` and `serve --stop` manage it, and a second `serve` is
   refused (PLAN-00002 STEP-08).
+- A guide and a tested Docker Compose example for running the passalong SSH
+  server with the storage on the host: `docs/docker-ssh-server-setup.md`
+  and `deploy/ssh-server/` (PLAN-00002 STEP-11).
 
 ### Changed
 

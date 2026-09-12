@@ -68,7 +68,10 @@ An id can be shortened to its first 4 or more distinctive characters. See
 
 ## Server setup
 
-Any machine with an OpenSSH server can be the server. Do this once:
+Any machine with an OpenSSH server can be the server. To run one in
+Docker with the storage on the host, follow
+[docs/docker-ssh-server-setup.md](docs/docker-ssh-server-setup.md).
+Otherwise, do this once:
 
 1. Create a user and a storage directory for passalong:
 

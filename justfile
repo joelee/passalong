@@ -41,6 +41,55 @@ coverage:
 # Line coverage gate including the Docker-backed tests
 coverage-full: (_with-sshd "cargo llvm-cov --workspace --all-features --fail-under-lines 80 --summary-only -- --include-ignored --skip desktop_")
 
+# Prove deploy/ssh-server works end to end: start it from a temporary
+# directory, run `init` and a round trip, check host-owned storage and a
+# stable host key across re-creation. Linux and Docker only.
+test-deploy:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    root="$PWD"
+    work="$(mktemp -d)"
+    export PASSALONG_SSH_PORT=2223 PASSALONG_STORAGE="$work/storage" PUID="$(id -u)" PGID="$(id -g)"
+    compose() { docker compose -f "$root/deploy/ssh-server/compose.yaml" --project-directory "$work" -p passalong-deploy-test "$@"; }
+    cleanup() {
+        img="$(compose config --images 2>/dev/null | head -1 || true)"
+        compose down -v --remove-orphans >/dev/null 2>&1 || true
+        # Some files under config/ may belong to the container's root user.
+        if ! rm -rf "$work" 2>/dev/null && [ -n "$img" ]; then
+            docker run --rm --entrypoint rm -v "$work:/w" "$img" -rf /w/config /w/storage /w/keys >/dev/null 2>&1 || true
+            rm -rf "$work" || true
+        fi
+    }
+    trap cleanup EXIT
+    mkdir -p "$work/keys" "$work/storage"
+    ssh-keygen -q -t ed25519 -N "" -C deploy-test -f "$work/client_key"
+    cp "$work/client_key.pub" "$work/keys/deploy-test.pub"
+    for attempt in 1 2 3 4 5; do
+        if compose pull --quiet; then break; fi
+        if [ "$attempt" -eq 5 ]; then echo "error: could not pull the SSH server image" >&2; exit 1; fi
+        sleep $((attempt * 10))
+    done
+    compose up -d --wait
+    # The same command the guide gives for reading the fingerprint.
+    fingerprint() { compose exec -T passalong-sshd ssh-keygen -lf /config/ssh_host_keys/ssh_host_ed25519_key.pub | awk '{print $2}'; }
+    fp="$(fingerprint)"
+    cargo build -q --bin passalong
+    pa() { env -u XDG_CONFIG_HOME -u XDG_STATE_HOME -u PASSALONG_CONFIG_FILE HOME="$work" "$root/target/debug/passalong" --config "$work/client.toml" "$@"; }
+    pa init --host 127.0.0.1 --port 2223 --user passalong --identity-file "$work/client_key" --remote-path /data --device-name deploy-test --fingerprint "$fp" --yes
+    id="$(echo "hello from the deploy test" | pa clipboard --stdin)"
+    pa list | grep -q "$id"
+    mkdir -p "$work/out"
+    pa load "$id" "$work/out" >/dev/null
+    grep -qx "hello from the deploy test" "$work/out/$id.txt"
+    meta="$(find "$work/storage/items" -name meta.json | head -1)"
+    [ -n "$meta" ] || { echo "error: no item in the host storage directory" >&2; exit 1; }
+    [ "$(stat -c %u "$meta")" = "$(id -u)" ] || { echo "error: stored files are not owned by UID $(id -u)" >&2; exit 1; }
+    compose down
+    compose up -d --wait
+    [ "$(fingerprint)" = "$fp" ] || { echo "error: the host key changed after re-creating the container" >&2; exit 1; }
+    pa list | grep -q "$id"
+    echo "deploy example OK: init, round trip, host-owned storage, host key $fp unchanged after re-creation"
+
 # Build the workspace from the lockfile
 build:
     cargo build --workspace --all-features --locked
@@ -49,7 +98,7 @@ build:
 check: fmt-check lint test coverage build
 
 # Full CI pipeline: all checks, then Docker-backed integration and coverage
-ci: check test-integration coverage-full
+ci: check test-integration test-deploy coverage-full
 
 # Build the container image
 docker-build:

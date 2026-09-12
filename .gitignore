@@ -3,3 +3,8 @@
 tests/docker/keys/
 *.profraw
 lcov.info
+# A server run from deploy/ssh-server in place: host private keys and data.
+deploy/ssh-server/config/
+deploy/ssh-server/storage/
+deploy/ssh-server/keys/
+deploy/ssh-server/.env

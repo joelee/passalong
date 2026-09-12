@@ -36,11 +36,12 @@ tests/docker/         OpenSSH server for the integration tests
 | `just lint` | `cargo clippy --workspace --all-targets --all-features -- -D warnings` |
 | `just test` | `cargo test --workspace --all-targets --all-features` |
 | `just test-integration` | Starts the Docker OpenSSH server and runs the ignored tests |
+| `just test-deploy` | Starts `deploy/ssh-server` from a temporary directory and checks `init`, a round trip, host-owned storage, and a stable host key (Linux, Docker) |
 | `just coverage` | `cargo llvm-cov --workspace --all-features --fail-under-lines 80 --summary-only` |
 | `just coverage-full` | Coverage including the Docker-backed tests |
 | `just build` | `cargo build --workspace --all-features --locked` |
 | `just check` | `fmt-check`, `lint`, `test`, `coverage`, `build` |
-| `just ci` | `check`, `test-integration`, `coverage-full` |
+| `just ci` | `check`, `test-integration`, `test-deploy`, `coverage-full` |
 | `just docker-build` | Builds the `passalong:dev` image |
 | `just run <args>` | `cargo run -p passalong -- <args>` |
 | `just publish-dry-run` | `cargo publish --workspace --dry-run --locked`: packages and verifies every crate without uploading |

@@ -285,3 +285,54 @@ fn file_errors_name_the_path() {
         .code(1)
         .stderr(predicate::str::contains("missing.bin"));
 }
+
+#[test]
+fn file_list_load_round_trip_is_byte_identical() {
+    let sb = Sandbox::new();
+    let source = sb.path("work/big.bin");
+    let data: Vec<u8> = (0..5 * 1024 * 1024_u32)
+        .map(|i| (i.wrapping_mul(2_654_435_761) >> 9) as u8)
+        .collect();
+    std::fs::write(&source, &data).unwrap();
+    sb.with_config().arg("file").arg(&source).assert().success();
+    let out = sb
+        .with_config()
+        .args(["list", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    let id = json[0]["id"].as_str().unwrap().to_owned();
+    let dest = sb.path("home");
+    sb.with_config()
+        .args(["load", &id])
+        .arg(&dest)
+        .assert()
+        .success()
+        .stdout(format!("{}\n", dest.join("big.bin").display()));
+    assert_eq!(std::fs::read(dest.join("big.bin")).unwrap(), data);
+    sb.with_config()
+        .args(["load", &id])
+        .arg(&dest)
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("--force"));
+    sb.with_config()
+        .args(["load", &id, "--force"])
+        .arg(&dest)
+        .assert()
+        .success();
+}
+
+#[test]
+fn loading_an_unknown_id_fails() {
+    let sb = Sandbox::new();
+    sb.with_config()
+        .args(["load", "abcd"])
+        .arg(sb.path("home"))
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("no item matches `abcd`"));
+}

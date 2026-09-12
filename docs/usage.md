@@ -66,6 +66,28 @@ files are never read into memory. The item keeps the file's name, and its
 type is guessed from the extension. Directories are refused. Sending a file
 whose content is already stored prints the existing item's id.
 
+## `passalong load <ID> [DEST]`
+
+Copies an item out of the store. `ID` is the full id or at least 4
+characters of it: the start of the content key (`2cf2`), or the start of the
+full id when it contains a `-`.
+
+| Form | Result |
+|---|---|
+| `passalong load 2cf2` | Text items go to the clipboard. File items are refused with `destination required for file items`. |
+| `passalong load 2cf2 ~/Downloads` | Into an existing directory, under the item's file name, or `<id>.txt` for text. |
+| `passalong load 2cf2 ./copy.pdf` | To exactly that file. |
+
+When writing a file, the path written is printed. An existing file is not
+replaced unless `--force` is given. The content is written to a temporary
+`.passalong-part` file next to the target and checked against the item's
+SHA-256 first, so a corrupted or truncated download never replaces
+anything. File names stored on the server are reduced to their last
+component, so a name like `../../etc/passwd` is written as `passwd` inside
+the destination directory.
+
+A prefix that matches several items is refused, and the error lists them.
+
 ## Clipboard support
 
 Clipboard text works on macOS and on Linux under X11 or a Wayland compositor

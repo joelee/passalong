@@ -40,6 +40,9 @@ pub enum ModelError {
     /// A creation time that cannot be written as 8 hex digits of seconds.
     #[error("time {0} is outside the item id range 1970-01-01 to 2106-02-07")]
     TimestampOutOfRange(DateTime<Utc>),
+    /// A stored file name that leaves nothing usable after sanitising.
+    #[error("`{0}` is not a usable file name")]
+    InvalidFileName(String),
 }
 
 fn is_lower_hex(text: &str, len: usize) -> bool {
@@ -392,6 +395,25 @@ pub fn preview_of(text: &str) -> String {
     preview
 }
 
+/// Reduces a stored file name to something safe to create in a local
+/// directory: only the last `/`- or `\\`-separated component is kept, with
+/// control characters removed and surrounding spaces trimmed. Names from
+/// the server are untrusted, so `../../etc/passwd` becomes `passwd`.
+///
+/// # Errors
+///
+/// [`ModelError::InvalidFileName`] when nothing usable remains, for example
+/// for `..` or a name ending in a separator.
+pub fn sanitise_file_name(name: &str) -> Result<String, ModelError> {
+    let last = name.rsplit(['/', '\\']).next().unwrap_or_default();
+    let cleaned: String = last.chars().filter(|c| !c.is_control()).collect();
+    let cleaned = cleaned.trim();
+    if cleaned.is_empty() || cleaned == "." || cleaned == ".." {
+        return Err(ModelError::InvalidFileName(name.to_owned()));
+    }
+    Ok(cleaned.to_owned())
+}
+
 /// Guesses a file's MIME type from its extension, falling back to
 /// `application/octet-stream`.
 pub fn mime_for_file_name(name: &str) -> String {
@@ -673,5 +695,26 @@ mod tests {
             "application/octet-stream"
         );
         assert_eq!(mime_for_file_name("Makefile"), "application/octet-stream");
+    }
+
+    #[test]
+    fn file_names_are_reduced_to_a_safe_last_component() {
+        let cases = [
+            ("normal.pdf", "normal.pdf"),
+            ("../../etc/passwd", "passwd"),
+            ("..\\..\\evil.exe", "evil.exe"),
+            (" spaced name.txt ", "spaced name.txt"),
+            ("bell\u{7}name", "bellname"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(sanitise_file_name(input).unwrap(), expected, "{input:?}");
+        }
+        for bad in ["", "..", ".", "dir/", "/", "\u{0}"] {
+            let err = sanitise_file_name(bad).unwrap_err();
+            assert!(
+                matches!(err, ModelError::InvalidFileName(_)),
+                "{bad:?}: {err:?}"
+            );
+        }
     }
 }

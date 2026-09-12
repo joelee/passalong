@@ -6,7 +6,7 @@ use std::process::ExitCode;
 
 use anyhow::Context as _;
 use chrono::{FixedOffset, Local, Offset};
-use passalong_core::clipboard::ArboardClipboard;
+use passalong_core::clipboard::{ArboardClipboard, Clipboard, ClipboardError};
 use passalong_core::config::{self, Config, EnvProvider, SearchRoots};
 use passalong_core::random::StdRandom;
 use passalong_core::{store, telemetry};
@@ -63,6 +63,12 @@ async fn dispatch(command: Command, config: &Config, out: &mut dyn Write) -> any
         }
         Command::File { path } => commands::file::run(store, &path, device, out).await,
         Command::List { json } => commands::list::run(store, json, local_offset(), out).await,
+        Command::Load { id, dest, force } => {
+            let mut open_clipboard = || -> Result<Box<dyn Clipboard>, ClipboardError> {
+                Ok(Box::new(ArboardClipboard::new()?))
+            };
+            commands::load::run(store, &id, dest.as_deref(), force, &mut open_clipboard, out).await
+        }
         other => anyhow::bail!("`{}` is not implemented yet", other.name()),
     }
 }

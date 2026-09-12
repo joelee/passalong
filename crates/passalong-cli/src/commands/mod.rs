@@ -5,6 +5,7 @@
 pub mod clipboard;
 pub mod file;
 pub mod list;
+pub mod load;
 
 /// Helpers shared by the command tests.
 #[cfg(test)]
@@ -21,8 +22,8 @@ pub(crate) mod support {
 
     /// A local store in a temporary directory with a clock tests can move.
     pub struct TestStore {
-        /// Keeps the temporary directory alive for the store's lifetime.
-        _dir: TempDir,
+        /// The store\'s root directory.
+        pub dir: TempDir,
         pub clock: Arc<ManualClock>,
         pub store: FsStore<LocalFs>,
     }
@@ -36,11 +37,7 @@ pub(crate) mod support {
                 clock.clone(),
                 Box::new(StdRandom::new()),
             );
-            Self {
-                _dir: dir,
-                clock,
-                store,
-            }
+            Self { dir, clock, store }
         }
     }
 

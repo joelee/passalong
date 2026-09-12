@@ -32,3 +32,5 @@ All notable changes to this project are documented here. The format follows
   and 2 (PLAN-00001 STEP-08).
 - `passalong clipboard` (with `--stdin`) and `passalong file` send text and
   files and print the new item's id (PLAN-00001 STEP-09).
+- `passalong load` copies an item to a file, a directory, or the clipboard,
+  verifying its SHA-256 before anything is replaced (PLAN-00001 STEP-10).

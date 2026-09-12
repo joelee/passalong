@@ -32,14 +32,14 @@ confidence: medium                # high | medium | low
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; Delivery Planner initializes them.
-implementation_status: in-progress # not-started | in-progress | blocked | completed | abandoned
+implementation_status: completed # not-started | in-progress | blocked | completed | abandoned
 builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00002-v0.1.1-CLI_Stabilisation"
 execution_started_at: "2026-09-12T17:42:30Z"
-execution_updated_at: "2026-09-12T18:34:56Z"
-execution_completed_at: null
-current_step: "PLAN-00002-STEP-14"
+execution_updated_at: "2026-09-12T18:47:35Z"
+execution_completed_at: "2026-09-12T18:47:35Z"
+current_step: null
 ---
 
 # Delivery Plan 00002: V0 1 1 CLI Stabilisation
@@ -948,7 +948,7 @@ run at STEP-03, STEP-06, STEP-07, STEP-11, and STEP-14.
 | PLAN-00002-STEP-11 | completed | 2026-09-12T18:14:55Z | 2026-09-12T18:19:21Z | Commit `build: complete PLAN-00002-STEP-11 - Docker SSH server guide and tested example`; `just check` green, 92.49% lines | AC-01: the recipe uses the guide's own fingerprint command, `init --fingerprint --yes`, a clipboard/list/load round trip, a host-UID ownership check, and a fingerprint comparison after re-creating the container |
 | PLAN-00002-STEP-12 | completed | 2026-09-12T18:19:59Z | 2026-09-12T18:30:15Z | Commit `build: complete PLAN-00002-STEP-12 - CI additions and release workflow`; `just check` green, 92.52% lines | AC-17 local, AC-18 met. Licence allow-list is exactly the set the dependency tree needs: Apache-2.0, Apache-2.0 WITH LLVM-exception, BSD-3-Clause, BSL-1.0, CC0-1.0, ISC, MIT, Unicode-3.0, Zlib; LGPL-2.1-or-later appears only as an OR alternative and is not allowed. AC-12 and AC-19 need the Xvfb job on GitHub, recorded in STEP-14 after the push |
 | PLAN-00002-STEP-13 | completed | 2026-09-12T18:30:28Z | 2026-09-12T18:34:56Z | Commit `build: complete PLAN-00002-STEP-13 - Documentation and v0.1.1 release preparation`; `just check` green, 92.49% lines | AC-20: all crates 0.1.1 with internal =0.1.1 pins; CHANGELOG Unreleased lists the v0.1.1 changes; docs/release/v0.1.1.md has the package-rename upgrade note (cargo uninstall passalong-cli first). The consistency script treats a release document for the current workspace version as a draft whose entries stay under Unreleased. Docs: README status, install, commands; architecture gains background serve, Linux clipboard, release pipeline; backlog drops delete/prune, init, clipboard holder, retry skipped files, serve --daemon, supply-chain audit, Xvfb test. STEP-12 audit and lint evidence rows corrected (the finisher had recorded a dependency-tree line and the recipe echo) |
-| PLAN-00002-STEP-14 | not-started | — | — | — | — |
+| PLAN-00002-STEP-14 | completed | 2026-09-12T18:34:58Z | 2026-09-12T18:47:35Z | Commit `build: complete PLAN-00002-STEP-14 - Final quality gate`; `just check` green, 92.45% lines | AC-12 and AC-19 by the Xvfb job; AC-21 by local just ci and CI run 34712064170 (coverage 92.45 % without Docker, 95.52 % with); AC-22 by the scope review. This commit changes only the plan, and its own CI run is checked after the push |
 
 Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 `skipped`. A skipped step requires explicit user approval recorded in Evidence.
@@ -984,6 +984,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T18:30:15Z | PLAN-00002-STEP-12 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00002-STEP-12 - CI additions and release workflow` | Begin PLAN-00002-STEP-13 |
 | 2026-09-12T18:30:28Z | PLAN-00002-STEP-13 | Started | — | Red phase |
 | 2026-09-12T18:34:56Z | PLAN-00002-STEP-13 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00002-STEP-13 - Documentation and v0.1.1 release preparation` | Begin PLAN-00002-STEP-14 |
+| 2026-09-12T18:34:58Z | PLAN-00002-STEP-14 | Started | — | Evidence first |
+| 2026-09-12T18:47:35Z | PLAN-00002-STEP-14 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00002-STEP-14 - Final quality gate` | Builder hand-off |
 
 ### Deviations and blockers
 
@@ -1003,6 +1005,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T18:30:15Z | PLAN-00002-STEP-12 | Added `just lint-workflows` (local actionlint, else its pinned Docker image) and put `audit`, `publish-dry-run`, and `lint-workflows` in `just ci`, so the Linux CI job covers them without separate jobs. `just setup` installs actionlint only when Go is present. The tag-guard tests are a Rust integration test in the CLI crate so `just check` runs them. | None | None (routine) |
 | 2026-09-12T18:34:56Z | PLAN-00002-STEP-13 | `ci.yml` now also runs on pushes to `feature/**` branches. Before, CI ran only on `main` and pull requests, so the pushed branch produced no run and the plan's branch CI evidence (Linux, macOS, Xvfb) was unobtainable without opening a PR. A PR from such a branch runs CI twice. | Duplicate runs on PRs from feature branches | None (routine) |
 | 2026-09-12T18:34:56Z | PLAN-00002-STEP-13 | Backlog gains two engineering items found in STEP-12: the `rsa` advisory exception and the `cargo deny` duplicate-version warnings. | None | None (routine) |
+| 2026-09-12T18:47:35Z | PLAN-00002-STEP-14 | Three fix commits landed between STEP-13 and this step, outside the step-commit format: 7e98dab (holder dead code on macOS; desktop tests share a lock and run on one thread in CI), 18a7220 (daemon test expects the macOS log path), and 6c2deb8 (daemon test checks the macOS pid file; before, the check passed vacuously on macOS). Each was needed to get the branch CI green and is described in its commit message. | Tests and CI only; no behaviour change | None (routine) |
 
 ### Verification results
 
@@ -1078,12 +1081,19 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T18:34:56Z | PLAN-00002-STEP-13 | `bash -c 'actionlint && echo actionlint: no findings passed'` | Pass | actionlint: no findings passed |
 | 2026-09-12T18:34:56Z | PLAN-00002-STEP-13 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
 | 2026-09-12T18:34:56Z | PLAN-00002-STEP-13 | `just check` | Exit 0 | Lines 92.49% (7031 lines, 528 missed) |
+| 2026-09-12T18:47:35Z | PLAN-00002-STEP-14 | `just ci` locally on 019229f (clean tree) | Exit 0 | check, audit (advisories/bans/licenses/sources ok), publish dry run (3 crates), actionlint, 11 Docker SSH tests, deploy example (host key unchanged after re-creation), coverage-full 95.52 % lines |
+| 2026-09-12T18:47:35Z | PLAN-00002-STEP-14 | GitHub CI run 34711633476 on 019229f | Linux pass; macOS and Xvfb fail | macOS: clippy rejected the Linux-only clipboard holder as dead code. Xvfb: the two core desktop tests ran in parallel on one clipboard. Fixed in 7e98dab |
+| 2026-09-12T18:47:35Z | PLAN-00002-STEP-14 | GitHub CI run 34711825098 on 7e98dab | Linux and Xvfb pass; macOS fail | Xvfb: desktop_clipboard_round_trip, desktop_held_text_outlives_the_writer_until_replaced, desktop_loaded_text_survives_load_exiting passed. macOS: daemon binary test expected the Linux log path; the daemon itself used the documented macOS path. Fixed in 18a7220 and 6c2deb8 |
+| 2026-09-12T18:47:35Z | PLAN-00002-STEP-14 | GitHub CI run 34712064170 on 6c2deb8 | Pass | Linux (just ci with Docker SSH tests), macOS (just check), Linux desktop clipboard (Xvfb): all success |
+| 2026-09-12T18:47:35Z | PLAN-00002-STEP-14 | Scope review: `git diff --stat d86a411..HEAD -- crates` | Pass | 34 files; 10 new files, all CLI commands, daemon, prompt, holder, retention, crate READMEs, tag-guard test; no GUI, Windows, Android, or backend code; registry kinds local and ssh (s3 only in a pre-existing test stub from 3ab17d4) |
+| 2026-09-12T18:47:35Z | PLAN-00002-STEP-14 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
+| 2026-09-12T18:47:35Z | PLAN-00002-STEP-14 | `just check` | Exit 0 | Lines 92.45% (7035 lines, 531 missed) |
 
 ### Completion summary
 
 - **Implementation status:** `in-progress`
-- **Completed requirements:** REQ-01 to REQ-18, REQ-20 to REQ-22; REQ-19 (implementation; Xvfb CI evidence pending)
-- **Incomplete requirements:** REQ-23, REQ-24
+- **Completed requirements:** REQ-01 to REQ-24
+- **Incomplete requirements:** None
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

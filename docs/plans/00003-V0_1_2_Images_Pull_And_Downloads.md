@@ -8,10 +8,10 @@ tags:
   - opencode
 type: delivery-plan
 plan_id: "PLAN-00003"
-plan_status: draft                 # draft | approved | cancelled
+plan_status: approved              # draft | approved | cancelled
 plan_kind: initial                 # initial | superseding
 created_at: "2026-09-12T23:33:36Z"
-approved_at: null
+approved_at: "2026-09-12T23:55:51Z"
 planner_agent: "Claude Code"
 planner_model: "anthropic/claude-opus-5"
 triggered_by: user                 # user | agent:<agent-name>
@@ -25,8 +25,8 @@ previous_plan: null
 requirements_count: 20
 steps_count: 14
 acceptance_criteria_count: 22
-blocking_decisions: 6
-build_ready: false
+blocking_decisions: 0
+build_ready: true
 web_research_used: true
 confidence: medium                # high | medium | low
 
@@ -44,13 +44,14 @@ current_step: null
 
 # Delivery Plan 00003: V0 1 2 Images Pull And Downloads
 
-> [!abstract] Plan status: `draft`
+> [!abstract] Plan status: `approved`
 > Deliver `passalong` v0.1.2: `passalong cat`, a download directory that
 > `load` uses when no destination is given, interactive choice between
 > ambiguous id prefixes, clipboard images, an opt-in pull mode for `serve`,
 > a policy that fails CI on new duplicate dependency versions, and removal
 > of the `rsa` advisory exception from default builds. Decisions D-01 to
-> D-06 await the user; this draft is not Builder-ready.
+> D-06 were confirmed as proposed, with option (a) for D-06; approved by the
+> user at 2026-09-12T23:55:51Z; Builder-ready.
 
 ## 1. Objective and outcome
 
@@ -178,18 +179,17 @@ None. Unresolved matters are recorded as decisions and block approval.
 
 | ID | Decision or blocker | Resolution | Owner | Status |
 |---|---|---|---|---|
-| D-01 | How `cat` writes content and treats binary items. | **Proposed:** stream the content to standard output in chunks while hashing it, and verify SHA-256 and size after the last chunk; on a mismatch exit 1 with `item <id> failed verification` (the output is already written, as with `curl`). Buffering whole items first was rejected because files can be large. Nothing is added to the output, not even a trailing newline. When standard output is a terminal and the item is not text (not a text item and not a file with a `text/*` MIME type), refuse with `item <id> is binary (<mime>); redirect the output or use --force`. | User | Proposed; blocking |
-| D-02 | Download directory and `load` without a destination. | **Proposed:** new key `client.download_dir`, default `~/Downloads`. `load <file-id>` without `DEST` writes into it under the item's sanitised name, creating the directory and its parents if missing, and prints the path. If the name is taken it writes `<stem> (1).<ext>`, `(2)`, and so on, up to 999, instead of failing; `--force` overwrites the exact name instead. Text items without `DEST` still go to the clipboard, and clipboard images go to the clipboard (D-04). An explicit `DEST` behaves as in v0.1.1. Pull mode (D-05) uses the same naming but never creates the directory. | User | Proposed; blocking |
-| D-03 | Interactive choice between ambiguous prefixes. | **Proposed:** when a prefix matches several items and both standard input and standard error are terminals, list up to 9 candidates newest first (number, kind, name or text preview, device, age) and ask `Choose 1-N, or press Enter to cancel:`. An invalid answer is asked again up to 3 times. Cancelling exits 1 with `cancelled` and changes nothing. With more than 9 matches, show 9 and `and N more; type more characters of the id`. Applies to `load`, `cat`, and `delete`; `delete` resolves every id, asking as needed, before deleting anything. Without a terminal the v0.1.1 error listing the candidates is unchanged. | User | Proposed; blocking |
-| D-04 | Image item format and clipboard behaviour. | **Proposed:** store clipboard images as PNG file items: `kind = "file"`, `mime = "image/png"`, name `clipboard-YYYYMMDD-HHMMSS.png` (UTC creation time), and a new optional `meta.json` field `origin = "clipboard"`. v0.1.1 clients then see an ordinary PNG file instead of a corrupt item. `passalong clipboard` sends text when the clipboard has text, otherwise the image; `--stdin` stays text-only. `load <image-id>` without `DEST` puts the image on the clipboard (on Linux through the clipboard holder); with `DEST` it writes the PNG. `cat` prints the PNG bytes (D-01 applies). `list` shows kind `image`. `serve` sends clipboard images when `serve.clipboard_images` is true (default), reading the image only when there is no text and sending it only when its pixels change. Images above 64 megapixels are refused. PNG files sent with `passalong file` stay files. | User | Proposed; blocking |
-| D-05 | Pull mode behaviour. | **Proposed:** `serve.pull = false` by default; `serve.pull_interval_ms`, default 5000, range 1000 to 3600000. When enabled, `serve` records the newest existing item at start-up and every interval asks the store for newer items (`Store::list_after`), ignoring items whose `device` equals this device's `client.device_name`. Of the new text and clipboard-image items, only the newest is applied to the clipboard. Each new file item, including PNG files sent with `passalong file`, is downloaded, verified, into `client.download_dir` if that directory exists; it is never created, names are never overwritten (D-02 numbering), and a missing directory is logged once and the files are skipped. Pulled content is marked as seen by the clipboard watcher, so it is never sent back. A store error leaves the position unchanged and is retried at the next interval; a failed local write is logged and skipped. With `pull = true`, `download_dir` must not be the drop folder or inside it. Without a clipboard, text and images are skipped with a warning and files are still pulled. | User | Proposed; blocking |
-| D-06 | What to do about RUSTSEC-2023-0071 (`rsa`, no patched release). | **Proposed (a):** RSA support becomes an opt-in cargo feature `rsa` of `passalong-ssh`, forwarded by the `passalong` package; default builds, release binaries, and plain `cargo install passalong` contain no `rsa` crate, and the advisory exception is removed. In a default build an RSA identity file or an `ssh-rsa` pinned host key fails with `RSA keys need passalong built with the rsa feature (cargo install passalong --features rsa); Ed25519 keys work in every build`. **Alternatives:** (b) keep RSA on by default and keep the documented exception; (c) remove RSA support completely. Option (a) is a breaking change for anyone logging in with an RSA key, so the release notes carry an upgrade note. | User | Proposed; blocking |
+| D-01 | How `cat` writes content and treats binary items. | **Confirmed by user (2026-09-12):** stream the content to standard output in chunks while hashing it, and verify SHA-256 and size after the last chunk; on a mismatch exit 1 with `item <id> failed verification` (the output is already written, as with `curl`). Buffering whole items first was rejected because files can be large. Nothing is added to the output, not even a trailing newline. When standard output is a terminal and the item is not text (not a text item and not a file with a `text/*` MIME type), refuse with `item <id> is binary (<mime>); redirect the output or use --force`. | User | Resolved |
+| D-02 | Download directory and `load` without a destination. | **Confirmed by user (2026-09-12):** new key `client.download_dir`, default `~/Downloads`. `load <file-id>` without `DEST` writes into it under the item's sanitised name, creating the directory and its parents if missing, and prints the path. If the name is taken it writes `<stem> (1).<ext>`, `(2)`, and so on, up to 999, instead of failing; `--force` overwrites the exact name instead. Text items without `DEST` still go to the clipboard, and clipboard images go to the clipboard (D-04). An explicit `DEST` behaves as in v0.1.1. Pull mode (D-05) uses the same naming but never creates the directory. | User | Resolved |
+| D-03 | Interactive choice between ambiguous prefixes. | **Confirmed by user (2026-09-12):** when a prefix matches several items and both standard input and standard error are terminals, list up to 9 candidates newest first (number, kind, name or text preview, device, age) and ask `Choose 1-N, or press Enter to cancel:`. An invalid answer is asked again up to 3 times. Cancelling exits 1 with `cancelled` and changes nothing. With more than 9 matches, show 9 and `and N more; type more characters of the id`. Applies to `load`, `cat`, and `delete`; `delete` resolves every id, asking as needed, before deleting anything. Without a terminal the v0.1.1 error listing the candidates is unchanged. | User | Resolved |
+| D-04 | Image item format and clipboard behaviour. | **Confirmed by user (2026-09-12):** store clipboard images as PNG file items: `kind = "file"`, `mime = "image/png"`, name `clipboard-YYYYMMDD-HHMMSS.png` (UTC creation time), and a new optional `meta.json` field `origin = "clipboard"`. v0.1.1 clients then see an ordinary PNG file instead of a corrupt item. `passalong clipboard` sends text when the clipboard has text, otherwise the image; `--stdin` stays text-only. `load <image-id>` without `DEST` puts the image on the clipboard (on Linux through the clipboard holder); with `DEST` it writes the PNG. `cat` prints the PNG bytes (D-01 applies). `list` shows kind `image`. `serve` sends clipboard images when `serve.clipboard_images` is true (default), reading the image only when there is no text and sending it only when its pixels change. Images above 64 megapixels are refused. PNG files sent with `passalong file` stay files. | User | Resolved |
+| D-05 | Pull mode behaviour. | **Confirmed by user (2026-09-12):** `serve.pull = false` by default; `serve.pull_interval_ms`, default 5000, range 1000 to 3600000. When enabled, `serve` records the newest existing item at start-up and every interval asks the store for newer items (`Store::list_after`), ignoring items whose `device` equals this device's `client.device_name`. Of the new text and clipboard-image items, only the newest is applied to the clipboard. Each new file item, including PNG files sent with `passalong file`, is downloaded, verified, into `client.download_dir` if that directory exists; it is never created, names are never overwritten (D-02 numbering), and a missing directory is logged once and the files are skipped. Pulled content is marked as seen by the clipboard watcher, so it is never sent back. A store error leaves the position unchanged and is retried at the next interval; a failed local write is logged and skipped. With `pull = true`, `download_dir` must not be the drop folder or inside it. Without a clipboard, text and images are skipped with a warning and files are still pulled. | User | Resolved |
+| D-06 | What to do about RUSTSEC-2023-0071 (`rsa`, no patched release). | **Confirmed by user (2026-09-12), option (a):** RSA support becomes an opt-in cargo feature `rsa` of `passalong-ssh`, forwarded by the `passalong` package; default builds, release binaries, and plain `cargo install passalong` contain no `rsa` crate, and the advisory exception is removed. In a default build an RSA identity file or an `ssh-rsa` pinned host key fails with `RSA keys need passalong built with the rsa feature (cargo install passalong --features rsa); Ed25519 keys work in every build`. **Alternatives:** (b) keep RSA on by default and keep the documented exception; (c) remove RSA support completely. Option (a) is a breaking change for anyone logging in with an RSA key, so the release notes carry an upgrade note. | User | Resolved |
 | D-07 | Duplicate dependency policy. | **Resolved by planner:** every current duplicate comes from upstream crates (`russh`, `ring`, `russh-sftp`'s `dashmap`, `arboard`'s `wl-clipboard-rs`, `async-trait` and `clap_derive` on `syn` 3), and image support adds `miniz_oxide` 0.8 beside 0.9. Update what semver-compatible updates allow; then set `bans.multiple-versions = "deny"` and list each remaining duplicate as a `skip` entry with `crate@version` and a reason naming the dependency path. No forks or `[patch]` overrides. | Planner | Resolved |
 | D-08 | Version and branch. | **Resolved by planner:** release as v0.1.2 (the user's request), with all crates and internal `=` requirements at `0.1.2`. Suggested branch name: `feature/00003-v0.1.2-Images_Pull_Downloads`. | Planner | Resolved |
 
-Blocking decisions: 6 (D-01 to D-06). The plan body is written for the
-proposed resolutions; any other choice is applied by amending this draft
-before approval.
+Blocking decisions: 0. The user confirmed D-01 to D-06 as proposed on
+2026-09-12, with option (a) for D-06; the plan body already reflects them.
 
 ## 8. Affected architecture and components
 
@@ -954,6 +954,8 @@ None.
 | Timestamp (UTC) | Plan status | Change | Reason | Requested/approved by |
 |---|---|---|---|---|
 | 2026-09-12T23:33:36Z | draft | Created with 20 requirements, 14 steps, 22 acceptance criteria, and decisions D-01 to D-08 (D-01 to D-06 proposed and blocking); REQ-18 also finalises the unfinished v0.1.1 release records | User request for the v0.1.2 plan; release rules | User |
+| 2026-09-12T23:55:51Z | draft | D-01 to D-06 confirmed as proposed, D-06 option (a); blocking decisions 0 | User answer: "All six questions, as recommended" | User |
+| 2026-09-12T23:55:51Z | approved | Approved; `plan_status`, `approved_at`, and `build_ready` set | User approval (commit a669aa8 "PLAN#00003 approved.") | User |
 
 ## 19. External references
 

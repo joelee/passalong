@@ -22,6 +22,10 @@ All notable changes to this project are documented here. The format follows
 - A guide and a tested Docker Compose example for running the passalong SSH
   server with the storage on the host: `docs/docker-ssh-server-setup.md`
   and `deploy/ssh-server/` (PLAN-00002 STEP-11).
+- Tag-driven releases: pushing `vX.Y.Z` checks the tag, builds Linux x86_64
+  and macOS arm64 binaries, creates the GitHub release, and publishes the
+  crates to crates.io; CI also audits dependencies with `cargo deny` and
+  runs the desktop clipboard tests under Xvfb (PLAN-00002 STEP-12).
 
 ### Changed
 

@@ -10,10 +10,12 @@ compose := "tests/docker/docker-compose.yml"
 default:
     @just --list
 
-# Install developer tooling: llvm-tools-preview and cargo-llvm-cov
+# Install developer tooling: llvm-tools-preview, cargo-llvm-cov, cargo-deny, actionlint (needs Go)
 setup:
     rustup component add llvm-tools-preview
     command -v cargo-llvm-cov >/dev/null || cargo install --locked cargo-llvm-cov
+    command -v cargo-deny >/dev/null || cargo install --locked cargo-deny
+    command -v actionlint >/dev/null || ! command -v go >/dev/null || GOBIN="$HOME/.local/bin" go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 
 # Format all code in place
 fmt:
@@ -90,6 +92,14 @@ test-deploy:
     pa list | grep -q "$id"
     echo "deploy example OK: init, round trip, host-owned storage, host key $fp unchanged after re-creation"
 
+# Supply-chain audit: advisories, licences, bans, and sources (deny.toml)
+audit:
+    cargo deny check
+
+# Lint the GitHub Actions workflows, with a local actionlint or its image
+lint-workflows:
+    if command -v actionlint >/dev/null; then actionlint; else docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color; fi
+
 # Build the workspace from the lockfile
 build:
     cargo build --workspace --all-features --locked
@@ -98,7 +108,7 @@ build:
 check: fmt-check lint test coverage build
 
 # Full CI pipeline: all checks, then Docker-backed integration and coverage
-ci: check test-integration test-deploy coverage-full
+ci: check audit publish-dry-run lint-workflows test-integration test-deploy coverage-full
 
 # Build the container image
 docker-build:
@@ -106,6 +116,10 @@ docker-build:
 
 # Package and verify every crate for crates.io without uploading
 publish-dry-run *ARGS:
+    # Verification compiles the packaged crates as registry dependencies, and
+    # cargo never rebuilds a registry crate whose version is unchanged, so
+    # clear earlier builds of the workspace crates first.
+    cargo clean -p passalong-core -p passalong-ssh -p passalong
     cargo publish --workspace --dry-run --locked {{ARGS}}
 
 # Run the CLI, e.g. `just run list`

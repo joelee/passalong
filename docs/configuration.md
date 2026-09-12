@@ -1,7 +1,9 @@
 # Configuration
 
 Settings live in `config.toml`; the only secret, the SSH key passphrase,
-comes from the environment. [`config.sample.toml`](../config.sample.toml) is
+comes from the environment. `passalong init` writes a complete file for an
+SSH server, at `$XDG_CONFIG_HOME/passalong/config.toml` or
+`~/.config/passalong/config.toml` unless `--config` says otherwise. [`config.sample.toml`](../config.sample.toml) is
 an annotated example with every key.
 
 ## Lookup order
@@ -19,6 +21,9 @@ A path named by `--config` or `PASSALONG_CONFIG_FILE` must exist; passalong
 reports the typo instead of falling back to another file. Relative paths
 resolve against the working directory. Empty environment variables count as
 unset, and a relative `XDG_CONFIG_HOME` is ignored.
+A location that exists but cannot be read, for example because a directory
+on its path may not be entered, is reported as
+`cannot read config file <path>: permission denied` rather than skipped.
 
 ## Keys
 
@@ -79,6 +84,19 @@ The key passphrase is never read from this file; see Environment variables.
 The CLI loads `./.env` at start-up when it exists. Values from `.env` never
 override variables already set in the environment. Keep secrets only in
 `.env`, which is git-ignored; `.env.sample` lists the supported names.
+
+## `serve` files
+
+`serve` records its pid, and `serve --daemon` writes its log, here:
+
+| Platform | Pid file | Log file |
+|---|---|---|
+| Linux | `${XDG_STATE_HOME:-~/.local/state}/passalong/serve.pid` | `${XDG_STATE_HOME:-~/.local/state}/passalong/serve.log` |
+| macOS | `~/Library/Application Support/passalong/serve.pid` | `~/Library/Logs/passalong/serve.log` |
+
+The pid file is locked while `serve` runs, which is how a second copy is
+refused. A pid file left behind by a crash is harmless and is reused. The
+log file grows without rotation.
 
 ## Logging
 

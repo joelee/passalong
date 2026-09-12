@@ -1,11 +1,16 @@
 [package]
-name = "passalong-cli"
+name = "passalong"
 description = "The passalong command-line client"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+documentation = "https://github.com/joelee/passalong/blob/main/docs/usage.md"
+readme = "../../README.md"
+keywords = ["clipboard", "file-sharing", "ssh", "sftp", "cli"]
+categories = ["command-line-utilities"]
 
 [[bin]]
 name = "passalong"
@@ -16,6 +21,7 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
+async-trait.workspace = true
 chrono.workspace = true
 clap.workspace = true
 dotenvy.workspace = true

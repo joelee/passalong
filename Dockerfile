@@ -5,7 +5,7 @@ FROM rust:1.98.1-slim-trixie AS builder
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
-RUN cargo build --release --locked -p passalong-cli
+RUN cargo build --release --locked -p passalong
 
 FROM debian:trixie-slim
 # The home directory must be traversable (755) so the image also works with

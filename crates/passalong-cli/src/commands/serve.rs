@@ -1,17 +1,81 @@
 //! `passalong serve`: run until stopped, sending new clipboard text and
-//! files dropped into the drop folder.
+//! files dropped into the drop folder; with `--daemon`, in the background.
 
+use std::io::Write;
+use std::path::Path;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
+use anyhow::Context as _;
 use passalong_core::clipboard::{ArboardClipboard, Clipboard};
-use passalong_core::config::Config;
+use passalong_core::config::{Config, EnvProvider};
 use passalong_core::serve::{self, ServeOptions, StoreOpener};
 use passalong_core::store::{BackendFuture, BackendRegistry};
-use tokio::sync::watch;
+use passalong_core::telemetry::LogLevel;
+use tokio::sync::{oneshot, watch};
 
-/// Runs `serve` until Ctrl-C, or SIGTERM on Unix. Without a desktop
-/// clipboard it keeps watching the drop folder.
-pub async fn run(config: &Config, backends: BackendRegistry) -> anyhow::Result<()> {
+use crate::cli::ServeArgs;
+use crate::commands::QuietExit;
+use crate::daemon::{self, Os, PidLock, StatePaths, Status};
+
+/// How long `--daemon` waits for the background process to start.
+const START_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long `--stop` waits for `serve` to exit.
+const STOP_TIMEOUT: Duration = Duration::from_secs(10);
+const POLL: Duration = Duration::from_millis(100);
+
+/// What `serve` needs from start-up.
+pub struct ServeContext<'a> {
+    /// The loaded configuration.
+    pub config: &'a Config,
+    /// Where it was loaded from, passed on to the background process.
+    pub config_path: &'a Path,
+    /// The effective log level, passed on to the background process.
+    pub log_level: LogLevel,
+    /// Environment, for the pid and log file locations.
+    pub env: &'a dyn EnvProvider,
+}
+
+/// Runs `serve` in the mode `args` selects.
+pub async fn run(
+    context: ServeContext<'_>,
+    args: &ServeArgs,
+    backends: BackendRegistry,
+    out: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let paths = StatePaths::resolve(context.env, Os::current())
+        .context("cannot choose a place for serve's pid and log files: set HOME")?;
+    if args.status {
+        return report_status(&paths, out);
+    }
+    if args.stop {
+        return stop(&paths, out).await;
+    }
+    if args.daemon {
+        return start_daemon(&paths, &context, out).await;
+    }
+    run_foreground(context.config, backends, &paths, args.daemon_child).await
+}
+
+async fn run_foreground(
+    config: &Config,
+    backends: BackendRegistry,
+    paths: &StatePaths,
+    daemon_child: bool,
+) -> anyhow::Result<()> {
+    let lock = PidLock::acquire(&paths.pid)?;
+    #[cfg(unix)]
+    let _hangup = if daemon_child {
+        // Registering a handler replaces the default action, so a hang-up
+        // no longer stops the background process.
+        Some(tokio::signal::unix::signal(
+            tokio::signal::unix::SignalKind::hangup(),
+        )?)
+    } else {
+        None
+    };
+    #[cfg(not(unix))]
+    let _ = daemon_child;
     let clipboard: Option<Box<dyn Clipboard>> = match ArboardClipboard::new() {
         Ok(clipboard) => Some(Box::new(clipboard)),
         Err(err) => {
@@ -31,14 +95,144 @@ pub async fn run(config: &Config, backends: BackendRegistry) -> anyhow::Result<(
         tracing::info!("stop requested");
         let _ = stop.send(true);
     });
-    serve::run(
+    let (ready_tx, ready_rx) = oneshot::channel();
+    let lock = Arc::new(lock);
+    let marker = Arc::clone(&lock);
+    tokio::spawn(async move {
+        if ready_rx.await.is_ok()
+            && let Err(err) = marker.mark_ready()
+        {
+            tracing::warn!(error = %err, "cannot mark serve as ready in the pid file");
+        }
+    });
+    serve::run_with_ready(
         ServeOptions::from_config(config),
         clipboard,
         open_store,
         stopped,
+        ready_tx,
     )
     .await?;
+    drop(lock);
     Ok(())
+}
+
+fn report_status(paths: &StatePaths, out: &mut dyn Write) -> anyhow::Result<()> {
+    match daemon::status(&paths.pid)? {
+        Status::Running { pid, .. } => {
+            let pid = pid.map_or_else(|| "unknown".to_owned(), |pid| pid.to_string());
+            writeln!(out, "running (pid {pid}, log {})", paths.log.display())?;
+            Ok(())
+        }
+        Status::NotRunning => {
+            writeln!(out, "not running")?;
+            Err(QuietExit(3).into())
+        }
+    }
+}
+
+#[cfg(unix)]
+async fn stop(paths: &StatePaths, out: &mut dyn Write) -> anyhow::Result<()> {
+    let pid = match daemon::status(&paths.pid)? {
+        Status::NotRunning => {
+            writeln!(out, "not running")?;
+            return Ok(());
+        }
+        Status::Running { pid, .. } => {
+            pid.context("serve is running but its pid file is unreadable")?
+        }
+    };
+    let signalled = std::process::Command::new("kill")
+        .args(["-TERM", &pid.to_string()])
+        .status()
+        .context("cannot run `kill`")?;
+    anyhow::ensure!(signalled.success(), "`kill -TERM {pid}` failed");
+    let deadline = Instant::now() + STOP_TIMEOUT;
+    while daemon::status(&paths.pid)? != Status::NotRunning {
+        anyhow::ensure!(
+            Instant::now() < deadline,
+            "serve (pid {pid}) is still running after {} s",
+            STOP_TIMEOUT.as_secs()
+        );
+        tokio::time::sleep(POLL).await;
+    }
+    writeln!(out, "stopped")?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+async fn stop(_paths: &StatePaths, _out: &mut dyn Write) -> anyhow::Result<()> {
+    anyhow::bail!("serve --stop is supported on Linux and macOS only")
+}
+
+#[cfg(unix)]
+async fn start_daemon(
+    paths: &StatePaths,
+    context: &ServeContext<'_>,
+    out: &mut dyn Write,
+) -> anyhow::Result<()> {
+    if let Status::Running { pid, .. } = daemon::status(&paths.pid)? {
+        return Err(daemon::LockError::AlreadyRunning(pid).into());
+    }
+    if let Some(dir) = paths.log.parent() {
+        std::fs::create_dir_all(dir).with_context(|| format!("cannot create {}", dir.display()))?;
+    }
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&paths.log)
+        .with_context(|| format!("cannot open {}", paths.log.display()))?;
+    let offset = log.metadata().map(|meta| meta.len()).unwrap_or(0);
+    let exe = std::env::current_exe().context("cannot find the passalong executable")?;
+    let config_path = std::path::absolute(context.config_path)?;
+    let mut child = daemon::detached_command(&exe)
+        .arg("--config")
+        .arg(&config_path)
+        .args([
+            "--log-level",
+            context.log_level.as_str(),
+            "serve",
+            "--daemon-child",
+        ])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::from(log))
+        .spawn()
+        .context("cannot start the background process")?;
+    let deadline = Instant::now() + START_TIMEOUT;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            let tail = daemon::log_tail(&paths.log, offset, 8);
+            anyhow::bail!("serve stopped during start-up ({status}); last log lines:\n{tail}");
+        }
+        if let Status::Running {
+            pid: Some(pid),
+            ready: true,
+        } = daemon::status(&paths.pid)?
+        {
+            writeln!(
+                out,
+                "serve started (pid {pid}, log {})",
+                paths.log.display()
+            )?;
+            return Ok(());
+        }
+        anyhow::ensure!(
+            Instant::now() < deadline,
+            "serve did not finish starting within {} s; see {}",
+            START_TIMEOUT.as_secs(),
+            paths.log.display()
+        );
+        tokio::time::sleep(POLL).await;
+    }
+}
+
+#[cfg(not(unix))]
+async fn start_daemon(
+    _paths: &StatePaths,
+    _context: &ServeContext<'_>,
+    _out: &mut dyn Write,
+) -> anyhow::Result<()> {
+    anyhow::bail!("serve --daemon is supported on Linux and macOS only")
 }
 
 /// Resolves on Ctrl-C, or on SIGTERM, which systemd and launchd send.

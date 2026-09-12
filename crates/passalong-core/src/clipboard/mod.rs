@@ -88,17 +88,50 @@ mod tests {
         );
     }
 
-    /// Needs a real desktop session, so it never runs in CI. Run it with
+    /// The desktop tests share the one system clipboard, so they take this
+    /// lock instead of running in parallel.
+    #[cfg(feature = "desktop")]
+    static DESKTOP_CLIPBOARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Needs a desktop session; CI runs it under Xvfb. Run it locally with
     /// `cargo test -p passalong-core -- --ignored desktop_`.
     #[cfg(feature = "desktop")]
     #[test]
     #[ignore = "needs a desktop session with a clipboard"]
     fn desktop_clipboard_round_trip() {
+        let _clipboard = DESKTOP_CLIPBOARD.lock().unwrap_or_else(|e| e.into_inner());
         let mut clip = ArboardClipboard::new().unwrap();
         clip.write_text("passalong desktop test").unwrap();
         assert_eq!(
             clip.read_text().unwrap().as_deref(),
             Some("passalong desktop test")
         );
+    }
+
+    /// Holds text the way `load` does on Linux, then releases it. Needs a
+    /// desktop session; CI runs it under Xvfb.
+    #[cfg(feature = "desktop")]
+    #[test]
+    #[ignore = "needs a desktop session with a clipboard"]
+    fn desktop_held_text_outlives_the_writer_until_replaced() {
+        let _clipboard = DESKTOP_CLIPBOARD.lock().unwrap_or_else(|e| e.into_inner());
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = ArboardClipboard::new()
+                .unwrap()
+                .hold_text("held by passalong");
+            done_tx.send(result.is_ok()).unwrap();
+        });
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let mut reader = ArboardClipboard::new().unwrap();
+        assert_eq!(
+            reader.read_text().unwrap().as_deref(),
+            Some("held by passalong")
+        );
+        reader.write_text("replacement").unwrap();
+        let released = done_rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("holder returns once replaced");
+        assert!(released);
     }
 }

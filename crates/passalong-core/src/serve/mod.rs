@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::{Instant, MissedTickBehavior};
 
 use crate::clipboard::Clipboard;
@@ -28,7 +28,7 @@ use crate::store::{BackendFuture, StoreError};
 
 use self::clipboard_watcher::ClipboardWatcher;
 use self::drop_watcher::DropTracker;
-use self::upload::Uploader;
+use self::upload::{JobOutcome, Uploader};
 
 /// Folder inside the drop folder that sent files move to.
 pub const SENT_DIR: &str = "sent";
@@ -116,7 +116,25 @@ pub async fn run(
     options: ServeOptions,
     clipboard: Option<Box<dyn Clipboard>>,
     open_store: StoreOpener,
+    shutdown: watch::Receiver<bool>,
+) -> Result<(), ServeError> {
+    let (ready, _) = oneshot::channel();
+    run_with_ready(options, clipboard, open_store, shutdown, ready).await
+}
+
+/// Like [`run`], and sends on `ready` once start-up has succeeded: the store
+/// is open, the drop folder exists and is watched, and the watchers run.
+/// `serve --daemon` uses it to report a successful start.
+///
+/// # Errors
+///
+/// As [`run`].
+pub async fn run_with_ready(
+    options: ServeOptions,
+    clipboard: Option<Box<dyn Clipboard>>,
+    open_store: StoreOpener,
     mut shutdown: watch::Receiver<bool>,
+    ready: oneshot::Sender<()>,
 ) -> Result<(), ServeError> {
     let store = open_store().await?;
     let folder = options.drop_folder.clone();
@@ -146,12 +164,14 @@ pub async fn run(
         ))),
         None => tracing::warn!("no clipboard available; only the drop folder is watched"),
     }
+    let (skipped_tx, skipped_rx) = mpsc::unbounded_channel();
     tasks.push(tokio::spawn(drop_loop(
         folder,
         options.file_stable_wait,
         options.rescan_interval,
         jobs_tx,
         changed_rx,
+        skipped_rx,
         shutdown.clone(),
     )));
     tracing::info!(
@@ -159,6 +179,8 @@ pub async fn run(
         "serving: watching the clipboard and the drop folder"
     );
 
+    // Nobody may be waiting for readiness; that is fine.
+    let _ = ready.send(());
     let mut uploader = Uploader::new(
         store,
         open_store,
@@ -171,7 +193,16 @@ pub async fn run(
             () = stopped(&mut shutdown) => break,
             job = jobs_rx.recv() => match job {
                 Some(job) => {
-                    uploader.handle(job, &mut shutdown).await;
+                    let file = match &job {
+                        Job::File(path) => Some(path.clone()),
+                        Job::Text(_) => None,
+                    };
+                    if uploader.handle(job, &mut shutdown).await == JobOutcome::Skipped
+                        && let Some(path) = file
+                    {
+                        // The drop watcher offers it again once it changes.
+                        let _ = skipped_tx.send(path);
+                    }
                 }
                 None => break,
             },
@@ -234,6 +265,7 @@ async fn drop_loop(
     rescan: Duration,
     jobs: mpsc::Sender<Job>,
     mut changed: mpsc::Receiver<()>,
+    mut skipped: mpsc::UnboundedReceiver<PathBuf>,
     mut shutdown: watch::Receiver<bool>,
 ) {
     let mut tracker = DropTracker::new(stable_wait);
@@ -266,6 +298,7 @@ async fn drop_loop(
                     watching = false;
                 }
             }
+            Some(path) = skipped.recv() => tracker.mark_skipped(&path),
             () = tokio::time::sleep(wait) => {}
         }
     }

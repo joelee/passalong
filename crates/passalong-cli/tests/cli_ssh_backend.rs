@@ -101,3 +101,66 @@ fn a_wrong_host_key_fails_with_a_mismatch_error() {
         .code(1)
         .stderr(predicate::str::starts_with("error: host key mismatch"));
 }
+
+#[test]
+#[ignore = "needs the Docker SSH server: just test-integration"]
+fn scripted_init_pins_the_confirmed_key_and_connects() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("init.toml");
+    let fingerprint =
+        passalong_ssh::host_key::PinnedHostKey::parse(&var("PASSALONG_IT_SSH_HOST_KEY"))
+            .unwrap()
+            .fingerprint();
+    let remote = format!(
+        "{}/init-{:016x}",
+        var("PASSALONG_IT_SSH_REMOTE_PATH"),
+        StdRandom::new().next_u64()
+    );
+    Command::new(env!("CARGO_BIN_EXE_passalong"))
+        .current_dir(dir.path())
+        .env("HOME", dir.path())
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("PASSALONG_CONFIG_FILE")
+        .args(["--config"])
+        .arg(&target)
+        .args([
+            "init",
+            "--host",
+            &var("PASSALONG_IT_SSH_HOST"),
+            "--port",
+            &var("PASSALONG_IT_SSH_PORT"),
+        ])
+        .args([
+            "--user",
+            &var("PASSALONG_IT_SSH_USER"),
+            "--identity-file",
+            &var("PASSALONG_IT_SSH_IDENTITY"),
+        ])
+        .args([
+            "--remote-path",
+            &remote,
+            "--device-name",
+            "it-init",
+            "--fingerprint",
+            &fingerprint,
+            "--yes",
+        ])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains(&fingerprint).and(predicate::str::ends_with(
+                "connected: 0 items on the server\n",
+            )),
+        );
+    let pinned = std::fs::read_to_string(&target).unwrap();
+    let expected = var("PASSALONG_IT_SSH_HOST_KEY");
+    assert!(
+        pinned.contains(&expected),
+        "config does not pin the server key:\n{pinned}"
+    );
+    passalong(dir.path(), &target)
+        .arg("list")
+        .assert()
+        .success()
+        .stdout("no items\n");
+}

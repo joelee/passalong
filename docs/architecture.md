@@ -6,7 +6,7 @@
 |---|---|---|
 | `passalong-core` | library | Configuration, item model, storage traits, clipboard trait, `serve` loop, telemetry. No CLI or terminal dependencies. |
 | `passalong-ssh` | library | SSH/SFTP storage backend (`russh`), host-key pinning. |
-| `passalong-cli` | binary `passalong` | Argument parsing, command handlers, output formatting. |
+| `passalong` (in `crates/passalong-cli/`) | binary `passalong` | Argument parsing, command handlers, output formatting. |
 
 Future GUI and Android front-ends depend on `passalong-core` and
 `passalong-ssh` only. `passalong-core` keeps the desktop clipboard behind its
@@ -14,7 +14,7 @@ Future GUI and Android front-ends depend on `passalong-core` and
 
 ```mermaid
 flowchart LR
-  CLI["passalong-cli<br/>commands and output"] --> REG["BackendRegistry"]
+  CLI["passalong (CLI)<br/>commands and output"] --> REG["BackendRegistry"]
   CLI --> SERVE["serve loop<br/>passalong-core"]
   SERVE --> REG
   CLI --> CLIP["Clipboard trait<br/>ArboardClipboard"]
@@ -31,6 +31,8 @@ Every invocation goes through the same start-up:
 1. Load `./.env` if it exists, without overriding the environment.
 2. Parse the command line; usage errors exit with code 2.
 3. Find and validate `config.toml` (see [configuration](configuration.md)).
+   `init`, which writes that file, and the hidden clipboard holder described
+   below run before this step.
 4. Choose the log level and start logging to standard error.
 5. Open a correlation span, so every log line of this run shares one `op`
    id.
@@ -42,7 +44,10 @@ Every invocation goes through the same start-up:
 | `file` | Streams the file into `Store::put` |
 | `list` | `Store::list`, then renders a table or JSON |
 | `load` | `Store::resolve`, `Store::get`, verifies SHA-256, then writes a file or the clipboard |
-| `serve` | Runs the loop below until stopped |
+| `serve` | Runs the loop below until stopped; `--daemon`, `--status`, and `--stop` manage a background copy |
+| `delete` | Resolves every id first, then `Store::delete` for each |
+| `prune` | `Store::list`, selects items older than `--older-than` beyond the newest `--keep`, confirms, deletes, then `Store::clean_staging` |
+| `init` | Fetches the server host key without authenticating, asks you to confirm its fingerprint, writes the config file, then runs `Store::list` as a connection test |
 
 Each one-shot command opens its own connection; `serve` keeps one and
 reopens it when needed.
@@ -139,6 +144,12 @@ Storing an item works like this:
 An item directory therefore appears only when it is complete, and an
 interrupted upload leaves nothing under `items/`.
 
+Deleting an item renames `items/<id>` to `tmp/deleted-<id>-<random>` and
+then removes it, so the item disappears from every listing in one step.
+If the removal fails, only a staging leftover remains. Staging directories
+older than a threshold, left by interrupted uploads or deletions, are
+removed by `clean_staging`, which `prune` runs.
+
 Listing sorts the item directory names in reverse, which is newest first
 because ids are time-sortable, then reads each `meta.json`. Directories that
 are not ids, lack `meta.json`, or hold metadata that is unreadable or
@@ -167,10 +178,53 @@ that lists the candidates.
 
 A failed upload is retried after 1, 2, 4 … seconds, capped at 60, and the
 store is reopened before each retry so a dropped SSH connection recovers.
-Local problems, such as a file that cannot be read, skip the job instead.
+Local problems, such as a file that cannot be read, skip the job instead;
+the drop watcher offers a skipped file again once its size or modification
+time changes.
 Shutdown on Ctrl-C or SIGTERM stops the watchers and abandons any upload in
 progress; the atomic publish means an abandoned upload never appears under
 `items/`.
+
+## Background `serve`
+
+`serve` holds an exclusive lock on a pid file for as long as it runs, so a
+second `serve` on the same machine is refused whether it runs in the
+foreground, as a daemon, or under a service manager. File locations are in
+[configuration](configuration.md#serve-files).
+
+`serve --daemon` starts a detached copy of the same binary in its own
+process group, with standard error appended to the log file. The copy writes
+its pid to the pid file, opens the store, and then appends a `ready` line;
+the parent waits up to 5 seconds for that line and otherwise prints the end
+of the log. `serve --status` reads the pid file and exits 3 when nothing is
+running. `serve --stop` sends SIGTERM and waits for the pid file to be
+released.
+
+## Clipboard on Linux
+
+On X11 and Wayland the clipboard belongs to a running process, so text set
+by a short-lived command vanishes when it exits. On Linux, `load` therefore
+starts a detached helper, the same binary with a hidden command, which takes
+ownership of the text and exits once another program replaces the
+clipboard. `load` first checks that a clipboard is available at all, so on
+a machine without one it fails instead of starting a helper that cannot
+work. macOS keeps clipboard contents itself and needs no helper.
+
+## Release pipeline
+
+Pushing a tag `vX.Y.Z` runs `.github/workflows/release.yml`:
+
+1. `scripts/check-release-tag.sh` rejects a tag that does not match the
+   workspace version, and `cargo publish --dry-run` packages and builds all
+   three crates.
+2. Release binaries are built for Linux x86_64 and macOS arm64 and packed
+   as `.tar.gz` files with SHA-256 checksums.
+3. The GitHub release is created from `docs/release/vX.Y.Z.md` and the
+   archives are attached.
+4. The crates are published to crates.io in dependency order.
+
+CI audits dependencies with `cargo deny` (`deny.toml`) on every push and
+runs the desktop clipboard tests under a virtual X server.
 
 ## Security model
 

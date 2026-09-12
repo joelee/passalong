@@ -1,0 +1,35 @@
+# A passalong server: OpenSSH in Docker with the item storage on the host.
+# Step-by-step instructions: docs/docker-ssh-server-setup.md
+#
+# Put this file in a directory of its own, next to:
+#   keys/     one public key file per client device (for example laptop.pub)
+#   .env      PUID, PGID, and optionally PASSALONG_STORAGE and PASSALONG_SSH_PORT
+#             (copy .env.sample)
+# `config/` is created on first start. It holds the server's host keys:
+# keep it, or every client will see a new host key and refuse to connect.
+services:
+  passalong-sshd:
+    image: lscr.io/linuxserver/openssh-server:10.3_p1-r1-ls236
+    environment:
+      # Files in the storage directory are owned by this user and group.
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-Etc/UTC}
+      USER_NAME: passalong
+      # Every file in keys/ is added to the server's authorized keys at start.
+      PUBLIC_KEY_DIR: /keys
+      PASSWORD_ACCESS: "false"
+      SUDO_ACCESS: "false"
+    ports:
+      - "${PASSALONG_SSH_PORT:-2222}:2222"
+    volumes:
+      - ./config:/config
+      - ./keys:/keys:ro
+      # Clients use remote_path = "/data".
+      - ${PASSALONG_STORAGE:-./storage}:/data
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 2222"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped

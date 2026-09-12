@@ -8,9 +8,10 @@ directory. Every other device pushes clipboard text and files there, lists
 what is stored, and pulls items back. There is no cloud service, no account,
 and no custom server daemon.
 
-> **Status:** v0.1.0 is feature-complete against
-> [Delivery Plan 00001](docs/plans/00001-Initial_Plan.md) and not yet
-> released.
+> **Status:** v0.1.0 is released. v0.1.1, which completes the SSH-only CLI
+> ([Delivery Plan 00002](docs/plans/00002-V0_1_1_CLI_Stabilisation.md)),
+> is being prepared. A GUI, Android, and Windows support are planned for
+> v0.2 and later.
 
 ## How it works
 
@@ -34,10 +35,14 @@ and no custom server daemon.
 ## Quick start
 
 1. Prepare the server once, as described in [Server setup](#server-setup).
-2. Install the client: `cargo install --locked --path crates/passalong-cli`
-   from a clone of this repository puts `passalong` in `~/.cargo/bin`.
-3. Copy [`config.sample.toml`](config.sample.toml) to
-   `~/.config/passalong/config.toml` and fill in the `[server.ssh]` section.
+2. Install the client. From v0.1.1, `cargo install --locked passalong`
+   installs it from crates.io, and each GitHub release has Linux x86_64 and
+   macOS arm64 binaries. From a clone of this repository,
+   `cargo install --locked --path crates/passalong-cli` puts `passalong` in
+   `~/.cargo/bin`.
+3. Run `passalong init`. It asks for the server's address and your key,
+   shows the server's host-key fingerprint for you to confirm, writes
+   `~/.config/passalong/config.toml`, and tests the connection.
 4. Use it:
 
    ```sh
@@ -48,9 +53,10 @@ and no custom server daemon.
    passalong load 8f3a ~/Downloads   # fetch a file into a directory
    ```
 
-5. Keep `passalong serve` running with the systemd or launchd unit in
-   [`docs/service/`](docs/service/), so everything you copy and every file you
-   drop into `~/PassAlong` is sent automatically.
+5. Keep `passalong serve` running, so everything you copy and every file
+   you drop into `~/PassAlong` is sent automatically. Either start it in the
+   background with `passalong serve --daemon`, or install the systemd or
+   launchd unit in [`docs/service/`](docs/service/) to start it at login.
 
 ## Commands
 
@@ -60,14 +66,20 @@ and no custom server daemon.
 | `passalong file <path>` | Send a file |
 | `passalong list` | List stored items, newest first (`--json` for scripts) |
 | `passalong load <id> [dest]` | Copy an item to `dest`, or to the clipboard when `dest` is omitted |
-| `passalong serve` | Keep running, sending every new clipboard text and every file dropped into the drop folder |
+| `passalong serve` | Keep running, sending every new clipboard text and every file dropped into the drop folder (`--daemon`, `--status`, `--stop`) |
+| `passalong delete <id>...` | Delete items |
+| `passalong prune` | Delete items older than `--older-than`, keeping the newest `--keep` |
+| `passalong init` | Write a config file for an SSH server and pin its host key |
 
 An id can be shortened to its first 4 or more distinctive characters. See
 [docs/usage.md](docs/usage.md) for every option and exit code.
 
 ## Server setup
 
-Any machine with an OpenSSH server can be the server. Do this once:
+Any machine with an OpenSSH server can be the server. To run one in
+Docker with the storage on the host, follow
+[docs/docker-ssh-server-setup.md](docs/docker-ssh-server-setup.md).
+Otherwise, do this once:
 
 1. Create a user and a storage directory for passalong:
 
@@ -87,7 +99,9 @@ Any machine with an OpenSSH server can be the server. Do this once:
 
    Copy the `ssh-ed25519 AAAA...` part into `server.ssh.host_key`. The whole
    line as printed works too. passalong refuses to connect if the server
-   ever presents a different key.
+   ever presents a different key. `passalong init` can fetch the key for
+   you; compare the fingerprint it shows with the server's own
+   `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`.
 
 4. In `~/.config/passalong/config.toml`, set `host`, `user`, `host_key`,
    `identity_file`, and `remote_path`. If the key has a passphrase, put it in
@@ -113,7 +127,7 @@ Requires Rust 1.98.1 (pinned in `rust-toolchain.toml`; `rustup` installs it
 automatically) and [`just`](https://github.com/casey/just).
 
 ```sh
-just setup        # one-time: coverage tooling
+just setup        # one-time: coverage and audit tooling
 just build        # debug build of the whole workspace
 just run --help   # run the CLI from source
 ```

@@ -6,10 +6,10 @@ use std::time::Duration;
 
 use passalong_core::config::{Passphrase, SshConfig};
 use russh::client::{self, Handle};
-use russh::keys::{PrivateKeyWithHashAlg, PublicKeyOrCertificate};
+use russh::keys::{PrivateKeyWithHashAlg, PublicKey, PublicKeyOrCertificate};
 
 use crate::error::SshError;
-use crate::host_key::{PinnedHostKey, fingerprint};
+use crate::host_key::{DiscoveredKey, PinnedHostKey, fingerprint};
 
 /// How often an idle session sends a keepalive, so NAT and firewalls do not
 /// drop the long-lived connection `serve` keeps open.
@@ -54,11 +54,7 @@ impl SshParams {
 
     /// `host:port`, with IPv6 hosts in brackets.
     pub fn address(&self) -> String {
-        if self.host.contains(':') {
-            format!("[{}]:{}", self.host, self.port)
-        } else {
-            format!("{}:{}", self.host, self.port)
-        }
+        format_address(&self.host, self.port)
     }
 }
 
@@ -106,6 +102,91 @@ impl client::Handler for HostKeyCheck {
     }
 }
 
+/// `host:port`, with IPv6 hosts in brackets.
+pub(crate) fn format_address(host: &str, port: u16) -> String {
+    if host.contains(':') {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    }
+}
+
+/// Client settings shared by every connection: keepalives for long `serve`
+/// sessions, and `russh`'s default algorithm preferences, which try Ed25519
+/// host keys first (a unit test guards that order).
+pub(crate) fn client_config() -> client::Config {
+    client::Config {
+        keepalive_interval: Some(KEEPALIVE_INTERVAL),
+        ..client::Config::default()
+    }
+}
+
+/// `russh` handler for discovery: records the key the server presents and
+/// refuses it, so no authentication is ever attempted.
+pub(crate) struct KeyRecorder {
+    pub(crate) recorded: Arc<Mutex<Option<PublicKey>>>,
+}
+
+impl client::Handler for KeyRecorder {
+    type Error = russh::Error;
+
+    async fn check_server_key(
+        &mut self,
+        server_key: &PublicKeyOrCertificate,
+    ) -> Result<bool, Self::Error> {
+        *self.recorded.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some(server_key.public_key());
+        Ok(false)
+    }
+}
+
+/// Fetches the host key `host:port` presents, without trusting it and
+/// without logging in. `init` shows its fingerprint so the user can confirm
+/// it before it is pinned.
+///
+/// # Errors
+///
+/// [`SshError::Timeout`] after `timeout`, and [`SshError::Connect`] when the
+/// server cannot be reached or presents no key.
+pub async fn fetch_host_key(
+    host: &str,
+    port: u16,
+    timeout: Duration,
+) -> Result<DiscoveredKey, SshError> {
+    let address = format_address(host, port);
+    let recorded = Arc::new(Mutex::new(None));
+    let recorder = KeyRecorder {
+        recorded: recorded.clone(),
+    };
+    let attempt = client::connect(Arc::new(client_config()), (host, port), recorder);
+    let outcome = tokio::time::timeout(timeout, attempt)
+        .await
+        .map_err(|_| SshError::Timeout {
+            address: address.clone(),
+            secs: timeout.as_secs(),
+        })?;
+    match outcome {
+        // The recorder always refuses, so a rejected key is the normal end.
+        Err(russh::Error::UnknownKey) | Ok(_) => {}
+        Err(err) => {
+            return Err(SshError::Connect {
+                address,
+                message: err.to_string(),
+            });
+        }
+    }
+    let key = recorded
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take()
+        .ok_or_else(|| SshError::Connect {
+            address: address.clone(),
+            message: "the server presented no host key".to_owned(),
+        })?;
+    tracing::debug!("fetched the host key of {address}");
+    DiscoveredKey::from_key(&key)
+}
+
 /// Connects and authenticates with the identity file, all within
 /// `connect_timeout`. The key is loaded first, so key problems are reported
 /// without contacting the server.
@@ -145,10 +226,7 @@ async fn connect_and_authenticate(
         pinned: params.host_key.clone(),
         presented: presented.clone(),
     };
-    let config = Arc::new(client::Config {
-        keepalive_interval: Some(KEEPALIVE_INTERVAL),
-        ..client::Config::default()
-    });
+    let config = Arc::new(client_config());
     let connect_error = |err: russh::Error| SshError::Connect {
         address: address.to_owned(),
         message: err.to_string(),
@@ -281,5 +359,44 @@ mod tests {
             connect(&params).await,
             Err(SshError::KeyLoad { .. })
         ));
+    }
+
+    #[tokio::test]
+    async fn the_key_recorder_keeps_the_presented_key_and_refuses_it() {
+        use russh::client::Handler as _;
+        let key = russh::keys::PublicKey::from_openssh(KEY_A).unwrap();
+        let recorded = Arc::new(Mutex::new(None));
+        let mut recorder = KeyRecorder {
+            recorded: recorded.clone(),
+        };
+        let trusted = recorder
+            .check_server_key(&russh::keys::PublicKeyOrCertificate::from(key.clone()))
+            .await
+            .unwrap();
+        assert!(!trusted, "discovery must never trust the key");
+        assert_eq!(
+            recorded
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|k: &russh::keys::PublicKey| k.key_data().clone()),
+            Some(key.key_data().clone())
+        );
+    }
+
+    #[test]
+    fn the_client_prefers_ed25519_host_keys_and_keeps_sessions_alive() {
+        let config = client_config();
+        assert_eq!(
+            config.preferred.key.first(),
+            Some(&russh::keys::Algorithm::Ed25519)
+        );
+        assert_eq!(config.keepalive_interval, Some(Duration::from_secs(30)));
+    }
+
+    #[test]
+    fn addresses_bracket_ipv6_hosts() {
+        assert_eq!(format_address("nas.local", 22), "nas.local:22");
+        assert_eq!(format_address("::1", 2222), "[::1]:2222");
     }
 }

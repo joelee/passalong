@@ -8,6 +8,47 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `passalong delete <ID>...` removes items; every id is resolved first, so a
+  typo deletes nothing (PLAN-00002 STEP-04).
+- `passalong prune --older-than <AGE> --keep <N>` deletes old items after
+  confirmation, supports `--dry-run` and `--yes`, and clears stale upload
+  leftovers on the server (PLAN-00002 STEP-05).
+- `passalong init` writes a config file for an SSH server, pinning its host
+  key only after you confirm the fingerprint, and tests the connection
+  (PLAN-00002 STEP-07).
+- `passalong serve --daemon` runs `serve` in the background with a log file;
+  `serve --status` and `serve --stop` manage it, and a second `serve` is
+  refused (PLAN-00002 STEP-08).
+- A guide and a tested Docker Compose example for running the passalong SSH
+  server with the storage on the host: `docs/docker-ssh-server-setup.md`
+  and `deploy/ssh-server/` (PLAN-00002 STEP-11).
+- Tag-driven releases: pushing `vX.Y.Z` checks the tag, builds Linux x86_64
+  and macOS arm64 binaries, creates the GitHub release, and publishes the
+  crates to crates.io; CI also audits dependencies with `cargo deny` and
+  runs the desktop clipboard tests under Xvfb (PLAN-00002 STEP-12).
+
+### Changed
+
+- The CLI package is now named `passalong` (the binary name is unchanged),
+  and all crates carry crates.io metadata; third-party dependency
+  requirements are caret requirements (PLAN-00002 STEP-02).
+
+### Fixed
+
+- Crate metadata now points at the correct repository,
+  `https://github.com/joelee/passalong` (PLAN-00002 STEP-01).
+- On Linux, text that `load` copies to the clipboard stays available after
+  the command exits, without needing a clipboard manager (PLAN-00002
+  STEP-09).
+- A config location that exists but cannot be read is reported as such
+  instead of "no config file found" (PLAN-00002 STEP-10).
+- `serve` sends a dropped file it could not read once the file changes,
+  instead of skipping it until restart (PLAN-00002 STEP-10).
+
+## v0.1.0 - 2026-09-12T14:24:52Z
+
+### Added
+
 - Cargo workspace with `passalong-core`, `passalong-ssh`, and the `passalong`
   CLI; `just` recipes, pre-commit hook, GitHub Actions CI, Dockerfile, Docker
   OpenSSH test server, and the Apache-2.0 license (PLAN-00001 STEP-01).

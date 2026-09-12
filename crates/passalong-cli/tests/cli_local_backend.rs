@@ -51,6 +51,9 @@ impl Sandbox {
         cmd.current_dir(self.path("work"))
             .env("HOME", self.path("home"))
             .env_remove("XDG_CONFIG_HOME")
+            .env_remove("XDG_STATE_HOME")
+            .env_remove("WAYLAND_DISPLAY")
+            .env_remove("DISPLAY")
             .env_remove("PASSALONG_CONFIG_FILE")
             .env_remove("PASSALONG_LOG_LEVEL")
             .env_remove("PASSALONG_SSH_KEY_PASSPHRASE");
@@ -99,7 +102,7 @@ fn help_and_version() {
         .arg("--version")
         .assert()
         .success()
-        .stdout("passalong 0.1.0\n");
+        .stdout("passalong 0.1.1\n");
 }
 
 #[test]
@@ -355,6 +358,7 @@ fn serve_sends_dropped_files_and_stops_cleanly_on_sigterm() {
         .current_dir(sb.path("work"))
         .env("HOME", sb.path("home"))
         .env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_STATE_HOME")
         .env_remove("PASSALONG_CONFIG_FILE")
         .env_remove("PASSALONG_LOG_LEVEL")
         .env_remove("WAYLAND_DISPLAY")
@@ -415,4 +419,285 @@ fn serve_sends_dropped_files_and_stops_cleanly_on_sigterm() {
         .filter_map(|item| item["name"].as_str())
         .collect();
     assert_eq!(names, ["hello.txt"], "exactly the dropped file was stored");
+}
+
+#[tokio::test]
+async fn delete_removes_named_items_and_rejects_unknown_ones() {
+    let sb = Sandbox::new();
+    let metas = sb.seed(&["first", "second"]).await;
+    sb.with_config()
+        .args(["delete", metas[0].id.as_str()])
+        .assert()
+        .success()
+        .stdout(format!("{}\n", metas[0].id));
+    let out = sb
+        .with_config()
+        .args(["list", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(json.as_array().unwrap().len(), 1);
+    assert_eq!(json[0]["id"], metas[1].id.as_str());
+    sb.with_config()
+        .args(["delete", "ffff"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("no item matches `ffff`"));
+}
+
+#[tokio::test]
+async fn prune_lists_confirms_and_deletes() {
+    let sb = Sandbox::new();
+    let metas = sb.seed(&["one", "two", "three"]).await;
+    let count = |sb: &Sandbox| {
+        let out = sb
+            .with_config()
+            .args(["list", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        serde_json::from_slice::<serde_json::Value>(&out)
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len()
+    };
+    sb.with_config()
+        .args(["prune", "--keep", "1", "--dry-run"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::starts_with("2 items to delete:")
+                .and(predicate::str::ends_with("dry run: nothing deleted\n")),
+        );
+    assert_eq!(count(&sb), 3);
+    sb.with_config()
+        .args(["prune", "--keep", "1"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("--yes"));
+    assert_eq!(count(&sb), 3);
+    sb.with_config()
+        .args(["prune", "--keep", "1", "--yes"])
+        .assert()
+        .success()
+        .stdout(predicate::str::ends_with("deleted 2 items\n"));
+    let out = sb
+        .with_config()
+        .args(["list", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(json[0]["id"], metas[2].id.as_str());
+    sb.with_config()
+        .args(["prune"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("--older-than"));
+}
+
+#[test]
+fn init_writes_a_config_offline_and_refuses_to_overwrite_it() {
+    let sb = Sandbox::new();
+    let target = sb.path("cfg/new.toml");
+    let key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIF2M9DqIpW9GMebpvjNg+bobwAbQKRBqPVMatyvyI4gq";
+    let init = |sb: &Sandbox| {
+        let mut cmd = sb.cmd();
+        cmd.arg("--config").arg(&target).args([
+            "init",
+            "--host",
+            "127.0.0.1",
+            "--host-key",
+            key,
+            "--yes",
+            "--no-test",
+        ]);
+        cmd
+    };
+    init(&sb)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "wrote {}",
+            target.display()
+        )));
+    let written = std::fs::read_to_string(&target).unwrap();
+    assert!(
+        written.contains(key) && written.contains("host = \"127.0.0.1\""),
+        "{written}"
+    );
+    init(&sb)
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("--force"));
+    sb.cmd()
+        .args(["init", "--host", "127.0.0.1", "--yes"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("--host-key or --fingerprint"));
+}
+
+/// Stops a background `serve` left running by a failed test.
+#[cfg(unix)]
+struct DaemonGuard(Option<u32>);
+
+#[cfg(unix)]
+impl Drop for DaemonGuard {
+    fn drop(&mut self) {
+        if let Some(pid) = self.0 {
+            let _ = std::process::Command::new("kill")
+                .args(["-TERM", &pid.to_string()])
+                .status();
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn serve_daemon_starts_reports_refuses_a_second_copy_and_stops() {
+    use std::time::{Duration, Instant};
+    let sb = Sandbox::new();
+    let started = sb
+        .with_config()
+        .args(["serve", "--daemon"])
+        .timeout(Duration::from_secs(20))
+        .assert()
+        .success();
+    let out = String::from_utf8(started.get_output().stdout.clone()).unwrap();
+    assert!(out.starts_with("serve started (pid "), "{out}");
+    let pid: u32 = out["serve started (pid ".len()..]
+        .split(',')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let _guard = DaemonGuard(Some(pid));
+    let log = if cfg!(target_os = "macos") {
+        sb.path("home/Library/Logs/passalong/serve.log")
+    } else {
+        sb.path("home/.local/state/passalong/serve.log")
+    };
+    assert!(out.contains(&log.display().to_string()), "{out}");
+
+    sb.with_config()
+        .args(["serve", "--status"])
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with(format!("running (pid {pid}")));
+    let busy = format!("serve is already running (pid {pid})");
+    sb.with_config()
+        .args(["serve", "--daemon"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains(busy.clone()));
+    sb.with_config()
+        .arg("serve")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains(busy));
+
+    std::fs::write(sb.path("drop/daemon.txt"), b"sent by the daemon").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !sb.path("drop/sent/daemon.txt").exists() {
+        assert!(Instant::now() < deadline, "the daemon never sent the file");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    sb.with_config()
+        .args(["serve", "--stop"])
+        .timeout(Duration::from_secs(20))
+        .assert()
+        .success()
+        .stdout("stopped\n");
+    sb.with_config()
+        .args(["serve", "--status"])
+        .assert()
+        .code(3)
+        .stdout("not running\n");
+    sb.with_config()
+        .args(["serve", "--stop"])
+        .assert()
+        .success()
+        .stdout("not running\n");
+    let logged = std::fs::read_to_string(&log).unwrap();
+    assert!(logged.contains("serve stopped"), "{logged}");
+    let pid_file = if cfg!(target_os = "macos") {
+        sb.path("home/Library/Application Support/passalong/serve.pid")
+    } else {
+        sb.path("home/.local/state/passalong/serve.pid")
+    };
+    assert!(!pid_file.exists(), "--stop leaves no pid file");
+}
+
+#[cfg(unix)]
+#[test]
+fn serve_daemon_reports_start_up_failures() {
+    let sb = Sandbox::new();
+    let bad = sb.path("cfg/bad.toml");
+    std::fs::write(&bad, "[server]\nkind = \"local\"\n").unwrap();
+    sb.cmd()
+        .arg("--config")
+        .arg(&bad)
+        .args(["serve", "--daemon"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("server.local.path"));
+
+    let unreachable = sb.path("cfg/unreachable.toml");
+    std::fs::write(
+        &unreachable,
+        "[server]\nkind = \"ssh\"\n[server.ssh]\nhost = \"127.0.0.1\"\nport = 1\nuser = \"u\"\nhost_key = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIF2M9DqIpW9GMebpvjNg+bobwAbQKRBqPVMatyvyI4gq\"\nidentity_file = \"/nonexistent/key\"\nremote_path = \"/r\"\n",
+    )
+    .unwrap();
+    sb.cmd()
+        .arg("--config")
+        .arg(&unreachable)
+        .args(["serve", "--daemon"])
+        .timeout(std::time::Duration::from_secs(20))
+        .assert()
+        .code(1)
+        .stderr(
+            predicate::str::contains("stopped during start-up")
+                .and(predicate::str::contains("cannot load the SSH key")),
+        );
+    sb.cmd()
+        .arg("--config")
+        .arg(&unreachable)
+        .args(["serve", "--status"])
+        .assert()
+        .code(3);
+}
+
+/// Linux: after `load` exits, its text is still on the clipboard. Needs a
+/// desktop session; CI runs it under Xvfb. Never run it on a machine whose
+/// clipboard you care about: it replaces the clipboard's content.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+#[ignore = "needs a desktop session with a clipboard"]
+async fn desktop_loaded_text_survives_load_exiting() {
+    use passalong_core::clipboard::{ArboardClipboard, Clipboard};
+    let sb = Sandbox::new();
+    let metas = sb.seed(&["held after load exits"]).await;
+    let mut cmd = sb.with_config();
+    for var in ["DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"] {
+        if let Ok(value) = std::env::var(var) {
+            cmd.env(var, value);
+        }
+    }
+    cmd.args(["load", metas[0].id.as_str()]).assert().success();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let mut clipboard = ArboardClipboard::new().unwrap();
+    assert_eq!(
+        clipboard.read_text().unwrap().as_deref(),
+        Some("held after load exits")
+    );
+    clipboard.write_text("released").unwrap();
 }

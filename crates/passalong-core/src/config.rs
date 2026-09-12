@@ -171,7 +171,7 @@ pub fn locate(
                 .map(|path| (absolute(Path::new(&path)), ConfigOrigin::EnvVar))
         });
     if let Some((path, origin)) = pinned {
-        return if path.is_file() {
+        return if probe(&path)? {
             tracing::debug!(path = %path.display(), "using config file from {origin}");
             Ok(LocatedConfig { path, origin })
         } else {
@@ -210,16 +210,42 @@ pub fn locate(
         ConfigOrigin::WorkingDir,
     ));
 
-    match candidates.iter().find(|(path, _)| path.is_file()) {
-        Some((path, origin)) => {
+    for (path, origin) in &candidates {
+        if probe(path)? {
             tracing::debug!(path = %path.display(), "using config file from {origin}");
-            Ok(LocatedConfig {
+            return Ok(LocatedConfig {
                 path: path.clone(),
                 origin: *origin,
-            })
+            });
         }
-        None => Err(ConfigError::NotFound {
-            searched: candidates.into_iter().map(|(path, _)| path).collect(),
+    }
+    Err(ConfigError::NotFound {
+        searched: candidates.into_iter().map(|(path, _)| path).collect(),
+    })
+}
+
+/// Whether a config file exists at `path`. A missing file, or a path running
+/// through a regular file, counts as absent; anything that stops us looking,
+/// such as a directory we may not enter, is an error rather than a silent
+/// skip to the next location.
+fn probe(path: &Path) -> Result<bool, ConfigError> {
+    match fs::metadata(path) {
+        Ok(meta) => Ok(meta.is_file()),
+        Err(err)
+            if matches!(
+                err.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+            ) =>
+        {
+            Ok(false)
+        }
+        Err(err) => Err(ConfigError::Unreadable {
+            path: path.to_path_buf(),
+            reason: if err.kind() == io::ErrorKind::PermissionDenied {
+                "permission denied".to_owned()
+            } else {
+                err.to_string()
+            },
         }),
     }
 }
@@ -358,6 +384,15 @@ pub enum ConfigError {
         path: PathBuf,
         /// Which of the two explicit positions named it.
         origin: ConfigOrigin,
+    },
+    /// A lookup location exists but cannot be inspected, for example
+    /// because a directory on its path may not be entered.
+    #[error("cannot read config file {}: {reason}", path.display())]
+    Unreadable {
+        /// The config file path.
+        path: PathBuf,
+        /// Why it cannot be read.
+        reason: String,
     },
     /// The file exists but cannot be read.
     #[error("cannot read config file {}: {source}", path.display())]
@@ -692,6 +727,94 @@ impl RawServe {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Writing a config (`passalong init`)
+// ---------------------------------------------------------------------------
+
+/// The values `passalong init` collects for an SSH server.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InitAnswers {
+    /// `client.device_name`.
+    pub device_name: String,
+    /// `server.ssh.host`.
+    pub host: String,
+    /// `server.ssh.port`.
+    pub port: u16,
+    /// `server.ssh.user`.
+    pub user: String,
+    /// `server.ssh.host_key`, the confirmed OpenSSH key line.
+    pub host_key: String,
+    /// `server.ssh.identity_file` as typed; `~` is kept for readability.
+    pub identity_file: String,
+    /// `server.ssh.remote_path`.
+    pub remote_path: String,
+}
+
+/// Renders a complete, commented config file for an SSH server. Every value
+/// is TOML-escaped, so the result always parses back to the same answers.
+pub fn render(answers: &InitAnswers) -> String {
+    let q = |value: &str| toml::Value::String(value.to_owned()).to_string();
+    format!(
+        r#"# passalong configuration, written by `passalong init`.
+# Every key is documented in docs/configuration.md. Secrets never go here:
+# the SSH key passphrase comes from PASSALONG_SSH_KEY_PASSPHRASE (see .env.sample).
+
+[client]
+# Name recorded on every item you send.
+device_name = {device}
+# error | warning | info | verbose | debug
+log_level = "info"
+
+[server]
+kind = "ssh"
+
+[server.ssh]
+host = {host}
+port = {port}
+user = {user}
+# The server's public host key, pinned after you confirmed its fingerprint.
+host_key = {host_key}
+identity_file = {identity}
+# Absolute, or relative to the SSH user's home directory.
+remote_path = {remote}
+connect_timeout_secs = 10
+
+[serve]
+drop_folder = "~/PassAlong"
+clipboard_poll_interval_ms = 750
+file_stable_wait_ms = 1000
+# What to do with a dropped file after it is sent: "move" (into drop_folder/sent/) or "delete".
+after_send = "move"
+"#,
+        device = q(&answers.device_name),
+        host = q(&answers.host),
+        port = answers.port,
+        user = q(&answers.user),
+        host_key = q(&answers.host_key),
+        identity = q(&answers.identity_file),
+        remote = q(&answers.remote_path),
+    )
+}
+
+/// Where `passalong init` writes without `--config`:
+/// `$XDG_CONFIG_HOME/passalong/config.toml` when that variable is absolute,
+/// otherwise `$HOME/.config/passalong/config.toml`. Both are lookup
+/// positions, so the written file is found again.
+pub fn default_config_path(env: &dyn EnvProvider) -> Option<PathBuf> {
+    if let Some(xdg) = non_empty(env, "XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+    {
+        return Some(xdg.join(APP_NAME).join(CONFIG_FILE_NAME));
+    }
+    non_empty(env, "HOME").map(|home| {
+        Path::new(&home)
+            .join(".config")
+            .join(APP_NAME)
+            .join(CONFIG_FILE_NAME)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -913,6 +1036,40 @@ mod tests {
         let roots = SearchRoots::from_system().unwrap();
         assert_eq!(roots.system_config_dir, PathBuf::from("/etc"));
         assert_eq!(roots.working_dir, std::env::current_dir().unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_candidate_is_reported_instead_of_skipped() {
+        use std::os::unix::fs::PermissionsExt;
+        let sb = Sandbox::new();
+        let file = sb.touch(&sb.xdg_file());
+        sb.touch(&sb.home_file());
+        let locked = sb.xdg.join("passalong");
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        let enforced = fs::metadata(&file).is_err();
+        let result = locate(None, &sb.env(), &sb.roots());
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        if !enforced {
+            return; // running as root: permissions are not enforced
+        }
+        let err = result.unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            format!(
+                "cannot read config file {}: permission denied",
+                file.display()
+            )
+        );
+        assert!(matches!(err, ConfigError::Unreadable { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn a_path_through_a_regular_file_counts_as_absent() {
+        let sb = Sandbox::new();
+        fs::write(sb.xdg.join("passalong"), b"a file, not a directory").unwrap();
+        let home = sb.touch(&sb.home_file());
+        assert_eq!(locate(None, &sb.env(), &sb.roots()).unwrap().path, home);
     }
 
     // ---------- parsing and validation ----------
@@ -1224,5 +1381,67 @@ remote_path = "/srv/pa"
     fn std_env_reads_the_process_environment() {
         assert!(StdEnv.var("PATH").is_some());
         assert!(!StdEnv.hostname().is_empty());
+    }
+
+    fn answers() -> InitAnswers {
+        InitAnswers {
+            device_name: "box".into(),
+            host: "nas.local".into(),
+            port: 2222,
+            user: "pa".into(),
+            host_key: "ssh-ed25519 AAAAkey".into(),
+            identity_file: "~/.ssh/id_ed25519".into(),
+            remote_path: "/data".into(),
+        }
+    }
+
+    #[test]
+    fn rendered_init_config_parses_back_to_the_answers() {
+        let text = render(&answers());
+        assert!(
+            text.starts_with("# passalong configuration, written by `passalong init`."),
+            "{text}"
+        );
+        let cfg = parse(&text, Path::new("/c.toml"), &env()).unwrap();
+        assert_eq!(cfg.client.device_name, "box");
+        assert_eq!(cfg.server.kind, "ssh");
+        let ssh = cfg.server.ssh.unwrap();
+        assert_eq!(
+            (ssh.host.as_str(), ssh.port, ssh.user.as_str()),
+            ("nas.local", 2222, "pa")
+        );
+        assert_eq!(ssh.host_key, "ssh-ed25519 AAAAkey");
+        assert_eq!(ssh.identity_file, PathBuf::from("/home/u/.ssh/id_ed25519"));
+        assert_eq!(ssh.remote_path, "/data");
+        assert_eq!(cfg.serve.drop_folder, PathBuf::from("/home/u/PassAlong"));
+    }
+
+    #[test]
+    fn rendered_values_are_escaped() {
+        let mut a = answers();
+        a.device_name = r#"my "box" \ 1"#.into();
+        a.remote_path = "/srv/it's here".into();
+        let cfg = parse(&render(&a), Path::new("/c.toml"), &env()).unwrap();
+        assert_eq!(cfg.client.device_name, r#"my "box" \ 1"#);
+        assert_eq!(cfg.server.ssh.unwrap().remote_path, "/srv/it's here");
+    }
+
+    #[test]
+    fn init_writes_to_the_xdg_or_home_config_location() {
+        let xdg = MapEnv::new()
+            .with("XDG_CONFIG_HOME", "/x")
+            .with("HOME", "/home/u");
+        assert_eq!(
+            default_config_path(&xdg),
+            Some(PathBuf::from("/x/passalong/config.toml"))
+        );
+        let relative = MapEnv::new()
+            .with("XDG_CONFIG_HOME", "rel")
+            .with("HOME", "/home/u");
+        assert_eq!(
+            default_config_path(&relative),
+            Some(PathBuf::from("/home/u/.config/passalong/config.toml"))
+        );
+        assert_eq!(default_config_path(&MapEnv::new()), None);
     }
 }

@@ -1,8 +1,9 @@
 name: CI
 
 on:
+  # Feature branches run CI on every push, before a pull request exists.
   push:
-    branches: [main]
+    branches: [main, "feature/**"]
   pull_request:
 
 permissions:
@@ -24,7 +25,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-llvm-cov,just
+          tool: cargo-llvm-cov,cargo-deny,just
       - run: just ci
 
   macos:
@@ -43,3 +44,18 @@ jobs:
         with:
           tool: cargo-llvm-cov,just
       - run: just check
+
+  desktop:
+    # The real clipboard tests need a display; a virtual X server provides
+    # one, isolated from any real desktop.
+    name: Linux desktop clipboard (Xvfb)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y xvfb
+      # One display, one clipboard: the tests must not run in parallel.
+      - run: xvfb-run -a cargo test --workspace --all-features -- --ignored desktop_ --test-threads=1

@@ -12,6 +12,7 @@ pub mod config;
 pub mod fs;
 pub mod model;
 pub mod random;
+pub mod retention;
 pub mod serve;
 pub mod store;
 pub mod telemetry;
@@ -25,6 +26,6 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 mod tests {
     #[test]
     fn version_is_the_workspace_version() {
-        assert_eq!(super::VERSION, "0.1.0");
+        assert_eq!(super::VERSION, "0.1.1");
     }
 }

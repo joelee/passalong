@@ -15,6 +15,55 @@ the [README](../README.md#server-setup).
 
 Global options may come before or after the subcommand.
 
+## `passalong init`
+
+Writes a config file for your SSH server and pins its host key. Run it once
+per device after [preparing the server](../README.md#server-setup):
+
+```text
+$ passalong init
+Server host name or address: nas.local
+SSH port [22]:
+User on the server [passalong]:
+Private key for logging in [~/.ssh/id_ed25519]:
+Storage directory on the server [/srv/passalong]:
+Name for this device [laptop]:
+The server at nas.local:22 presented this ssh-ed25519 host key:
+  SHA256:5Si4lWKPwa0+I2wCQf3eOtcF8jWo30BWybHoXLTxABo
+Compare it with the server's own key, for example by running there:
+  ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+Does the fingerprint match? [y/N] y
+wrote /home/you/.config/passalong/config.toml
+Add this device's public key to ~passalong/.ssh/authorized_keys on the server:
+  /home/you/.ssh/id_ed25519.pub
+connected: 0 items on the server
+```
+
+The key is written only after you confirm its fingerprint. `init` writes to
+`--config` when given, otherwise to the standard location, and refuses to
+replace an existing file without `--force`. After writing, it logs in and
+lists the server to prove the settings work.
+
+| Option | Meaning |
+|---|---|
+| `--host <HOST>` | Server host name or address |
+| `--port <PORT>` | SSH port, default 22 |
+| `--user <USER>` | Login user, default `passalong` |
+| `--identity-file <PATH>` | Private key, default `~/.ssh/id_ed25519` |
+| `--remote-path <PATH>` | Storage directory on the server, default `/srv/passalong` |
+| `--device-name <NAME>` | Name recorded on items, default the host name |
+| `--host-key <KEY>` | Pin this OpenSSH key line instead of fetching one |
+| `--fingerprint <SHA256:...>` | Accept the fetched key only if it has this fingerprint |
+| `--yes` | Take defaults instead of asking; requires `--host-key` or `--fingerprint` |
+| `--force` | Replace an existing config file |
+| `--no-test` | Skip the connection test |
+
+For scripts, `--yes` alone is refused so a key is never trusted blindly:
+
+```sh
+passalong init --host nas.local --fingerprint SHA256:5Si4lWKPwa0+I2wCQf3eOtcF8jWo30BWybHoXLTxABo --yes
+```
+
 ## Output and exit codes
 
 Results go to standard output; logs and errors go to standard error. A
@@ -89,6 +138,46 @@ the destination directory.
 
 A prefix that matches several items is refused, and the error lists them.
 
+## `passalong delete <ID>...`
+
+Deletes items from the store and prints each deleted id. Each `ID` is a full
+id or at least 4 characters of it, as for `load`.
+
+Every id is resolved before anything is deleted, so an unknown or ambiguous
+id deletes nothing and exits with code 1. An item named twice is deleted
+once. There is no confirmation prompt, as with `rm`; use `list` first if
+in doubt.
+
+## `passalong prune`
+
+Deletes items by age or count. At least one of `--older-than` and `--keep`
+is required:
+
+| Option | Meaning |
+|---|---|
+| `--older-than <AGE>` | Delete items created at least this long ago. `AGE` is a whole number followed by `m`, `h`, `d`, or `w`, such as `90m` or `30d`. |
+| `--keep <N>` | Always keep the newest `N` items. |
+| `--dry-run` | Show what would be deleted, then stop. |
+| `--yes` | Delete without asking. Required when not running in a terminal. |
+
+With both options, an item survives if either protects it:
+`prune --older-than 30d --keep 20` deletes items older than 30 days but
+never leaves fewer than the newest 20.
+
+`prune` shows the items it will delete and asks `Delete N items? [y/N]`.
+When standard input is not a terminal, as in a cron job, it refuses unless
+`--yes` is given. A real run also removes staging directories older than
+one hour that interrupted uploads left on the server.
+
+```text
+$ passalong prune --older-than 30d --dry-run
+2 items to delete:
+ID                     KIND  NAME     SIZE     DEVICE  CREATED
+6a8a1c07-9f3b2e11aa04  file  old.pdf  2.0 MiB  laptop  2026-08-01 10:12
+6a8a0a55-c7d0e4f19b20  text  hello    5 B      box     2026-08-01 09:40
+dry run: nothing deleted
+```
+
 ## `passalong serve`
 
 Keeps running and sends:
@@ -109,7 +198,8 @@ put on the clipboard, is not sent again.
 When the server cannot be reached, `serve` logs a warning and retries the
 same item after 1, 2, 4 … seconds, up to one minute apart, reconnecting each
 time. It never gives up on an item because of a network problem. A file
-that cannot be read is skipped until `serve` restarts.
+that cannot be read, for example because of its permissions, is skipped
+and sent once it changes, such as after you fix its permissions.
 
 `serve` stops cleanly on Ctrl-C or SIGTERM. It exits with code 1 only when
 it cannot start: invalid configuration, an unreachable server at start-up,
@@ -119,8 +209,19 @@ drop folder and logs `clipboard unavailable`.
 
 ### Running `serve` in the background
 
-`serve` runs in the foreground by design; let the operating system's
-service manager keep it running.
+Only one `serve` runs at a time: a second one exits with
+`serve is already running (pid N)`.
+
+| Option | Meaning |
+|---|---|
+| `--daemon` | Start `serve` in the background and return. Prints `serve started (pid N, log PATH)`, or the start-up error and exit code 1. Linux and macOS only. |
+| `--status` | Print `running (pid N, log PATH)`, or `not running` with exit code 3. |
+| `--stop` | Stop the running `serve` and wait up to 10 seconds for it to exit. |
+
+The background process keeps running after you close the terminal and logs
+to a file (see [configuration](configuration.md#serve-files)). For start at
+login and restarts after crashes, a service manager is still the better
+choice:
 
 - **Linux (systemd):** install `docs/service/passalong-serve.service` as a
   user unit. Its header shows the commands.
@@ -132,7 +233,7 @@ service manager keep it running.
 Clipboard text works on macOS and on Linux under X11 or a Wayland compositor
 that supports the `wlr-data-control` protocol, such as Hyprland or Sway.
 
-On Linux the clipboard's content belongs to the program that set it. When
-`passalong load` copies text to the clipboard and exits, the text survives
-only if a clipboard manager takes it over; passalong waits up to 2 seconds
-for one. Without a clipboard manager, load into a file instead.
+On Linux the clipboard's content belongs to the program that set it, so
+`passalong load` hands the text to a small background process that keeps
+it available until something else is copied, as `wl-copy` and `xclip` do.
+`load` itself returns immediately.

@@ -12,8 +12,11 @@ use passalong_core::fs::{FsError, RemoteFs, RemotePath};
 use passalong_core::model::NewItem;
 use passalong_core::random::{RandomSource, StdRandom};
 use passalong_core::store::{FsStore, Store};
+use passalong_core::testing::FixedClock;
 use passalong_ssh::connect::SshParams;
 use passalong_ssh::error::SshError;
+use passalong_ssh::fetch_host_key;
+use passalong_ssh::host_key::PinnedHostKey;
 use passalong_ssh::sftp_fs::SftpFs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -135,6 +138,85 @@ async fn fs_store_works_over_sftp() {
         .remove_dir_all(&RemotePath::root())
         .await
         .unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs the Docker SSH server: just test-integration"]
+async fn delete_and_clean_staging_work_over_sftp() {
+    let params = SshParams::from_config(&config()).unwrap();
+    let fs = SftpFs::open(&params, &unique_root()).await.unwrap();
+    // A clock one day ahead makes a freshly created staging directory "old".
+    let tomorrow = (chrono::Utc::now() + chrono::TimeDelta::days(1)).to_rfc3339();
+    let store = FsStore::new(
+        fs,
+        Arc::new(FixedClock::at(&tomorrow)),
+        Box::new(StdRandom::new()),
+    );
+    let keep = store
+        .put(NewItem::text("it"), Box::new(Cursor::new(b"keep".to_vec())))
+        .await
+        .unwrap()
+        .meta;
+    let gone = store
+        .put(NewItem::text("it"), Box::new(Cursor::new(b"gone".to_vec())))
+        .await
+        .unwrap()
+        .meta;
+    assert_eq!(store.delete(&gone.id).await.unwrap(), gone);
+    assert_eq!(store.list().await.unwrap(), vec![keep]);
+    store
+        .fs()
+        .create_dir_all(&p("tmp/abandoned-upload"))
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .clean_staging(std::time::Duration::from_secs(3600))
+            .await
+            .unwrap(),
+        1
+    );
+    assert!(
+        store
+            .fs()
+            .stat(&p("tmp/abandoned-upload"))
+            .await
+            .unwrap()
+            .is_none()
+    );
+    store
+        .fs()
+        .remove_dir_all(&RemotePath::root())
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs the Docker SSH server: just test-integration"]
+async fn the_fetched_host_key_is_the_servers_ed25519_key() {
+    let cfg = config();
+    let found = fetch_host_key(&cfg.host, cfg.port, std::time::Duration::from_secs(10))
+        .await
+        .unwrap();
+    let expected = PinnedHostKey::parse(&cfg.host_key).unwrap();
+    assert_eq!(found.fingerprint, expected.fingerprint());
+    assert_eq!(found.algorithm, "ssh-ed25519");
+    assert_eq!(
+        PinnedHostKey::parse(&found.openssh_line)
+            .unwrap()
+            .fingerprint(),
+        expected.fingerprint()
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs the Docker SSH server: just test-integration"]
+async fn fetching_from_a_closed_port_is_a_connection_error() {
+    let cfg = config();
+    let err = fetch_host_key(&cfg.host, 1, std::time::Duration::from_secs(10))
+        .await
+        .unwrap_err();
+    assert!(matches!(err, SshError::Connect { .. }), "{err:?}");
 }
 
 #[tokio::test]

@@ -10,8 +10,10 @@
 //! complete, so readers never observe a partial item.
 
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use async_trait::async_trait;
+use chrono::TimeDelta;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::clock::Clock;
@@ -289,6 +291,63 @@ impl<F: RemoteFs> Store for FsStore<F> {
                 candidates,
             }),
         }
+    }
+
+    async fn delete(&self, id: &ItemId) -> Result<ItemMeta, StoreError> {
+        let meta = match self.read_meta(id).await {
+            Err(StoreError::Fs(FsError::NotFound(_))) => {
+                return Err(StoreError::NotFound(id.to_string()));
+            }
+            other => other?,
+        };
+        let tmp = RemotePath::new(TMP_DIR)?;
+        self.fs.create_dir_all(&tmp).await?;
+        let token = self
+            .rng
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .next_u64();
+        let grave = tmp.join(&format!("deleted-{id}-{token:016x}"))?;
+        // Moving the directory out of `items/` first hides the item from
+        // every listing in one step; a failed removal leaves only a staging
+        // leftover for `clean_staging`.
+        match self.fs.rename(&Self::item_dir(id)?, &grave).await {
+            Err(FsError::NotFound(_)) => return Err(StoreError::NotFound(id.to_string())),
+            other => other?,
+        }
+        self.fs.remove_dir_all(&grave).await?;
+        tracing::info!(id = %id, size = meta.size, "item deleted");
+        Ok(meta)
+    }
+
+    async fn clean_staging(&self, older_than: Duration) -> Result<usize, StoreError> {
+        let tmp = RemotePath::new(TMP_DIR)?;
+        let entries = match self.fs.read_dir(&tmp).await {
+            Ok(entries) => entries,
+            Err(FsError::NotFound(_)) => return Ok(0),
+            Err(err) => return Err(err.into()),
+        };
+        // An age too large to subtract means nothing can be that old.
+        let Some(cutoff) = TimeDelta::from_std(older_than)
+            .ok()
+            .and_then(|age| self.clock.now().checked_sub_signed(age))
+        else {
+            return Ok(0);
+        };
+        let mut removed = 0;
+        for entry in entries.into_iter().filter(|entry| entry.is_dir) {
+            let path = tmp.join(&entry.name)?;
+            let stale = matches!(self.fs.stat(&path).await?, Some(meta) if meta.modified.is_some_and(|m| m < cutoff));
+            if stale {
+                self.fs.remove_dir_all(&path).await?;
+                tracing::debug!(path = %path, "removed stale staging directory");
+                removed += 1;
+            }
+        }
+        if removed > 0 {
+            tracing::info!("removed {removed} stale staging directories");
+        }
+        Ok(removed)
     }
 }
 
@@ -750,5 +809,116 @@ mod tests {
         assert!(fx.tmp_is_empty());
         let _ = RemotePath::root();
         let _: &dyn RemoteFs = store.fs();
+    }
+
+    fn tmp_entries(fx: &Fixture) -> Vec<String> {
+        let Ok(rd) = std::fs::read_dir(fx.path("tmp")) else {
+            return vec![];
+        };
+        let mut names: Vec<_> = rd
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// Sets a staging directory's modification time relative to the fixture clock.
+    fn staging_dir_aged(fx: &Fixture, name: &str, age_secs: i64) {
+        let dir = fx.path("tmp").join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        let when = FixedClockAt::minus(T, age_secs);
+        std::fs::File::open(&dir)
+            .unwrap()
+            .set_modified(when)
+            .unwrap();
+    }
+
+    struct FixedClockAt;
+    impl FixedClockAt {
+        fn minus(rfc3339: &str, secs: i64) -> std::time::SystemTime {
+            let base = chrono::DateTime::parse_from_rfc3339(rfc3339)
+                .unwrap()
+                .with_timezone(&chrono::Utc);
+            (base - chrono::TimeDelta::seconds(secs)).into()
+        }
+    }
+
+    #[tokio::test]
+    async fn delete_removes_the_item_and_returns_its_metadata() {
+        let fx = Fixture::new();
+        let store = fx.store();
+        let keep = store
+            .put(NewItem::text("box"), content(b"keep"))
+            .await
+            .unwrap()
+            .meta;
+        fx.clock.advance(1);
+        let gone = store
+            .put(NewItem::text("box"), content(b"gone"))
+            .await
+            .unwrap()
+            .meta;
+        assert_eq!(store.delete(&gone.id).await.unwrap(), gone);
+        assert_eq!(store.list().await.unwrap(), vec![keep]);
+        assert!(!store.exists(&gone.id).await.unwrap());
+        assert!(tmp_entries(&fx).is_empty(), "{:?}", tmp_entries(&fx));
+        assert!(
+            matches!(store.delete(&gone.id).await.unwrap_err(), StoreError::NotFound(id) if id == gone.id.as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_removal_still_hides_the_item_at_once() {
+        let fx = Fixture::new();
+        let store = fx.faulty();
+        let meta = store
+            .put(NewItem::text("box"), content(b"doomed"))
+            .await
+            .unwrap()
+            .meta;
+        store.fs().fail_next(FsOp::RemoveDirAll, 1);
+        assert!(matches!(
+            store.delete(&meta.id).await.unwrap_err(),
+            StoreError::Fs(_)
+        ));
+        assert!(
+            store.list().await.unwrap().is_empty(),
+            "item must already be gone from listings"
+        );
+        let left = tmp_entries(&fx);
+        assert_eq!(left.len(), 1);
+        assert!(
+            left[0].starts_with(&format!("deleted-{}-", meta.id)),
+            "{left:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn clean_staging_removes_only_entries_older_than_the_threshold() {
+        let fx = Fixture::new();
+        let store = fx.store();
+        assert_eq!(
+            store
+                .clean_staging(std::time::Duration::from_secs(3600))
+                .await
+                .unwrap(),
+            0,
+            "no tmp yet"
+        );
+        staging_dir_aged(&fx, "abandoned-upload", 2 * 3600);
+        staging_dir_aged(&fx, "deleted-old", 3 * 3600);
+        staging_dir_aged(&fx, "upload-in-progress", 10 * 60);
+        std::fs::write(fx.path("tmp/stray-file"), b"").unwrap();
+        let removed = store
+            .clean_staging(std::time::Duration::from_secs(3600))
+            .await
+            .unwrap();
+        assert_eq!(removed, 2);
+        assert_eq!(tmp_entries(&fx), ["stray-file", "upload-in-progress"]);
+        assert_eq!(
+            store.clean_staging(std::time::Duration::MAX).await.unwrap(),
+            0,
+            "nothing is older than forever"
+        );
     }
 }

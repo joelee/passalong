@@ -5,6 +5,7 @@
 pub mod clipboard;
 pub mod delete;
 pub mod file;
+pub mod init;
 pub mod list;
 pub mod load;
 pub mod prune;

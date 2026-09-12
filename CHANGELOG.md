@@ -13,6 +13,9 @@ All notable changes to this project are documented here. The format follows
 - `passalong prune --older-than <AGE> --keep <N>` deletes old items after
   confirmation, supports `--dry-run` and `--yes`, and clears stale upload
   leftovers on the server (PLAN-00002 STEP-05).
+- `passalong init` writes a config file for an SSH server, pinning its host
+  key only after you confirm the fingerprint, and tests the connection
+  (PLAN-00002 STEP-07).
 
 ### Changed
 

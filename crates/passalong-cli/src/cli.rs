@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use passalong_core::telemetry::LogLevel;
 
 fn parse_age(text: &str) -> Result<Duration, String> {
@@ -81,6 +81,9 @@ pub enum Command {
         #[arg(long)]
         yes: bool,
     },
+    /// Write a config file for your SSH server, pinning its host key after
+    /// you confirm its fingerprint.
+    Init(InitArgs),
     /// Delete items from the store.
     Delete {
         /// The items: full ids, or at least 4 characters of each.
@@ -100,8 +103,48 @@ impl Command {
             Self::Serve => "serve",
             Self::Delete { .. } => "delete",
             Self::Prune { .. } => "prune",
+            Self::Init(_) => "init",
         }
     }
+}
+
+/// Options of `passalong init`. Anything not given is asked for, or takes
+/// its default with `--yes`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Args)]
+pub struct InitArgs {
+    /// Server host name or address.
+    #[arg(long)]
+    pub host: Option<String>,
+    /// SSH port [default: 22].
+    #[arg(long)]
+    pub port: Option<u16>,
+    /// Login user on the server [default: passalong].
+    #[arg(long)]
+    pub user: Option<String>,
+    /// Private key for logging in [default: ~/.ssh/id_ed25519].
+    #[arg(long, value_name = "PATH")]
+    pub identity_file: Option<String>,
+    /// Storage directory on the server [default: /srv/passalong].
+    #[arg(long, value_name = "PATH")]
+    pub remote_path: Option<String>,
+    /// Name recorded on items this device sends [default: host name].
+    #[arg(long, value_name = "NAME")]
+    pub device_name: Option<String>,
+    /// Pin this host key instead of fetching it from the server.
+    #[arg(long, value_name = "KEY")]
+    pub host_key: Option<String>,
+    /// Accept the fetched host key only if it has this SHA-256 fingerprint.
+    #[arg(long, value_name = "SHA256:...")]
+    pub fingerprint: Option<String>,
+    /// Take defaults instead of asking; needs --host-key or --fingerprint.
+    #[arg(long)]
+    pub yes: bool,
+    /// Replace an existing config file.
+    #[arg(long)]
+    pub force: bool,
+    /// Do not test the connection after writing the config.
+    #[arg(long)]
+    pub no_test: bool,
 }
 
 #[cfg(test)]
@@ -164,6 +207,43 @@ mod tests {
             }
         );
         assert_eq!(parse(&["serve"]).command, Command::Serve);
+        let init = parse(&[
+            "init",
+            "--host",
+            "nas",
+            "--port",
+            "2222",
+            "--user",
+            "pa",
+            "--identity-file",
+            "~/.ssh/k",
+            "--remote-path",
+            "/data",
+            "--device-name",
+            "lap",
+            "--fingerprint",
+            "SHA256:abc",
+            "--yes",
+            "--force",
+            "--no-test",
+        ]);
+        assert_eq!(
+            init.command,
+            Command::Init(InitArgs {
+                host: Some("nas".into()),
+                port: Some(2222),
+                user: Some("pa".into()),
+                identity_file: Some("~/.ssh/k".into()),
+                remote_path: Some("/data".into()),
+                device_name: Some("lap".into()),
+                host_key: None,
+                fingerprint: Some("SHA256:abc".into()),
+                yes: true,
+                force: true,
+                no_test: true,
+            })
+        );
+        assert_eq!(parse(&["init"]).command, Command::Init(InitArgs::default()));
         assert_eq!(
             parse(&[
                 "prune",
@@ -232,6 +312,7 @@ mod tests {
             },
             Command::Serve,
             Command::Delete { ids: vec![] },
+            Command::Init(InitArgs::default()),
             Command::Prune {
                 older_than: None,
                 keep: None,
@@ -251,6 +332,7 @@ mod tests {
                 "load",
                 "serve",
                 "delete",
+                "init",
                 "prune"
             ]
         );

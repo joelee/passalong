@@ -499,3 +499,44 @@ async fn prune_lists_confirms_and_deletes() {
         .code(1)
         .stderr(predicate::str::contains("--older-than"));
 }
+
+#[test]
+fn init_writes_a_config_offline_and_refuses_to_overwrite_it() {
+    let sb = Sandbox::new();
+    let target = sb.path("cfg/new.toml");
+    let key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIF2M9DqIpW9GMebpvjNg+bobwAbQKRBqPVMatyvyI4gq";
+    let init = |sb: &Sandbox| {
+        let mut cmd = sb.cmd();
+        cmd.arg("--config").arg(&target).args([
+            "init",
+            "--host",
+            "127.0.0.1",
+            "--host-key",
+            key,
+            "--yes",
+            "--no-test",
+        ]);
+        cmd
+    };
+    init(&sb)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "wrote {}",
+            target.display()
+        )));
+    let written = std::fs::read_to_string(&target).unwrap();
+    assert!(
+        written.contains(key) && written.contains("host = \"127.0.0.1\""),
+        "{written}"
+    );
+    init(&sb)
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("--force"));
+    sb.cmd()
+        .args(["init", "--host", "127.0.0.1", "--yes"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("--host-key or --fingerprint"));
+}

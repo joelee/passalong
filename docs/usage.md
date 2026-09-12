@@ -15,6 +15,55 @@ the [README](../README.md#server-setup).
 
 Global options may come before or after the subcommand.
 
+## `passalong init`
+
+Writes a config file for your SSH server and pins its host key. Run it once
+per device after [preparing the server](../README.md#server-setup):
+
+```text
+$ passalong init
+Server host name or address: nas.local
+SSH port [22]:
+User on the server [passalong]:
+Private key for logging in [~/.ssh/id_ed25519]:
+Storage directory on the server [/srv/passalong]:
+Name for this device [laptop]:
+The server at nas.local:22 presented this ssh-ed25519 host key:
+  SHA256:5Si4lWKPwa0+I2wCQf3eOtcF8jWo30BWybHoXLTxABo
+Compare it with the server's own key, for example by running there:
+  ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+Does the fingerprint match? [y/N] y
+wrote /home/you/.config/passalong/config.toml
+Add this device's public key to ~passalong/.ssh/authorized_keys on the server:
+  /home/you/.ssh/id_ed25519.pub
+connected: 0 items on the server
+```
+
+The key is written only after you confirm its fingerprint. `init` writes to
+`--config` when given, otherwise to the standard location, and refuses to
+replace an existing file without `--force`. After writing, it logs in and
+lists the server to prove the settings work.
+
+| Option | Meaning |
+|---|---|
+| `--host <HOST>` | Server host name or address |
+| `--port <PORT>` | SSH port, default 22 |
+| `--user <USER>` | Login user, default `passalong` |
+| `--identity-file <PATH>` | Private key, default `~/.ssh/id_ed25519` |
+| `--remote-path <PATH>` | Storage directory on the server, default `/srv/passalong` |
+| `--device-name <NAME>` | Name recorded on items, default the host name |
+| `--host-key <KEY>` | Pin this OpenSSH key line instead of fetching one |
+| `--fingerprint <SHA256:...>` | Accept the fetched key only if it has this fingerprint |
+| `--yes` | Take defaults instead of asking; requires `--host-key` or `--fingerprint` |
+| `--force` | Replace an existing config file |
+| `--no-test` | Skip the connection test |
+
+For scripts, `--yes` alone is refused so a key is never trusted blindly:
+
+```sh
+passalong init --host nas.local --fingerprint SHA256:5Si4lWKPwa0+I2wCQf3eOtcF8jWo30BWybHoXLTxABo --yes
+```
+
 ## Output and exit codes
 
 Results go to standard output; logs and errors go to standard error. A

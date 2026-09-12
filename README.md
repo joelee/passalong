@@ -36,8 +36,9 @@ and no custom server daemon.
 1. Prepare the server once, as described in [Server setup](#server-setup).
 2. Install the client: `cargo install --locked --path crates/passalong-cli`
    from a clone of this repository puts `passalong` in `~/.cargo/bin`.
-3. Copy [`config.sample.toml`](config.sample.toml) to
-   `~/.config/passalong/config.toml` and fill in the `[server.ssh]` section.
+3. Run `passalong init`. It asks for the server's address and your key,
+   shows the server's host-key fingerprint for you to confirm, writes
+   `~/.config/passalong/config.toml`, and tests the connection.
 4. Use it:
 
    ```sh

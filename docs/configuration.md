@@ -1,7 +1,9 @@
 # Configuration
 
 Settings live in `config.toml`; the only secret, the SSH key passphrase,
-comes from the environment. [`config.sample.toml`](../config.sample.toml) is
+comes from the environment. `passalong init` writes a complete file for an
+SSH server, at `$XDG_CONFIG_HOME/passalong/config.toml` or
+`~/.config/passalong/config.toml` unless `--config` says otherwise. [`config.sample.toml`](../config.sample.toml) is
 an annotated example with every key.
 
 ## Lookup order

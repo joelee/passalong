@@ -12,6 +12,7 @@ pub mod config;
 pub mod fs;
 pub mod model;
 pub mod random;
+pub mod serve;
 pub mod store;
 pub mod telemetry;
 #[cfg(any(test, feature = "testing"))]

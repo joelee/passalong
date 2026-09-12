@@ -88,6 +88,44 @@ the destination directory.
 
 A prefix that matches several items is refused, and the error lists them.
 
+## `passalong serve`
+
+Keeps running and sends:
+
+- every new clipboard text, checked every `serve.clipboard_poll_interval_ms`;
+- every file dropped into `serve.drop_folder`, once its size and modification
+  time have stayed the same for `serve.file_stable_wait_ms`.
+
+Files already in the drop folder when `serve` starts are sent too. Hidden
+files, subfolders, symbolic links, and names ending in `.part`,
+`.crdownload`, `.tmp`, or `.passalong-part` are ignored. After a file is
+sent it moves to `<drop_folder>/sent/` (a number is added if the name is
+taken), or is deleted when `serve.after_send = "delete"`.
+
+Text that is already stored, for example text that `passalong load` just
+put on the clipboard, is not sent again.
+
+When the server cannot be reached, `serve` logs a warning and retries the
+same item after 1, 2, 4 … seconds, up to one minute apart, reconnecting each
+time. It never gives up on an item because of a network problem. A file
+that cannot be read is skipped until `serve` restarts.
+
+`serve` stops cleanly on Ctrl-C or SIGTERM. It exits with code 1 only when
+it cannot start: invalid configuration, an unreachable server at start-up,
+or a drop folder that cannot be created or watched. Without a desktop
+clipboard, for example over SSH or in a container, it keeps watching the
+drop folder and logs `clipboard unavailable`.
+
+### Running `serve` in the background
+
+`serve` runs in the foreground by design; let the operating system's
+service manager keep it running.
+
+- **Linux (systemd):** install `docs/service/passalong-serve.service` as a
+  user unit. Its header shows the commands.
+- **macOS (launchd):** install `docs/service/com.passalong.serve.plist` as a
+  launch agent. Its header shows the commands.
+
 ## Clipboard support
 
 Clipboard text works on macOS and on Linux under X11 or a Wayland compositor

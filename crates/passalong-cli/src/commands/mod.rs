@@ -6,6 +6,7 @@ pub mod clipboard;
 pub mod file;
 pub mod list;
 pub mod load;
+pub mod serve;
 
 /// Helpers shared by the command tests.
 #[cfg(test)]

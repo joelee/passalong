@@ -336,3 +336,74 @@ fn loading_an_unknown_id_fails() {
         .code(1)
         .stderr(predicate::str::contains("no item matches `abcd`"));
 }
+
+/// Runs the real `serve` process, drops a file, and stops it with SIGTERM as
+/// systemd would. The display variables are removed so the developer's real
+/// clipboard is never read; `serve` then watches only the drop folder.
+#[cfg(unix)]
+#[test]
+fn serve_sends_dropped_files_and_stops_cleanly_on_sigterm() {
+    use std::io::Read;
+    use std::process::{Command as Process, Stdio};
+    use std::time::{Duration, Instant};
+
+    let sb = Sandbox::new();
+    let config = sb.config();
+    let mut child = Process::new(env!("CARGO_BIN_EXE_passalong"))
+        .current_dir(sb.path("work"))
+        .env("HOME", sb.path("home"))
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("PASSALONG_CONFIG_FILE")
+        .env_remove("PASSALONG_LOG_LEVEL")
+        .env_remove("WAYLAND_DISPLAY")
+        .env_remove("DISPLAY")
+        .args(["serve", "--config"])
+        .arg(&config)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    std::fs::write(sb.path("drop/hello.txt"), b"from the drop folder").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !sb.path("drop/sent/hello.txt").exists() {
+        assert!(Instant::now() < deadline, "the file was never sent");
+        assert!(child.try_wait().unwrap().is_none(), "serve exited early");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let killed = Process::new("kill")
+        .args(["-TERM", &child.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(killed.success());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "serve did not stop after SIGTERM"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let mut stderr = String::new();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut stderr)
+        .unwrap();
+    assert!(status.success(), "exit {status:?}\n{stderr}");
+    assert!(stderr.contains("serve stopped"), "{stderr}");
+    assert!(stderr.contains("clipboard unavailable"), "{stderr}");
+    let out = sb
+        .with_config()
+        .args(["list", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(json[0]["name"], "hello.txt");
+}

@@ -38,3 +38,7 @@ All notable changes to this project are documented here. The format follows
   authentication, and a connect timeout (PLAN-00001 STEP-11).
 - `server.kind = "ssh"` selects the SSH backend; backends are registered by
   kind, so new ones plug in without changing commands (PLAN-00001 STEP-12).
+- `passalong serve` sends new clipboard text and dropped files, retries
+  with reconnection when the server is unreachable, and stops cleanly on
+  Ctrl-C or SIGTERM; systemd and launchd examples in `docs/service/`
+  (PLAN-00001 STEP-13).

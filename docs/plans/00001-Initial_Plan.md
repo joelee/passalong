@@ -32,14 +32,14 @@ confidence: high                  # high | medium | low
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; Delivery Planner initializes them.
-implementation_status: not-started # not-started | in-progress | blocked | completed | abandoned
-builder_agent: null
-builder_model: null
-execution_branch: null
-execution_started_at: null
-execution_updated_at: null
+implementation_status: in-progress # not-started | in-progress | blocked | completed | abandoned
+builder_agent: "Claude Code"
+builder_model: "anthropic/claude-opus-5"
+execution_branch: "feature/initial-plan"
+execution_started_at: "2026-09-12T10:54:05Z"
+execution_updated_at: "2026-09-12T10:59:49Z"
 execution_completed_at: null
-current_step: null
+current_step: "PLAN-00001-STEP-02"
 ---
 
 # Delivery Plan 00001: Initial Plan
@@ -1479,7 +1479,7 @@ behavioural step.
 
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
-| PLAN-00001-STEP-01 | not-started | — | — | — | — |
+| PLAN-00001-STEP-01 | completed | 2026-09-12T10:54:05Z | 2026-09-12T10:59:49Z | Commit `build: complete PLAN-00001-STEP-01 - Workspace scaffold, tooling, and quality gates`; `just check` green, 82.35 % lines | User-directed additions: Apache-2.0 `LICENSE`, full initial `README.md`. Pinned deps: anyhow 1.0.104, arboard 3.6.1, async-trait 0.1.92, chrono 0.4.45, clap 4.6.6, dotenvy 0.15.7, gethostname 1.1.0, hex 0.4.3, mime_guess 2.0.5, notify 8.2.0, russh 0.63.3, russh-sftp 3.0.0, serde 1.0.229, serde_json 1.0.151, sha2 0.11.0, ssh-key 0.6.7, thiserror 2.0.20, tokio 1.53.1, toml 1.1.6, tracing 0.1.44, tracing-subscriber 0.3.23; dev: assert_cmd 2.2.2, predicates 3.1.4, tempfile 3.27.0, tokio-test 0.4.5 |
 | PLAN-00001-STEP-02 | not-started | — | — | — | — |
 | PLAN-00001-STEP-03 | not-started | — | — | — | — |
 | PLAN-00001-STEP-04 | not-started | — | — | — | — |
@@ -1502,24 +1502,35 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 
 | Timestamp (UTC) | Step | Event | Evidence or reference | Next action |
 |---|---|---|---|---|
+| 2026-09-12T10:54:05Z | — | Plan approved (commit ecdf1ed1bb3b6c7bf6d1078081f3ea49da550350); branch `feature/initial-plan` created from it | `git switch -c feature/initial-plan` | Begin STEP-01 |
+| 2026-09-12T10:54:05Z | PLAN-00001-STEP-01 | Started | User instruction: add LICENSE, README, .gitignore and implement STEP-01 to STEP-03 | Red phase |
+| 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | Verified; commit authorised by the user's instruction to implement STEP-01 to STEP-03 in one run | `build: complete PLAN-00001-STEP-01 - Workspace scaffold, tooling, and quality gates` | Begin STEP-02 |
 
 ### Deviations and blockers
 
 | Timestamp (UTC) | Step | Deviation or blocker | Impact | Decision required from |
 |---|---|---|---|---|
-
-None
+| 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | Root `AGENTS.md` is empty (0 bytes) in commits c164d23 and eb196a6. The rules this plan cites were read before they were emptied and are reproduced in the plan; Builder followed the plan. | None on delivery; future agents lose the repository rules | User |
+| 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | Dockerfile uses `rust:1.98.1-slim-trixie` and `debian:trixie-slim` instead of `rust:1.98.1` and `debian:bookworm-slim` so builder and runtime glibc match; runtime runs as non-root user `passalong`. | None; AC-18 met | None (routine) |
+| 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | CI installs `just` and `cargo-llvm-cov` with `taiki-e/install-action@v2` instead of `extractions/setup-just`; `just ci` runs `check`, `test-integration`, then `coverage-full` to satisfy both REQ-02 and REQ-20. | None | None (routine) |
+| 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | Compose pins `lscr.io/linuxserver/openssh-server:10.3_p1-r1-ls236` and binds port 2222 to 127.0.0.1 only; `notify` 8.2.0 and `ssh-key` 0.6.7 are the latest stable releases (newest published are release candidates). | None | None (routine) |
 
 ### Verification results
 
 | Timestamp (UTC) | Step | Command or check | Result | Evidence |
 |---|---|---|---|---|
+| 2026-09-12T10:54:05Z | PLAN-00001-STEP-01 | Red: `cargo test --workspace --all-targets --all-features` | Exit 101 (expected) | E0425 cannot find value `VERSION` in passalong-core and passalong-ssh |
+| 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | `just check` (fmt-check, clippy -D warnings, tests, llvm-cov ≥ 80, locked build) | Exit 0 | 4 tests passed; lines 82.35 % (17 lines, 3 missed) |
+| 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | `just --list` | Pass | All REQ-02 recipes listed |
+| 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | `just docker-build`; `docker run --rm passalong:dev --help` and `--version` | Exit 0 | Usage printed; `passalong 0.1.0` |
+| 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | `just test-integration` | Exit 0 | Container healthy, 0 ignored tests yet, container removed; keys git-ignored |
+| 2026-09-12T10:59:49Z | PLAN-00001-STEP-01 | `cargo tree -p passalong-core -e normal` and `-p passalong-ssh`, grep -c clap | 0 and 0 | REQ-01, REQ-23 |
 
 ### Completion summary
 
-- **Implementation status:** `not-started`
-- **Completed requirements:** None
-- **Incomplete requirements:** All
+- **Implementation status:** `in-progress`
+- **Completed requirements:** REQ-01, REQ-02, REQ-03, REQ-04, REQ-24 (scaffold parts)
+- **Incomplete requirements:** REQ-05 to REQ-23
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

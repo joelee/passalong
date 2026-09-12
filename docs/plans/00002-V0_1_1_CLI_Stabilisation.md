@@ -8,10 +8,10 @@ tags:
   - opencode
 type: delivery-plan
 plan_id: "PLAN-00002"
-plan_status: draft                 # draft | approved | cancelled
+plan_status: approved              # draft | approved | cancelled
 plan_kind: initial                 # initial | superseding
 created_at: "2026-09-12T15:12:38Z"
-approved_at: null
+approved_at: "2026-09-12T17:42:30Z"
 planner_agent: "Claude Code"
 planner_model: "anthropic/claude-opus-5"
 triggered_by: user                 # user | agent:<agent-name>
@@ -25,8 +25,8 @@ previous_plan: null
 requirements_count: 24
 steps_count: 14
 acceptance_criteria_count: 22
-blocking_decisions: 5
-build_ready: false
+blocking_decisions: 0
+build_ready: true
 web_research_used: true
 confidence: medium                # high | medium | low
 
@@ -44,13 +44,12 @@ current_step: null
 
 # Delivery Plan 00002: V0 1 1 CLI Stabilisation
 
-> [!abstract] Plan status: `draft`
+> [!abstract] Plan status: `approved`
 > Deliver `passalong` v0.1.1: a Docker-based SSH server guide, the missing
 > v0.1.0 release records, `delete`, `prune`, `init`, `serve --daemon`,
 > crates.io publishing, and a set of low-effort hardening items, all within
-> the SSH-only CLI scope of the v0.1.x road map. Not Builder-ready: five
-> decisions (D-01 to D-05) are proposed with recommended defaults and await
-> user confirmation.
+> the SSH-only CLI scope of the v0.1.x road map. Decisions D-01 to D-05
+> were confirmed as proposed; approved by the user at 2026-09-12T17:42:30Z; Builder-ready.
 
 ## 1. Objective and outcome
 
@@ -156,8 +155,8 @@ GUI, Windows, and other platforms or backends belong to v0.2.x and later.
   the CLI crate.
 - New public `Store` methods are allowed: the crates are pre-1.0 and not yet
   published.
-- Builder works on `feature/v0-1-1-cli-stabilisation`, one commit per step,
-  as the user asked for v0.1.0.
+- Builder works on the user's branch `feature/00002-v0.1.1-CLI_Stabilisation`,
+  one commit per step, as the user asked for v0.1.0.
 - Builder must not run `cargo publish` (without `--dry-run`), push tags, or
   create releases.
 
@@ -170,16 +169,16 @@ material.
 
 | ID | Decision or blocker | Resolution | Owner | Status |
 |---|---|---|---|---|
-| D-01 | Behaviour of `delete` and `prune`. | **Proposed:** `passalong delete <ID>...` resolves every id first (same prefix rules as `load`), deletes nothing if any id is unknown or ambiguous, then deletes and prints each id; no prompt, like `rm`. `passalong prune` needs `--older-than <AGE>` (units `m`, `h`, `d`, `w`) and/or `--keep <N>`; with both, an item survives if it is among the newest N or younger than AGE. It prints the items it will delete, asks `Delete N items? [y/N]` on a terminal, refuses without `--yes` when not on a terminal, and supports `--dry-run`. Prune also removes staging directories in `tmp/` older than 1 hour, which interrupted uploads leave behind. | User | Proposed — awaiting confirmation (blocking) |
-| D-02 | How `init` establishes trust in the host key. | **Proposed:** `init` connects once without logging in, captures the server's host key (preferring ed25519), shows its SHA-256 fingerprint with the command to check it on the server, and writes it only after the user types `yes`. Scripted use: `--host-key "<line>"` supplies the key directly, or `--fingerprint SHA256:…` must match the fetched key; `--yes` alone is refused, so scripts can never trust blindly. `init` writes to `--config` or `~/.config/passalong/config.toml`, refuses to overwrite without `--force`, then tests login and the storage directory unless `--no-test`. | User | Proposed — awaiting confirmation (blocking) |
-| D-03 | How `serve --daemon` detaches. | **Proposed:** Unix only. The CLI re-runs itself as `serve` in a new process group with standard input closed and output appended to a log file, then waits up to 5 seconds and reports either the child's pid or its start-up error. Every `serve` holds an exclusive lock on a pid file (std `File::try_lock`, no `unsafe`), which gives single-instance protection and makes stale pid files harmless. `--status` reads the lock and pid; `--stop` sends SIGTERM via `kill` and waits up to 10 seconds. Files: Linux `${XDG_STATE_HOME:-~/.local/state}/passalong/serve.{pid,log}`; macOS `~/Library/Logs/passalong/serve.log` and `~/Library/Application Support/passalong/serve.pid`. Service-manager units stay the recommended way. | User | Proposed — awaiting confirmation (blocking) |
-| D-04 | Publishing setup. | **Proposed:** Rename the CLI package `passalong-cli` → `passalong` (binary name unchanged; directory unchanged) so `cargo install passalong` works; publish `passalong-core`, `passalong-ssh`, `passalong`. Switch third-party dependency requirements from exact `=` pins to caret requirements, since exact pins in published libraries cause conflicts for users; `Cargo.lock` and `--locked` keep builds reproducible; internal crates stay pinned to each other with `=`. A `release.yml` workflow on `v*` tags checks the tag equals the workspace version, builds and attaches binaries for Linux x86_64 and macOS arm64, and runs `cargo publish --workspace` with a `CARGO_REGISTRY_TOKEN` repository secret that the user creates. | User | Proposed — awaiting confirmation (blocking) |
-| D-05 | Which low-effort extras to include. | **Proposed include:** (a) fix the repository URL; (b) restore the root `AGENTS.md` verbatim from the rules captured at the start of PLAN-00001; (c) `cargo deny` in CI, keeping `russh`'s `rsa` feature for RSA identity files and recording RUSTSEC-2023-0071 as an accepted, documented exception; (d) report an unreadable config as unreadable; (e) `serve` retries skipped files once they change; (f) Linux clipboard holder so text from `load` survives the command exiting; (g) desktop clipboard test under Xvfb in CI. **Proposed exclude:** connection reuse, interactive disambiguation, log rotation. | User | Proposed — awaiting confirmation (blocking) |
+| D-01 | Behaviour of `delete` and `prune`. | **Confirmed by user (2026-09-12):** `passalong delete <ID>...` resolves every id first (same prefix rules as `load`), deletes nothing if any id is unknown or ambiguous, then deletes and prints each id; no prompt, like `rm`. `passalong prune` needs `--older-than <AGE>` (units `m`, `h`, `d`, `w`) and/or `--keep <N>`; with both, an item survives if it is among the newest N or younger than AGE. It prints the items it will delete, asks `Delete N items? [y/N]` on a terminal, refuses without `--yes` when not on a terminal, and supports `--dry-run`. Prune also removes staging directories in `tmp/` older than 1 hour, which interrupted uploads leave behind. | User | Resolved |
+| D-02 | How `init` establishes trust in the host key. | **Confirmed by user (2026-09-12):** `init` connects once without logging in, captures the server's host key (preferring ed25519), shows its SHA-256 fingerprint with the command to check it on the server, and writes it only after the user types `yes`. Scripted use: `--host-key "<line>"` supplies the key directly, or `--fingerprint SHA256:…` must match the fetched key; `--yes` alone is refused, so scripts can never trust blindly. `init` writes to `--config` or `~/.config/passalong/config.toml`, refuses to overwrite without `--force`, then tests login and the storage directory unless `--no-test`. | User | Resolved |
+| D-03 | How `serve --daemon` detaches. | **Confirmed by user (2026-09-12):** Unix only. The CLI re-runs itself as `serve` in a new process group with standard input closed and output appended to a log file, then waits up to 5 seconds and reports either the child's pid or its start-up error. Every `serve` holds an exclusive lock on a pid file (std `File::try_lock`, no `unsafe`), which gives single-instance protection and makes stale pid files harmless. `--status` reads the lock and pid; `--stop` sends SIGTERM via `kill` and waits up to 10 seconds. Files: Linux `${XDG_STATE_HOME:-~/.local/state}/passalong/serve.{pid,log}`; macOS `~/Library/Logs/passalong/serve.log` and `~/Library/Application Support/passalong/serve.pid`. Service-manager units stay the recommended way. | User | Resolved |
+| D-04 | Publishing setup. | **Confirmed by user (2026-09-12):** Rename the CLI package `passalong-cli` → `passalong` (binary name unchanged; directory unchanged) so `cargo install passalong` works; publish `passalong-core`, `passalong-ssh`, `passalong`. Switch third-party dependency requirements from exact `=` pins to caret requirements, since exact pins in published libraries cause conflicts for users; `Cargo.lock` and `--locked` keep builds reproducible; internal crates stay pinned to each other with `=`. A `release.yml` workflow on `v*` tags checks the tag equals the workspace version, builds and attaches binaries for Linux x86_64 and macOS arm64, and runs `cargo publish --workspace` with a `CARGO_REGISTRY_TOKEN` repository secret that the user creates. | User | Resolved |
+| D-05 | Which low-effort extras to include. | **Confirmed by user (2026-09-12), include:** (a) fix the repository URL; (b) restore the root `AGENTS.md` verbatim from the rules captured at the start of PLAN-00001; (c) `cargo deny` in CI, keeping `russh`'s `rsa` feature for RSA identity files and recording RUSTSEC-2023-0071 as an accepted, documented exception; (d) report an unreadable config as unreadable; (e) `serve` retries skipped files once they change; (f) Linux clipboard holder so text from `load` survives the command exiting; (g) desktop clipboard test under Xvfb in CI. **Exclude:** connection reuse, interactive disambiguation, log rotation. | User | Resolved |
 | D-06 | Crate name availability. | **Resolved by planner:** crates.io returned 404 for `passalong`, `passalong-core`, `passalong-ssh`, `passalong-cli` on 2026-09-12. Names are not reserved until first publish; Builder records a fresh check in STEP-02. | Planner | Resolved |
 | D-07 | Where the Docker server example lives. | **Resolved by planner:** `deploy/ssh-server/compose.yaml` plus `authorized_keys.example`, using the same pinned `lscr.io/linuxserver/openssh-server:10.3_p1-r1-ls236` image the integration tests already prove, with `/config` persisted so the host key survives container re-creation (essential for pinning). | Planner | Resolved |
 
-Blocking decisions: 5 (D-01 to D-05). The plan body is written against the
-proposed resolutions.
+Blocking decisions: 0. The user confirmed D-01 to D-05 as proposed on
+2026-09-12; the plan body already reflects them.
 
 ## 8. Affected architecture and components
 
@@ -985,6 +984,7 @@ None
 | Timestamp (UTC) | Plan status | Change | Reason | Requested/approved by |
 |---|---|---|---|---|
 | 2026-09-12T15:12:38Z | draft | Initial draft. Clean-state gate passed at `8cac4f3` before allocation; the second check showed only the newly allocated plan file, which the allocation script creates by design. | User requested a v0.1.1 plan | User (joel@joeworks.com) |
+| 2026-09-12T17:42:30Z | approved | D-01 to D-05 confirmed as proposed and marked resolved; `blocking_decisions` 5 → 0; `plan_status` → approved, `build_ready` → true, `approved_at` set; § 5 names the user's branch `feature/00002-v0.1.1-CLI_Stabilisation` (created by the user with the draft commit `fc9a011`). No requirement, step, or acceptance-criteria change. | User: "I approved and commited your Plan#00002. The defaults are acceptable." | User (joel@joeworks.com) |
 
 ## 19. External references
 

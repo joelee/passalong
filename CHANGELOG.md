@@ -27,3 +27,6 @@ All notable changes to this project are documented here. The format follows
   STEP-05, STEP-06).
 - Clipboard access for macOS and Linux (X11 and Wayland) behind a trait,
   so front-ends can supply their own (PLAN-00001 STEP-07).
+- `passalong list` as a table or `--json`; global `--config` and
+  `--log-level` options; one-line `error:` messages with exit codes 0, 1,
+  and 2 (PLAN-00001 STEP-08).

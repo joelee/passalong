@@ -21,3 +21,7 @@ All notable changes to this project are documented here. The format follows
   (PLAN-00001 STEP-03).
 - Item model: time-sortable ids (`<hex seconds>-<content key>`), SHA-256
   content hashing, and the versioned `meta.json` schema (PLAN-00001 STEP-04).
+- Storage layer: atomic publish through a staging directory, deduplication
+  by content key, newest-first listing, and id prefix resolution, with a
+  `local` backend for directories such as mounted shares (PLAN-00001
+  STEP-05, STEP-06).

@@ -38,6 +38,32 @@ impl Clock for FixedClock {
     }
 }
 
+/// [`Clock`] that tests move forward explicitly.
+#[derive(Debug)]
+pub struct ManualClock(Mutex<DateTime<Utc>>);
+
+impl ManualClock {
+    /// Creates a clock at an RFC 3339 timestamp.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `rfc3339` is not a valid RFC 3339 timestamp.
+    pub fn at(rfc3339: &str) -> Self {
+        Self(Mutex::new(FixedClock::at(rfc3339).0))
+    }
+
+    /// Moves the clock forward by `secs` seconds.
+    pub fn advance(&self, secs: i64) {
+        *self.0.lock().expect("clock lock") += chrono::TimeDelta::seconds(secs);
+    }
+}
+
+impl Clock for ManualClock {
+    fn now(&self) -> DateTime<Utc> {
+        *self.0.lock().expect("clock lock")
+    }
+}
+
 /// [`RandomSource`] that replays a fixed sequence.
 #[derive(Debug, Clone)]
 pub struct SeqRandom {

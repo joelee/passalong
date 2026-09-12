@@ -6,6 +6,7 @@ use std::process::ExitCode;
 
 use anyhow::Context as _;
 use chrono::{FixedOffset, Local, Offset};
+use passalong_core::clipboard::ArboardClipboard;
 use passalong_core::config::{self, Config, EnvProvider, SearchRoots};
 use passalong_core::random::StdRandom;
 use passalong_core::{store, telemetry};
@@ -13,6 +14,7 @@ use tracing::Instrument;
 
 use crate::cli::{Cli, Command};
 use crate::commands;
+use crate::commands::clipboard::TextSource;
 
 /// Runs one invocation and maps the outcome to the process exit code:
 /// 0 on success, 1 on any runtime error. Usage errors never get here; clap
@@ -47,10 +49,20 @@ async fn execute(cli: Cli, env: &dyn EnvProvider, out: &mut dyn Write) -> anyhow
 
 async fn dispatch(command: Command, config: &Config, out: &mut dyn Write) -> anyhow::Result<()> {
     let store = store::open_store(config).await?;
+    let store = store.as_ref();
+    let device = config.client.device_name.as_str();
     match command {
-        Command::List { json } => {
-            commands::list::run(store.as_ref(), json, local_offset(), out).await
+        Command::Clipboard { stdin: true } => {
+            let mut input = io::stdin().lock();
+            commands::clipboard::run(store, TextSource::Reader(&mut input), device, out).await
         }
+        Command::Clipboard { stdin: false } => {
+            let mut clipboard = ArboardClipboard::new()?;
+            commands::clipboard::run(store, TextSource::Clipboard(&mut clipboard), device, out)
+                .await
+        }
+        Command::File { path } => commands::file::run(store, &path, device, out).await,
+        Command::List { json } => commands::list::run(store, json, local_offset(), out).await,
         other => anyhow::bail!("`{}` is not implemented yet", other.name()),
     }
 }

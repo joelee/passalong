@@ -43,6 +43,29 @@ cut to 40 characters. `CREATED` is in local time. An empty store prints
 `--json` prints the items' full metadata as a JSON array instead, using the
 fields described in [architecture](architecture.md#metajson).
 
+## `passalong clipboard`
+
+Sends the clipboard's text and prints the new item's id.
+
+```text
+$ passalong clipboard
+6aa52107-2cf24dba5fb0
+$ echo "from a script" | passalong clipboard --stdin
+6aa5210c-91d1e2a7c4b3
+```
+
+`--stdin` reads the text from standard input instead, which also works
+without a desktop session. Empty or whitespace-only text is refused with
+`error: clipboard is empty`. Sending text that is already stored prints the
+existing item's id and stores nothing new.
+
+## `passalong file <PATH>`
+
+Sends a file and prints the new item's id. The file is streamed, so large
+files are never read into memory. The item keeps the file's name, and its
+type is guessed from the extension. Directories are refused. Sending a file
+whose content is already stored prints the existing item's id.
+
 ## Clipboard support
 
 Clipboard text works on macOS and on Linux under X11 or a Wayland compositor

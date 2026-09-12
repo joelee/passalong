@@ -2,6 +2,8 @@
 //! store, the output stream, the clipboard) so it can be tested with
 //! in-memory doubles.
 
+pub mod clipboard;
+pub mod file;
 pub mod list;
 
 /// Helpers shared by the command tests.

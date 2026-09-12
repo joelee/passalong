@@ -218,3 +218,70 @@ fn invalid_log_level_in_the_environment_is_reported() {
         .code(1)
         .stderr(predicate::str::contains("PASSALONG_LOG_LEVEL"));
 }
+
+fn id_line() -> impl Predicate<str> {
+    predicate::str::is_match(r"^[0-9a-f]{8}-[0-9a-f]{12}\n$").unwrap()
+}
+
+#[test]
+fn clipboard_from_stdin_prints_the_new_id() {
+    let sb = Sandbox::new();
+    let out = sb
+        .with_config()
+        .args(["clipboard", "--stdin"])
+        .write_stdin("hi")
+        .assert()
+        .success()
+        .stdout(id_line());
+    let id = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    sb.with_config()
+        .arg("list")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(id.trim()));
+}
+
+#[test]
+fn empty_stdin_is_refused() {
+    let sb = Sandbox::new();
+    sb.with_config()
+        .args(["clipboard", "--stdin"])
+        .write_stdin("")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::ends_with("error: clipboard is empty\n"));
+}
+
+#[test]
+fn file_prints_the_new_id_and_is_listed_by_name() {
+    let sb = Sandbox::new();
+    let path = sb.path("work/report.pdf");
+    std::fs::write(&path, b"%PDF-1.7").unwrap();
+    sb.with_config()
+        .arg("file")
+        .arg(&path)
+        .assert()
+        .success()
+        .stdout(id_line());
+    let out = sb
+        .with_config()
+        .args(["list", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(json[0]["name"], "report.pdf");
+    assert_eq!(json[0]["mime"], "application/pdf");
+}
+
+#[test]
+fn file_errors_name_the_path() {
+    let sb = Sandbox::new();
+    sb.with_config()
+        .args(["file", "missing.bin"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("missing.bin"));
+}

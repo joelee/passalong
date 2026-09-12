@@ -30,3 +30,5 @@ All notable changes to this project are documented here. The format follows
 - `passalong list` as a table or `--json`; global `--config` and
   `--log-level` options; one-line `error:` messages with exit codes 0, 1,
   and 2 (PLAN-00001 STEP-08).
+- `passalong clipboard` (with `--stdin`) and `passalong file` send text and
+  files and print the new item's id (PLAN-00001 STEP-09).

@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/initial-plan"
 execution_started_at: "2026-09-12T10:54:05Z"
-execution_updated_at: "2026-09-12T12:25:25Z"
+execution_updated_at: "2026-09-12T12:27:28Z"
 execution_completed_at: null
-current_step: "PLAN-00001-STEP-09"
+current_step: "PLAN-00001-STEP-10"
 ---
 
 # Delivery Plan 00001: Initial Plan
@@ -1487,7 +1487,7 @@ behavioural step.
 | PLAN-00001-STEP-06 | completed | 2026-09-12T12:14:02Z | 2026-09-12T12:17:43Z | Commit `build: complete PLAN-00001-STEP-06 - `FsStore` layout with atomic publish and `Store` trait`; `just check` green, 97.51% lines | Coverage checkpoint (STEP-06) recorded in the `just check` row |
 | PLAN-00001-STEP-07 | completed | 2026-09-12T12:19:33Z | 2026-09-12T12:19:56Z | Commit `build: complete PLAN-00001-STEP-07 - Clipboard trait, arboard adapter, mock`; `just check` green, 96.37% lines | `arboard` absent from `cargo tree -p passalong-core --no-default-features`; desktop round-trip test is `#[ignore]` and excluded from Docker recipes with `--skip desktop_` |
 | PLAN-00001-STEP-08 | completed | 2026-09-12T12:23:37Z | 2026-09-12T12:25:25Z | Commit `build: complete PLAN-00001-STEP-08 - CLI skeleton, `App` wiring, and `list``; `just check` green, 96.90% lines | Binary tests isolate HOME, XDG_CONFIG_HOME, passalong variables, and the working directory; `/etc/passalong` absent on the build host |
-| PLAN-00001-STEP-09 | not-started | — | — | — | — |
+| PLAN-00001-STEP-09 | completed | 2026-09-12T12:25:25Z | 2026-09-12T12:27:28Z | Commit `build: complete PLAN-00001-STEP-09 - `clipboard` and `file` commands`; `just check` green, 96.99% lines | AC-11 covered by binary tests `clipboard_from_stdin_prints_the_new_id` and `empty_stdin_is_refused`; 5 MiB digest test covers REQ-14 |
 | PLAN-00001-STEP-10 | not-started | — | — | — | — |
 | PLAN-00001-STEP-11 | not-started | — | — | — | — |
 | PLAN-00001-STEP-12 | not-started | — | — | — | — |
@@ -1522,6 +1522,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T12:19:56Z | PLAN-00001-STEP-07 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-07 - Clipboard trait, arboard adapter, mock` | Begin PLAN-00001-STEP-08 |
 | 2026-09-12T12:23:37Z | PLAN-00001-STEP-08 | Started | — | Red phase |
 | 2026-09-12T12:25:25Z | PLAN-00001-STEP-08 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-08 - CLI skeleton, `App` wiring, and `list`` | Begin PLAN-00001-STEP-09 |
+| 2026-09-12T12:25:25Z | PLAN-00001-STEP-09 | Started | — | Red phase |
+| 2026-09-12T12:27:28Z | PLAN-00001-STEP-09 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00001-STEP-09 - `clipboard` and `file` commands` | Begin PLAN-00001-STEP-10 |
 
 ### Deviations and blockers
 
@@ -1543,6 +1545,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T12:19:56Z | PLAN-00001-STEP-07 | `just test-integration` and `just coverage-full` pass `--skip desktop_` so the desktop-only ignored test never runs in CI; docs/developer-guide.md shows how to run it by hand. `MockClipboard` clones share state and support scripted reads, read errors, and write failures. | None | None (routine) |
 | 2026-09-12T12:25:25Z | PLAN-00001-STEP-08 | No `App` struct: `app::run` loads config, sets up logging, opens the store, and dispatches; each command takes its dependencies (store, output, UTC offset, later the clipboard) as arguments, so a clipboard is created only by commands that need one and `list` works headless. `clipboard`, `file`, `load`, and `serve` answer `not implemented yet` until their steps. | None | None (routine) |
 | 2026-09-12T12:25:25Z | PLAN-00001-STEP-08 | A failed command prints one `error:` line on stderr and logs the failure at verbose level, so the default level does not show the error twice. `CREATED` is local time as `YYYY-MM-DD HH:MM`; `NAME` is the file name or text preview cut to 40 characters. Binary tests use `CARGO_BIN_EXE_passalong` rather than the deprecated `Command::cargo_bin`. | Documented in docs/usage.md | None (routine) |
+| 2026-09-12T12:27:28Z | PLAN-00001-STEP-09 | `clipboard::run` takes a `TextSource` (clipboard or reader) so `--stdin` and the clipboard share one code path; the system clipboard is opened only when `--stdin` is absent. The "already present" log record comes from the store's `put`, which already logs it at info level with the id. | None | None (routine) |
 
 ### Verification results
 
@@ -1584,12 +1587,15 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T12:23:37Z | PLAN-00001-STEP-08 | Red: `cargo test -p passalong-cli` | Exit 101 (expected) | Missing `Cli` `Command` `human_size` `render_json` `render_table` `run` |
 | 2026-09-12T12:25:25Z | PLAN-00001-STEP-08 | `cargo test -p passalong-cli` | Pass | test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s |
 | 2026-09-12T12:25:25Z | PLAN-00001-STEP-08 | `just check` | Exit 0 | Lines 96.90% (2903 lines, 90 missed); app.rs 96.97%; cli.rs 100.00%; output.rs 100.00%; list.rs 100.00%; main.rs 68.75% |
+| 2026-09-12T12:25:25Z | PLAN-00001-STEP-09 | Red: `cargo test -p passalong-cli` | Exit 101 (expected) | Missing `run` `TextSource` |
+| 2026-09-12T12:27:28Z | PLAN-00001-STEP-09 | `cargo test -p passalong-cli` | Pass | test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s |
+| 2026-09-12T12:27:28Z | PLAN-00001-STEP-09 | `just check` | Exit 0 | Lines 96.99% (3151 lines, 95 missed); clipboard.rs 100.00%; file.rs 97.62%; app.rs 90.00% |
 
 ### Completion summary
 
 - **Implementation status:** `in-progress`
-- **Completed requirements:** REQ-01 to REQ-10, REQ-12, REQ-15, REQ-18, REQ-24 (scaffold parts); REQ-22 (log allow-list and id-validation parts); REQ-09 (local backend only until STEP-12); REQ-23
-- **Incomplete requirements:** REQ-11, REQ-13, REQ-14, REQ-16, REQ-17, REQ-19 to REQ-21
+- **Completed requirements:** REQ-01 to REQ-10, REQ-12 to REQ-15, REQ-18, REQ-24 (scaffold parts); REQ-22 (log allow-list and id-validation parts); REQ-09 (local backend only until STEP-12); REQ-23
+- **Incomplete requirements:** REQ-11, REQ-16, REQ-17, REQ-19 to REQ-21
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

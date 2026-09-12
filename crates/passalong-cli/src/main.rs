@@ -2,6 +2,7 @@
 
 mod app;
 mod cli;
+mod clipboard_holder;
 mod commands;
 mod daemon;
 mod output;

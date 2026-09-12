@@ -84,6 +84,9 @@ pub enum Command {
     /// Write a config file for your SSH server, pinning its host key after
     /// you confirm its fingerprint.
     Init(InitArgs),
+    /// Keeps text on the Linux clipboard after `load` exits (internal).
+    #[command(name = "__hold-clipboard", hide = true)]
+    HoldClipboard,
     /// Delete items from the store.
     Delete {
         /// The items: full ids, or at least 4 characters of each.
@@ -104,6 +107,7 @@ impl Command {
             Self::Delete { .. } => "delete",
             Self::Prune { .. } => "prune",
             Self::Init(_) => "init",
+            Self::HoldClipboard => "hold-clipboard",
         }
     }
 }
@@ -256,6 +260,10 @@ mod tests {
             .render_help()
             .to_string();
         assert!(!help.contains("daemon-child"), "{help}");
+        assert_eq!(parse(&["__hold-clipboard"]).command, Command::HoldClipboard);
+        assert_eq!(Command::HoldClipboard.name(), "hold-clipboard");
+        let top = Cli::command().render_help().to_string();
+        assert!(!top.contains("hold-clipboard"), "{top}");
         let init = parse(&[
             "init",
             "--host",

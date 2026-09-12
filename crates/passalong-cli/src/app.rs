@@ -45,6 +45,10 @@ async fn execute(cli: Cli, env: &dyn EnvProvider, out: &mut dyn Write) -> anyhow
     if let Command::Init(args) = &cli.command {
         return init(args, cli.config.as_deref(), cli.log_level, env, out).await;
     }
+    // The clipboard holder needs no configuration either.
+    if cli.command == Command::HoldClipboard {
+        return hold_clipboard();
+    }
     let roots = SearchRoots::from_system().context("cannot determine the working directory")?;
     let located = config::locate(cli.config.as_deref(), env, &roots)?;
     let config = config::load(&located.path, env)?;
@@ -74,6 +78,9 @@ async fn dispatch(
     let device = config.client.device_name.as_str();
     match command {
         Command::Init(_) => anyhow::bail!("init runs before configuration is loaded"),
+        Command::HoldClipboard => {
+            anyhow::bail!("the clipboard holder runs before configuration is loaded")
+        }
         // `serve` opens, and re-opens, its own store.
         Command::Serve(args) => commands::serve::run(context, &args, backends, out).await,
         Command::Clipboard { stdin } => {
@@ -136,9 +143,8 @@ async fn dispatch(
         }
         Command::Load { id, dest, force } => {
             let store = backends.open(config).await?;
-            let mut open_clipboard = || -> Result<Box<dyn Clipboard>, ClipboardError> {
-                Ok(Box::new(ArboardClipboard::new()?))
-            };
+            let mut open_clipboard =
+                || -> Result<Box<dyn Clipboard>, ClipboardError> { clipboard_for_load() };
             commands::load::run(
                 store.as_ref(),
                 &id,
@@ -192,6 +198,36 @@ async fn init(
     commands::init::run(args, &target, deps, out)
         .instrument(span)
         .await
+}
+
+/// The clipboard `load` writes to. On Linux, clipboard content lives in the
+/// process that set it, so a detached holder process keeps it after `load`
+/// exits; the probe first makes sure a clipboard is reachable at all.
+/// Elsewhere the system keeps the content.
+fn clipboard_for_load() -> Result<Box<dyn Clipboard>, ClipboardError> {
+    #[cfg(target_os = "linux")]
+    {
+        drop(ArboardClipboard::new()?);
+        Ok(Box::new(crate::clipboard_holder::HolderClipboard::new(
+            crate::clipboard_holder::ProcessLauncher,
+        )))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Ok(Box::new(ArboardClipboard::new()?))
+    }
+}
+
+/// The hidden `__hold-clipboard` command: reads text from standard input and
+/// holds it on the clipboard until something else replaces it.
+fn hold_clipboard() -> anyhow::Result<()> {
+    use std::io::Read as _;
+    let mut text = String::new();
+    io::stdin()
+        .read_to_string(&mut text)
+        .context("reading the text to hold")?;
+    ArboardClipboard::new()?.hold_text(&text)?;
+    Ok(())
 }
 
 /// The machine's current UTC offset, for showing times in local time.

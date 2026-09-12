@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00002-v0.1.1-CLI_Stabilisation"
 execution_started_at: "2026-09-12T17:42:30Z"
-execution_updated_at: "2026-09-12T18:07:58Z"
+execution_updated_at: "2026-09-12T18:11:18Z"
 execution_completed_at: null
-current_step: "PLAN-00002-STEP-09"
+current_step: "PLAN-00002-STEP-10"
 ---
 
 # Delivery Plan 00002: V0 1 1 CLI Stabilisation
@@ -943,7 +943,7 @@ run at STEP-03, STEP-06, STEP-07, STEP-11, and STEP-14.
 | PLAN-00002-STEP-06 | completed | 2026-09-12T17:54:15Z | 2026-09-12T17:56:28Z | Commit `build: complete PLAN-00002-STEP-06 - Host-key discovery`; `just check` green, 92.93% lines | `russh`'s default host-key preference already starts with Ed25519; a unit test pins that order instead of copying the whole algorithm list |
 | PLAN-00002-STEP-07 | completed | 2026-09-12T17:57:20Z | 2026-09-12T18:02:28Z | Commit `build: complete PLAN-00002-STEP-07 - `passalong init``; `just check` green, 93.02% lines | AC-09 by unit tests and the offline binary test `init_writes_a_config_offline_and_refuses_to_overwrite_it` |
 | PLAN-00002-STEP-08 | completed | 2026-09-12T18:03:19Z | 2026-09-12T18:07:58Z | Commit `build: complete PLAN-00002-STEP-08 - `serve --daemon`, `--status`, `--stop``; `just check` green, 93.10% lines | Coverage checkpoint (STEP-08) in the `just check` row; no stray daemon processes after the tests |
-| PLAN-00002-STEP-09 | not-started | — | — | — | — |
+| PLAN-00002-STEP-09 | completed | 2026-09-12T18:08:31Z | 2026-09-12T18:11:18Z | Commit `build: complete PLAN-00002-STEP-09 - Linux clipboard holder`; `just check` green, 92.42% lines | Desktop tests `desktop_held_text_outlives_the_writer_until_replaced` and `desktop_loaded_text_survives_load_exiting` were not run here: on this developer machine they would replace the user's real clipboard. They run under Xvfb in CI from STEP-12, where AC-12 evidence is recorded. |
 | PLAN-00002-STEP-10 | not-started | — | — | — | — |
 | PLAN-00002-STEP-11 | not-started | — | — | — | — |
 | PLAN-00002-STEP-12 | not-started | — | — | — | — |
@@ -974,6 +974,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T18:02:28Z | PLAN-00002-STEP-07 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00002-STEP-07 - `passalong init`` | Begin PLAN-00002-STEP-08 |
 | 2026-09-12T18:03:19Z | PLAN-00002-STEP-08 | Started | — | Red phase |
 | 2026-09-12T18:07:58Z | PLAN-00002-STEP-08 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00002-STEP-08 - `serve --daemon`, `--status`, `--stop`` | Begin PLAN-00002-STEP-09 |
+| 2026-09-12T18:08:31Z | PLAN-00002-STEP-09 | Started | — | Red phase |
+| 2026-09-12T18:11:18Z | PLAN-00002-STEP-09 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00002-STEP-09 - Linux clipboard holder` | Begin PLAN-00002-STEP-10 |
 
 ### Deviations and blockers
 
@@ -986,6 +988,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T17:56:28Z | PLAN-00002-STEP-06 | Ed25519 preference comes from `russh`'s `Preferred::DEFAULT`, guarded by `the_client_prefers_ed25519_host_keys_and_keeps_sessions_alive`, rather than a hand-written list, which could drop algorithms. `DiscoveredKey` also carries the algorithm name. `format_address` and `client_config` are shared by `connect` and `fetch_host_key`. | None | None (routine) |
 | 2026-09-12T18:02:28Z | PLAN-00002-STEP-07 | `init` runs before config lookup and chooses its log level from `--log-level`, then `PASSALONG_LOG_LEVEL`, then `info`. Host-key discovery and the connection test sit behind `HostKeySource` and `ConnectionCheck` traits so every trust rule is unit-tested offline. The config is written through a temporary file and rename, validated by `config::parse` first; `--host-key` lines are stored as given after validation. `InitArgs` is a separate clap `Args` struct because `init` has eleven options. | None | None (routine) |
 | 2026-09-12T18:07:58Z | PLAN-00002-STEP-08 | Start-up handshake uses readiness, not just the lock: core gained `serve::run_with_ready` (additive; `run` delegates), and the child appends `ready` to its pid file once start-up succeeds, so an unreachable server is reported by `--daemon` instead of after it detached. Exit code 3 for `--status` uses a `QuietExit` error that `app::run` maps without printing `error:`. `ServeArgs` carries a hidden `--daemon-child` flag for the background process. The binary-test sandbox now also clears `XDG_STATE_HOME` and the display variables. | None | None (routine) |
+| 2026-09-12T18:11:18Z | PLAN-00002-STEP-09 | Instead of changing `load`, the CLI hands it a `HolderClipboard` on Linux whose writes launch the hidden `passalong __hold-clipboard` subcommand detached (reusing `daemon::detached_command`), so `load` is unchanged and still tested through its opener. On Linux the CLI first checks a clipboard is reachable, keeping the clear `clipboard unavailable` error on headless machines instead of reporting success. | AC-12 evidence deferred to STEP-12's Xvfb CI job | None (routine) |
 
 ### Verification results
 
@@ -1030,12 +1033,16 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T18:07:58Z | PLAN-00002-STEP-08 | `cargo test -p passalong-core --all-features --test serve_local` | Pass | test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s |
 | 2026-09-12T18:07:58Z | PLAN-00002-STEP-08 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
 | 2026-09-12T18:07:58Z | PLAN-00002-STEP-08 | `just check` | Exit 0 | Lines 93.10% (6800 lines, 469 missed); daemon.rs 95.90%; serve.rs 92.94%; mod.rs 90.18% |
+| 2026-09-12T18:08:31Z | PLAN-00002-STEP-09 | Red: `cargo test -p passalong-core clipboard`; `cargo test -p passalong` | Exit 101 (expected) | Missing `Clipboard` `ClipboardError` `HolderClipboard` `HolderLauncher` `hold_text` `io` |
+| 2026-09-12T18:11:18Z | PLAN-00002-STEP-09 | `cargo test -p passalong` | Pass | test result: ok. 68 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s |
+| 2026-09-12T18:11:18Z | PLAN-00002-STEP-09 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
+| 2026-09-12T18:11:18Z | PLAN-00002-STEP-09 | `just check` | Exit 0 | Lines 92.42% (6926 lines, 525 missed); clipboard_holder.rs 79.75%; desktop.rs 18.18% |
 
 ### Completion summary
 
 - **Implementation status:** `in-progress`
-- **Completed requirements:** REQ-03 to REQ-12, REQ-13, REQ-14 (local recipe)
-- **Incomplete requirements:** REQ-01, REQ-02, REQ-15 to REQ-24
+- **Completed requirements:** REQ-03 to REQ-14 (REQ-14 local recipe); REQ-19 (implementation; CI evidence in STEP-12)
+- **Incomplete requirements:** REQ-01, REQ-02, REQ-15 to REQ-18, REQ-20 to REQ-24
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

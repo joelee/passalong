@@ -30,6 +30,9 @@ All notable changes to this project are documented here. The format follows
 
 - Crate metadata now points at the correct repository,
   `https://github.com/joelee/passalong` (PLAN-00002 STEP-01).
+- On Linux, text that `load` copies to the clipboard stays available after
+  the command exits, without needing a clipboard manager (PLAN-00002
+  STEP-09).
 
 ## v0.1.0 - 2026-09-12T14:24:52Z
 

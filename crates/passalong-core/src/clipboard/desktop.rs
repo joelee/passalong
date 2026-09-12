@@ -26,6 +26,18 @@ impl ArboardClipboard {
             .map(|inner| Self { inner })
             .map_err(|err| ClipboardError::Unavailable(err.to_string()))
     }
+
+    /// Puts `text` on the clipboard and, on Linux, keeps serving it until
+    /// another program replaces it, returning only then. This is what lets
+    /// text outlive the short-lived command that loaded it. Elsewhere the
+    /// system keeps clipboard content itself, so this writes and returns.
+    ///
+    /// # Errors
+    ///
+    /// [`ClipboardError::Other`] when the clipboard refuses the text.
+    pub fn hold_text(&mut self, text: &str) -> Result<(), ClipboardError> {
+        hold(&mut self.inner, text).map_err(|err| ClipboardError::Other(err.to_string()))
+    }
 }
 
 impl std::fmt::Debug for ArboardClipboard {
@@ -59,5 +71,16 @@ fn set_text(inner: &mut ::arboard::Clipboard, text: &str) -> Result<(), ::arboar
 
 #[cfg(not(target_os = "linux"))]
 fn set_text(inner: &mut ::arboard::Clipboard, text: &str) -> Result<(), ::arboard::Error> {
+    inner.set_text(text)
+}
+
+#[cfg(target_os = "linux")]
+fn hold(inner: &mut ::arboard::Clipboard, text: &str) -> Result<(), ::arboard::Error> {
+    use ::arboard::SetExtLinux;
+    inner.set().wait().text(text.to_owned())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn hold(inner: &mut ::arboard::Clipboard, text: &str) -> Result<(), ::arboard::Error> {
     inner.set_text(text)
 }

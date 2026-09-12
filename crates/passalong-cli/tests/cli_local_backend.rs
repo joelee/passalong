@@ -666,3 +666,29 @@ fn serve_daemon_reports_start_up_failures() {
         .assert()
         .code(3);
 }
+
+/// Linux: after `load` exits, its text is still on the clipboard. Needs a
+/// desktop session; CI runs it under Xvfb. Never run it on a machine whose
+/// clipboard you care about: it replaces the clipboard's content.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+#[ignore = "needs a desktop session with a clipboard"]
+async fn desktop_loaded_text_survives_load_exiting() {
+    use passalong_core::clipboard::{ArboardClipboard, Clipboard};
+    let sb = Sandbox::new();
+    let metas = sb.seed(&["held after load exits"]).await;
+    let mut cmd = sb.with_config();
+    for var in ["DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"] {
+        if let Ok(value) = std::env::var(var) {
+            cmd.env(var, value);
+        }
+    }
+    cmd.args(["load", metas[0].id.as_str()]).assert().success();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let mut clipboard = ArboardClipboard::new().unwrap();
+    assert_eq!(
+        clipboard.read_text().unwrap().as_deref(),
+        Some("held after load exits")
+    );
+    clipboard.write_text("released").unwrap();
+}

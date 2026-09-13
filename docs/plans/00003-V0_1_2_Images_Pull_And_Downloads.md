@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00003-v0.1.2"
 execution_started_at: "2026-09-12T23:55:51Z"
-execution_updated_at: "2026-09-13T00:52:42Z"
+execution_updated_at: "2026-09-13T00:55:09Z"
 execution_completed_at: null
-current_step: "PLAN-00003-STEP-13"
+current_step: "PLAN-00003-STEP-14"
 ---
 
 # Delivery Plan 00003: V0 1 2 Images Pull And Downloads
@@ -917,7 +917,7 @@ run at STEP-01, STEP-09, STEP-10, and STEP-14.
 | PLAN-00003-STEP-10 | completed | 2026-09-13T00:34:45Z | 2026-09-13T00:42:12Z | Commit `build: complete PLAN-00003-STEP-10 - Pull mode`; `just check` green, 92.19% lines | AC-13, AC-14, AC-15, AC-19. The clipboard task owns the clipboard and accepts write requests from the pull loop, marking written content as seen; the puller starts before any task is spawned and before ready. Docs: usage pull-mode section (with the clock-sync caveat), architecture pull loop, CHANGELOG |
 | PLAN-00003-STEP-11 | completed | 2026-09-13T00:42:12Z | 2026-09-13T00:46:12Z | Commit `build: complete PLAN-00003-STEP-11 - Duplicate dependency policy`; `just check` green, 92.19% lines | AC-17. Developer guide explains handling a new duplicate and the dry-run clean-up |
 | PLAN-00003-STEP-12 | completed | 2026-09-13T00:46:12Z | 2026-09-13T00:52:42Z | Commit `build: complete PLAN-00003-STEP-12 - CI proof for desktop images`; `just check` green, 92.19% lines | AC-18. No workflow change was needed: the Xvfb job already runs every ignored desktop_ test on one thread |
-| PLAN-00003-STEP-13 | not-started | — | — | — | — |
+| PLAN-00003-STEP-13 | completed | 2026-09-13T00:52:42Z | 2026-09-13T00:55:09Z | Commit `build: complete PLAN-00003-STEP-13 - Documentation and v0.1.2 release preparation`; `just check` green, 92.19% lines | AC-20. CHANGELOG: 11 PLAN-00002 entries moved to ## v0.1.1 - 2026-09-12T20:00:12Z, 7 PLAN-00003 entries under Unreleased; v0.1.1 release notes finalised (tag df32a81, PR #2, release link, crates.io); docs/release/v0.1.2.md drafted with upgrade notes (RSA feature, load without DEST, mixed versions, HOME); README status and features; backlog drops image clipboard, pull mode, interactive disambiguation, rsa advisory exception, duplicate dependency versions |
 | PLAN-00003-STEP-14 | not-started | — | — | — | — |
 
 Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
@@ -952,6 +952,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T00:46:12Z | PLAN-00003-STEP-11 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-11 - Duplicate dependency policy` | Begin PLAN-00003-STEP-12 |
 | 2026-09-13T00:46:12Z | PLAN-00003-STEP-12 | Started | — | Evidence first |
 | 2026-09-13T00:52:42Z | PLAN-00003-STEP-12 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-12 - CI proof for desktop images` | Begin PLAN-00003-STEP-13 |
+| 2026-09-13T00:52:42Z | PLAN-00003-STEP-13 | Started | — | Red phase |
+| 2026-09-13T00:55:09Z | PLAN-00003-STEP-13 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-13 - Documentation and v0.1.2 release preparation` | Begin PLAN-00003-STEP-14 |
 
 ### Deviations and blockers
 
@@ -965,6 +967,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T00:42:12Z | PLAN-00003-STEP-10 | Added `Store::newest_id` (default: first of `list_after(None)`; `FsStore` overrides it with one directory read) so the puller's starting position reads no metadata. Reading every meta.json before ready could exceed the 5 s `serve --daemon` readiness wait on a large store over SSH. D-05's meaning (start after the newest existing item) is unchanged; covered by newest_id_is_the_latest_item_without_reading_metadata. | One extra Store method with a default | None (routine) |
 | 2026-09-13T00:46:12Z | PLAN-00003-STEP-11 | `cargo deny` now checks only the four supported targets (x86_64 and aarch64 Linux and macOS) instead of every target, so Windows-only duplicates (windows-sys x3, windows-targets and the windows_* crates x2) need no skip entries; Windows is out of scope before v0.2. Advisory and licence checks cover the same targets, and BSL-1.0, now unused, left the allow-list. | Windows-only crates are no longer audited | None (routine) |
 | 2026-09-13T00:46:12Z | PLAN-00003-STEP-11 | `just publish-dry-run` also deletes `passalong-*` sources unpacked from cargo's temporary registries (`~/.cargo/registry/src/-<hash>/`). The dry run verified the new CLI against a passalong-core 0.1.1 copy unpacked during the v0.1.1 dry run (no download.rs), because cargo never re-unpacks an unchanged version; `cargo clean` alone does not cover this. | None | None (routine) |
+| 2026-09-13T00:55:09Z | PLAN-00003-STEP-13 | Backlog gains one engineering item found in STEP-10: pull mode orders items by the sender's clock, so remembering seen ids would remove the clock-sync caveat. | None | None (routine) |
 
 None.
 
@@ -1051,12 +1054,18 @@ None.
 | 2026-09-13T00:52:42Z | PLAN-00003-STEP-12 | `bash -c 'actionlint && echo actionlint: no findings passed'` | Pass | actionlint: no findings passed |
 | 2026-09-13T00:52:42Z | PLAN-00003-STEP-12 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
 | 2026-09-13T00:52:42Z | PLAN-00003-STEP-12 | `just check` | Exit 0 | Lines 92.19% (8927 lines, 697 missed) |
+| 2026-09-13T00:52:42Z | PLAN-00003-STEP-13 | Before: release records and version | 0.1.1 (expected) | CHANGELOG had no v0.1.1 section (11 v0.1.1 entries under Unreleased), docs/release/v0.1.1.md was marked Draft, docs/release/v0.1.2.md absent, backlog listed 5 delivered items |
+| 2026-09-13T00:55:09Z | PLAN-00003-STEP-13 | `cargo run -q -p passalong -- --version` | Exit 0 | passalong 0.1.2; Cargo.lock updated for the three workspace crates only |
+| 2026-09-13T00:55:09Z | PLAN-00003-STEP-13 | `just coverage-full` (for the release notes) | Exit 0 | 94.63 % lines; 13 Docker tests passed; 5 desktop tests filtered (they pass under Xvfb in CI) |
+| 2026-09-13T00:55:09Z | PLAN-00003-STEP-13 | `cargo run -q -p passalong -- --version` | Pass | passalong 0.1.2 |
+| 2026-09-13T00:55:09Z | PLAN-00003-STEP-13 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
+| 2026-09-13T00:55:09Z | PLAN-00003-STEP-13 | `just check` | Exit 0 | Lines 92.19% (8927 lines, 697 missed) |
 
 ### Completion summary
 
 - **Implementation status:** `not-started`
-- **Completed requirements:** REQ-01 to REQ-16
-- **Incomplete requirements:** REQ-17 to REQ-20
+- **Completed requirements:** REQ-01 to REQ-18
+- **Incomplete requirements:** REQ-19, REQ-20
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

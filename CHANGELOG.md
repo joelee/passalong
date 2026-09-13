@@ -8,24 +8,6 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- `passalong delete <ID>...` removes items; every id is resolved first, so a
-  typo deletes nothing (PLAN-00002 STEP-04).
-- `passalong prune --older-than <AGE> --keep <N>` deletes old items after
-  confirmation, supports `--dry-run` and `--yes`, and clears stale upload
-  leftovers on the server (PLAN-00002 STEP-05).
-- `passalong init` writes a config file for an SSH server, pinning its host
-  key only after you confirm the fingerprint, and tests the connection
-  (PLAN-00002 STEP-07).
-- `passalong serve --daemon` runs `serve` in the background with a log file;
-  `serve --status` and `serve --stop` manage it, and a second `serve` is
-  refused (PLAN-00002 STEP-08).
-- A guide and a tested Docker Compose example for running the passalong SSH
-  server with the storage on the host: `docs/docker-ssh-server-setup.md`
-  and `deploy/ssh-server/` (PLAN-00002 STEP-11).
-- Tag-driven releases: pushing `vX.Y.Z` checks the tag, builds Linux x86_64
-  and macOS arm64 binaries, creates the GitHub release, and publishes the
-  crates to crates.io; CI also audits dependencies with `cargo deny` and
-  runs the desktop clipboard tests under Xvfb (PLAN-00002 STEP-12).
 - `passalong cat <ID>` prints an item to standard output exactly as stored,
   verifying its SHA-256; binary items are refused on a terminal unless
   `--force` is given (PLAN-00003 STEP-03).
@@ -47,9 +29,6 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
-- The CLI package is now named `passalong` (the binary name is unchanged),
-  and all crates carry crates.io metadata; third-party dependency
-  requirements are caret requirements (PLAN-00002 STEP-02).
 - RSA keys are now opt-in: RSA identity files and `ssh-rsa` host keys need
   a build with the `rsa` feature (`cargo install passalong --features rsa`),
   because the `rsa` crate has an unfixed timing side channel
@@ -59,6 +38,35 @@ All notable changes to this project are documented here. The format follows
   `client.download_dir` (`~/Downloads` by default) instead of refusing them;
   an existing name is kept and the download is numbered, as in
   `report (1).pdf`, unless `--force` is given (PLAN-00003 STEP-04).
+
+## v0.1.1 - 2026-09-12T20:00:12Z
+
+### Added
+
+- `passalong delete <ID>...` removes items; every id is resolved first, so a
+  typo deletes nothing (PLAN-00002 STEP-04).
+- `passalong prune --older-than <AGE> --keep <N>` deletes old items after
+  confirmation, supports `--dry-run` and `--yes`, and clears stale upload
+  leftovers on the server (PLAN-00002 STEP-05).
+- `passalong init` writes a config file for an SSH server, pinning its host
+  key only after you confirm the fingerprint, and tests the connection
+  (PLAN-00002 STEP-07).
+- `passalong serve --daemon` runs `serve` in the background with a log file;
+  `serve --status` and `serve --stop` manage it, and a second `serve` is
+  refused (PLAN-00002 STEP-08).
+- A guide and a tested Docker Compose example for running the passalong SSH
+  server with the storage on the host: `docs/docker-ssh-server-setup.md`
+  and `deploy/ssh-server/` (PLAN-00002 STEP-11).
+- Tag-driven releases: pushing `vX.Y.Z` checks the tag, builds Linux x86_64
+  and macOS arm64 binaries, creates the GitHub release, and publishes the
+  crates to crates.io; CI also audits dependencies with `cargo deny` and
+  runs the desktop clipboard tests under Xvfb (PLAN-00002 STEP-12).
+
+### Changed
+
+- The CLI package is now named `passalong` (the binary name is unchanged),
+  and all crates carry crates.io metadata; third-party dependency
+  requirements are caret requirements (PLAN-00002 STEP-02).
 
 ### Fixed
 

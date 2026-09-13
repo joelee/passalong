@@ -8,8 +8,9 @@ directory. Every other device pushes clipboard text and files there, lists
 what is stored, and pulls items back. There is no cloud service, no account,
 and no custom server daemon.
 
-> **Status:** v0.1.0 is released. v0.1.1, which completes the SSH-only CLI
-> ([Delivery Plan 00002](docs/plans/00002-V0_1_1_CLI_Stabilisation.md)),
+> **Status:** v0.1.1 is released. v0.1.2, which adds clipboard images, pull
+> mode, downloads, and `passalong cat`
+> ([Delivery Plan 00003](docs/plans/00003-V0_1_2_Images_Pull_And_Downloads.md)),
 > is being prepared. A GUI, Android, and Windows support are planned for
 > v0.2 and later.
 
@@ -23,6 +24,8 @@ and no custom server daemon.
 ```
 
 - The server needs nothing but `sshd` and a directory.
+- Clipboard text, clipboard images, and files travel the same way. With
+  pull mode on, `serve` also applies what other devices send.
 - Each client pins the server's SSH host public key, so there is no
   trust-on-first-use.
 - Items are identified by a time-sortable id (`<time>-<content hash>`), so

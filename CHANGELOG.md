@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## v0.1.3 - 2026-09-13T16:39:56Z
+
 ### Added
 
 - `Store::get_meta` and `Store::list_ids` in `passalong-core`, both with

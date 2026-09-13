@@ -32,14 +32,14 @@ confidence: medium                # high | medium | low
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; Delivery Planner initializes them.
-implementation_status: in-progress # not-started | in-progress | blocked | completed | abandoned
+implementation_status: completed # not-started | in-progress | blocked | completed | abandoned
 builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00003-v0.1.2"
 execution_started_at: "2026-09-12T23:55:51Z"
-execution_updated_at: "2026-09-13T00:55:09Z"
-execution_completed_at: null
-current_step: "PLAN-00003-STEP-14"
+execution_updated_at: "2026-09-13T01:00:02Z"
+execution_completed_at: "2026-09-13T01:00:02Z"
+current_step: null
 ---
 
 # Delivery Plan 00003: V0 1 2 Images Pull And Downloads
@@ -918,7 +918,7 @@ run at STEP-01, STEP-09, STEP-10, and STEP-14.
 | PLAN-00003-STEP-11 | completed | 2026-09-13T00:42:12Z | 2026-09-13T00:46:12Z | Commit `build: complete PLAN-00003-STEP-11 - Duplicate dependency policy`; `just check` green, 92.19% lines | AC-17. Developer guide explains handling a new duplicate and the dry-run clean-up |
 | PLAN-00003-STEP-12 | completed | 2026-09-13T00:46:12Z | 2026-09-13T00:52:42Z | Commit `build: complete PLAN-00003-STEP-12 - CI proof for desktop images`; `just check` green, 92.19% lines | AC-18. No workflow change was needed: the Xvfb job already runs every ignored desktop_ test on one thread |
 | PLAN-00003-STEP-13 | completed | 2026-09-13T00:52:42Z | 2026-09-13T00:55:09Z | Commit `build: complete PLAN-00003-STEP-13 - Documentation and v0.1.2 release preparation`; `just check` green, 92.19% lines | AC-20. CHANGELOG: 11 PLAN-00002 entries moved to ## v0.1.1 - 2026-09-12T20:00:12Z, 7 PLAN-00003 entries under Unreleased; v0.1.1 release notes finalised (tag df32a81, PR #2, release link, crates.io); docs/release/v0.1.2.md drafted with upgrade notes (RSA feature, load without DEST, mixed versions, HOME); README status and features; backlog drops image clipboard, pull mode, interactive disambiguation, rsa advisory exception, duplicate dependency versions |
-| PLAN-00003-STEP-14 | not-started | — | — | — | — |
+| PLAN-00003-STEP-14 | completed | 2026-09-13T00:55:09Z | 2026-09-13T01:00:02Z | Commit `build: complete PLAN-00003-STEP-14 - Final quality gate`; `just check` green, 92.19% lines | AC-21 by local just ci and GitHub CI (coverage 92.19 % without Docker, 94.63 % with); AC-22 by the scope review. This commit changes only the plan, and its own CI run is checked after the push |
 
 Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 `skipped`. A skipped step requires explicit user approval recorded in Evidence.
@@ -954,6 +954,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T00:52:42Z | PLAN-00003-STEP-12 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-12 - CI proof for desktop images` | Begin PLAN-00003-STEP-13 |
 | 2026-09-13T00:52:42Z | PLAN-00003-STEP-13 | Started | — | Red phase |
 | 2026-09-13T00:55:09Z | PLAN-00003-STEP-13 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-13 - Documentation and v0.1.2 release preparation` | Begin PLAN-00003-STEP-14 |
+| 2026-09-13T00:55:09Z | PLAN-00003-STEP-14 | Started | — | Evidence first |
+| 2026-09-13T01:00:02Z | PLAN-00003-STEP-14 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-14 - Final quality gate` | Builder hand-off |
 
 ### Deviations and blockers
 
@@ -968,6 +970,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T00:46:12Z | PLAN-00003-STEP-11 | `cargo deny` now checks only the four supported targets (x86_64 and aarch64 Linux and macOS) instead of every target, so Windows-only duplicates (windows-sys x3, windows-targets and the windows_* crates x2) need no skip entries; Windows is out of scope before v0.2. Advisory and licence checks cover the same targets, and BSL-1.0, now unused, left the allow-list. | Windows-only crates are no longer audited | None (routine) |
 | 2026-09-13T00:46:12Z | PLAN-00003-STEP-11 | `just publish-dry-run` also deletes `passalong-*` sources unpacked from cargo's temporary registries (`~/.cargo/registry/src/-<hash>/`). The dry run verified the new CLI against a passalong-core 0.1.1 copy unpacked during the v0.1.1 dry run (no download.rs), because cargo never re-unpacks an unchanged version; `cargo clean` alone does not cover this. | None | None (routine) |
 | 2026-09-13T00:55:09Z | PLAN-00003-STEP-13 | Backlog gains one engineering item found in STEP-10: pull mode orders items by the sender's clock, so remembering seen ids would remove the clock-sync caveat. | None | None (routine) |
+| 2026-09-13T01:00:02Z | PLAN-00003-STEP-14 | The first local `just check audit publish-dry-run lint-workflows` invocation failed because `publish-dry-run` takes trailing arguments and received `lint-workflows` as one; both recipes were rerun on their own and passed. Not a code problem. | None | None (routine) |
 
 None.
 
@@ -1060,12 +1063,18 @@ None.
 | 2026-09-13T00:55:09Z | PLAN-00003-STEP-13 | `cargo run -q -p passalong -- --version` | Pass | passalong 0.1.2 |
 | 2026-09-13T00:55:09Z | PLAN-00003-STEP-13 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
 | 2026-09-13T00:55:09Z | PLAN-00003-STEP-13 | `just check` | Exit 0 | Lines 92.19% (8927 lines, 697 missed) |
+| 2026-09-13T01:00:02Z | PLAN-00003-STEP-14 | `just ci` locally on 2d2dfaa (clean tree; run as check audit, then publish-dry-run, lint-workflows, then test-integration test-deploy coverage-full) | Exit 0 | check 92.19 % lines; audit advisories/bans/licenses/sources ok; publish dry run verified 3 crates; actionlint no findings; 13 Docker SSH tests; deploy example host key unchanged after re-creation; coverage-full 94.63 % lines; no passalong processes or containers left |
+| 2026-09-13T01:00:02Z | PLAN-00003-STEP-14 | GitHub CI run 34728833171 on 3cc9c9e | Pass | Linux (just ci with Docker SSH tests), macOS (just check), Linux desktop clipboard (Xvfb) with all 5 desktop tests including the 2 image tests |
+| 2026-09-13T01:00:02Z | PLAN-00003-STEP-14 | GitHub CI run 34729232679 on 2d2dfaa (code-final commit) | Pass | Linux (just ci with Docker SSH tests), macOS (just check), Linux desktop clipboard (Xvfb): all success |
+| 2026-09-13T01:00:02Z | PLAN-00003-STEP-14 | Scope review: `git diff --stat 23bbab9..HEAD -- crates` | Pass | 36 files, 3279 insertions; new files cat.rs, resolve.rs, clipboard/image.rs, download.rs, serve/pull.rs, docs/release/v0.1.2.md; registry kinds local and ssh only; no GUI, Windows, Android, or backend code |
+| 2026-09-13T01:00:02Z | PLAN-00003-STEP-14 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
+| 2026-09-13T01:00:02Z | PLAN-00003-STEP-14 | `just check` | Exit 0 | Lines 92.19% (8927 lines, 697 missed) |
 
 ### Completion summary
 
 - **Implementation status:** `not-started`
-- **Completed requirements:** REQ-01 to REQ-18
-- **Incomplete requirements:** REQ-19, REQ-20
+- **Completed requirements:** REQ-01 to REQ-20
+- **Incomplete requirements:** None
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

@@ -32,14 +32,14 @@ confidence: medium                # high | medium | low
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; Delivery Planner initializes them.
-implementation_status: in-progress # not-started | in-progress | blocked | completed | abandoned
+implementation_status: completed # not-started | in-progress | blocked | completed | abandoned
 builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00005-v0.1.4"
 execution_started_at: "2026-09-13T20:51:24Z"
-execution_updated_at: "2026-09-13T21:26:04Z"
-execution_completed_at: null
-current_step: "PLAN-00005-STEP-08"
+execution_updated_at: "2026-09-13T21:30:39Z"
+execution_completed_at: "2026-09-13T21:30:39Z"
+current_step: null
 ---
 
 # Delivery Plan 00005: V0 1 4 Service Check Get Quiet
@@ -744,7 +744,7 @@ macOS through CI's `just check`.
 | PLAN-00005-STEP-05 | completed | 2026-09-13T21:06:51Z | 2026-09-13T21:13:22Z | Commit `build: complete PLAN-00005-STEP-05 - passalong check and Store::probe_write`; `just check` green, 92.27% lines; Docker tests pass | AC-09, AC-10; check covered by AC-07 --quiet. check runs before the normal config load (like init) so a config problem is its first line; the failure error is "check failed: <check>: <reason>", so --quiet still shows why. Usage, architecture, README, and CHANGELOG updated |
 | PLAN-00005-STEP-06 | completed | 2026-09-13T21:14:48Z | 2026-09-13T21:21:57Z | Commit `build: complete PLAN-00005-STEP-06 - passalong install-service`; `just check` green, 92.43% lines | AC-11, AC-12, AC-13; install-service covered by AC-07 --quiet. docs/service units regenerated from the templates (WorkingDirectory home; launchd logs to ~/Library/Logs/passalong/serve.log and uses launchctl bootstrap). Usage section, README quick start and command row, architecture, CHANGELOG updated |
 | PLAN-00005-STEP-07 | completed | 2026-09-13T21:22:21Z | 2026-09-13T21:26:04Z | Commit `build: complete PLAN-00005-STEP-07 - Documentation and v0.1.4 release preparation`; `just check` green, 92.42% lines | AC-14, AC-15. Architecture command flow lists cat, get, check, install-service and the --quiet start-up; backlog drops the delivered v0.1.4 road map and the Engineering entry; docs/release/v0.1.4.md drafted with absolute links only (plan pinned to v0.1.4, crates.io); CHANGELOG Unreleased entries were added per step; README, usage, configuration, developer guide were updated in STEP-01 to STEP-06 |
-| PLAN-00005-STEP-08 | not-started | — | — | — | — |
+| PLAN-00005-STEP-08 | completed | 2026-09-13T21:26:28Z | 2026-09-13T21:30:39Z | Commit `build: complete PLAN-00005-STEP-08 - Final quality gate`; `just ci` green locally (92.43 % / 94.47 %); GitHub CI green on 7c4950f | AC-16, AC-17; AC-05 rendering checked on the branch page. AC-02 (no ENOENT or Node.js 20 annotations) is checked on the v0.1.4 Release run. This commit changes only the plan and the release notes (coverage figure, macOS upgrade note); its own CI run is checked after the push |
 
 Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 `skipped`. A skipped step requires explicit user approval recorded in Evidence.
@@ -768,6 +768,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T21:21:57Z | PLAN-00005-STEP-06 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00005-STEP-06 - passalong install-service` | Begin PLAN-00005-STEP-07 |
 | 2026-09-13T21:22:21Z | PLAN-00005-STEP-07 | Started | — | Red phase |
 | 2026-09-13T21:26:04Z | PLAN-00005-STEP-07 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00005-STEP-07 - Documentation and v0.1.4 release preparation` | Begin PLAN-00005-STEP-08 |
+| 2026-09-13T21:26:28Z | PLAN-00005-STEP-08 | Started | — | Red phase |
+| 2026-09-13T21:30:39Z | PLAN-00005-STEP-08 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00005-STEP-08 - Final quality gate` | Builder hand-off |
 
 ### Deviations and blockers
 
@@ -811,14 +813,19 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T21:26:04Z | PLAN-00005-STEP-07 | `just publish-dry-run --allow-dirty` | Exit 0 | 3 crates packaged and verified at 0.1.4; target/package removed afterwards |
 | 2026-09-13T21:26:04Z | PLAN-00005-STEP-07 | `just coverage-full` (for the release notes) | Exit 0 | 94.47 % lines; 16 Docker tests |
 | 2026-09-13T21:26:04Z | PLAN-00005-STEP-07 | `just check` | Exit 0 | Lines 92.42% |
+| 2026-09-13T21:28:28Z | PLAN-00005-STEP-08 | `just ci` locally on 7c4950f | Exit 0 | check 92.43 % lines (links, fmt, clippy, tests, build); audit ok; publish dry run 3 crates at 0.1.4, target/package removed; actionlint no findings; Docker SSH tests incl. check and probe_write; deploy example; coverage-full 94.47 % |
+| 2026-09-13T21:28:28Z | PLAN-00005-STEP-08 | Scope review: `git diff --name-status origin/main..HEAD -- crates`; registry kinds | Pass | new files only check.rs, get.rs, install_service.rs, service.rs, link_check_script.rs; BackendRegistry kinds local and ssh; no GUI, Windows, Android, or backend code ("gui/" matches are launchd session targets) |
+| 2026-09-13T21:28:28Z | PLAN-00005-STEP-08 | README Mermaid: branch page https://github.com/joelee/passalong/blob/feature/00005-v0.1.4/README.md; `npx @mermaid-js/mermaid-cli@11` render | Pass | GitHub serves a data-type="mermaid" render container for the diagram; mmdc renders it without errors (laptop, desktop, phone to server:/srv/passalong items/<time>-<hash>/{content,meta.json}, SSH/SFTP pinned host key) |
+| 2026-09-13T21:28:29Z | PLAN-00005-STEP-08 | Release notes figures and upgrade note | Updated | coverage 92.43 % / 94.47 % from the final just ci; macOS upgrade note corrected: a running hand-installed agent must be booted out before install-service --force, because install refuses to start while serve runs |
+| 2026-09-13T21:30:38Z | PLAN-00005-STEP-08 | GitHub CI run 34783844394 on 7c4950f | Pass | Linux (just ci with Docker SSH tests), macOS (just check, running the launchd install-service tests), Linux desktop clipboard (Xvfb): all success; no annotations on any job |
 
 ### Completion summary
 
-- **Implementation status:** `not-started`
-- **Completed requirements:** None
-- **Incomplete requirements:** All
+- **Implementation status:** `completed`
+- **Completed requirements:** REQ-01 to REQ-12 (REQ-01 AC-02 confirmed on the v0.1.4 Release run)
+- **Incomplete requirements:** None
 - **Outstanding blockers:** None
-- **Review request:** Not ready
+- **Review request:** Ready for the user's review (release workflow step 3)
 <!-- BUILDER_WORK_LOG_END -->
 
 ## 18. Planning change log

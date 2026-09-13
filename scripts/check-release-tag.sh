@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Fails unless a release tag is exactly `v` followed by the workspace version
 # in Cargo.toml and the release records for it are final: CHANGELOG.md has a
-# `## vX.Y.Z - <UTC timestamp>` section, docs/release/vX.Y.Z.md exists and is
-# not marked as a draft, and README.md has no pre-release wording. The
-# release workflow runs it before building or publishing anything.
+# `## vX.Y.Z - <UTC timestamp>` section, docs/release/vX.Y.Z.md exists, is
+# not marked as a draft, and has only absolute links (the GitHub release
+# page cannot resolve relative ones), and README.md has no pre-release
+# wording. The release workflow runs it before building or publishing.
 #
 # Usage: scripts/check-release-tag.sh <tag> [path/to/Cargo.toml]
 # The records are looked up next to the given Cargo.toml.
@@ -50,8 +51,14 @@ fi
 notes="$root/docs/release/$tag.md"
 if [ ! -f "$notes" ]; then
     fail "docs/release/$tag.md is missing"
-elif grep -Eq '^Draft( |$)' "$notes"; then
-    fail "docs/release/$tag.md is still marked as a draft; remove the draft line when finalising the release"
+else
+    if grep -Eq '^Draft( |$)' "$notes"; then
+        fail "docs/release/$tag.md is still marked as a draft; remove the draft line when finalising the release"
+    fi
+    relative="$(grep -oE '\]\([^)]+\)' "$notes" | grep -vE '^\]\((https?://|#|mailto:)' || true)"
+    if [ -n "$relative" ]; then
+        fail "docs/release/$tag.md has relative links, which the GitHub release page cannot resolve; use absolute URLs: ${relative//$'\n'/ }"
+    fi
 fi
 for phrase in "being prepared" "not yet released"; do
     if grep -iq "$phrase" "$root/README.md" 2>/dev/null; then

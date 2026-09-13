@@ -6,6 +6,44 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## v0.1.3 - 2026-09-13T16:39:56Z
+
+### Added
+
+- `Store::get_meta` and `Store::list_ids` in `passalong-core`, both with
+  default implementations, so existing `Store` implementations keep
+  compiling (PLAN-00004 STEP-02 and STEP-04).
+
+### Deprecated
+
+- `Store::newest_id`, which pull mode no longer uses; use `list_ids`
+  (PLAN-00004 STEP-04).
+- `download::free_target`, whose name could be taken by another writer
+  before it was written; use `download_into` (PLAN-00004 STEP-03).
+
+### Fixed
+
+- Copying an image in a browser sends the image, not the link the browser
+  puts beside it: text that is only a link or an `<img>` tag no longer hides
+  the image, and UTF-16 text read by mistake (`text/x-moz-url`) is never
+  stored as text (PLAN-00004, post-gate fix).
+- Pull mode applies every new item from another device once, even when that
+  device's clock runs behind: it remembers the item ids it has handled
+  instead of comparing creation times (PLAN-00004 STEP-04).
+- Choosing between items that match an ambiguous id reads only the metadata
+  of the items shown, not the whole store, which on an SSH server meant one
+  request per stored item (Code Review 00001, REV-00001-MED-01; PLAN-00004
+  STEP-02).
+- Downloads by `load` and pull mode choose their file name only once the
+  content is complete and verified, and link it into place without ever
+  replacing a file, so two downloads of the same name at the same moment
+  keep both files (Code Review 00001, REV-00001-LOW-01; PLAN-00004
+  STEP-03).
+- The release notes link to their delivery plans with absolute URLs pinned
+  to the release tag, because GitHub release pages cannot resolve relative
+  links. `scripts/check-release-tag.sh` now rejects relative links in
+  release notes.
+
 ## v0.1.2 - 2026-09-13T09:04:23Z
 
 ### Added

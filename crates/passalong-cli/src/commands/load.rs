@@ -52,7 +52,7 @@ pub async fn run(
             tracing::info!(id = %id, size = meta.size, "image copied to the clipboard");
             return Ok(());
         }
-        None => download_target(download_dir, &meta, force).await?,
+        None => download(content, &meta, download_dir, force).await?,
         Some(dest) => {
             let target = target_path(dest, &meta)?;
             if !force && tokio::fs::try_exists(&target).await.unwrap_or(false) {
@@ -61,28 +61,36 @@ pub async fn run(
                     target.display()
                 );
             }
+            write_verified(content, &meta, &target).await?;
             target
         }
     };
-    write_verified(content, &meta, &target).await?;
     tracing::info!(id = %id, size = meta.size, path = %target.display(), "item written");
     writeln!(out, "{}", target.display())?;
     Ok(())
 }
 
-/// Where a download goes: the item's name in `dir`, or its first free
-/// numbered variant unless `force`.
-async fn download_target(dir: &Path, meta: &ItemMeta, force: bool) -> anyhow::Result<PathBuf> {
+/// Downloads into `dir` under the item's name: over it with `force`,
+/// otherwise under the first free numbered variant, the file appearing only
+/// once complete.
+async fn download(
+    content: BoxRead,
+    meta: &ItemMeta,
+    dir: &Path,
+    force: bool,
+) -> anyhow::Result<PathBuf> {
     let name = sanitise_file_name(meta.name.as_deref().unwrap_or_default())
         .context("give a destination for this item instead")?;
     tokio::fs::create_dir_all(dir)
         .await
         .with_context(|| format!("cannot create the download directory {}", dir.display()))?;
-    Ok(if force {
-        dir.join(name)
+    if force {
+        let target = dir.join(name);
+        write_verified(content, meta, &target).await?;
+        Ok(target)
     } else {
-        download::free_target(dir, &name).await?
-    })
+        Ok(download::download_into(content, meta, dir, &name).await?)
+    }
 }
 
 /// A directory destination gets the item's sanitised name, or `<id>.txt`
@@ -429,5 +437,26 @@ mod tests {
             png
         );
         assert!(env.clip.image_writes().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_damaged_download_leaves_nothing_in_the_download_directory() {
+        let env = Env::new();
+        let meta = env.put(NewItem::file("a.bin", "box"), b"original").await;
+        let content = env
+            .ts
+            .dir
+            .path()
+            .join("items")
+            .join(meta.id.as_str())
+            .join("content");
+        std::fs::write(&content, b"tampered").unwrap();
+        let err = env.load(meta.id.as_str(), None, false).await.unwrap_err();
+        assert!(
+            format!("{err:#}").contains("integrity check failed"),
+            "{err:#}"
+        );
+        let left: Vec<_> = std::fs::read_dir(env.downloads()).unwrap().collect();
+        assert!(left.is_empty(), "{left:?}");
     }
 }

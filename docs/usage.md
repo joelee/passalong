@@ -98,7 +98,9 @@ fields described in [architecture](architecture.md#metajson).
 Sends the clipboard's text and prints the new item's id. When the
 clipboard holds no text but an image, such as a screenshot, it sends the
 image instead, stored as a PNG file named `clipboard-YYYYMMDD-HHMMSS.png`
-and listed with kind `image`.
+and listed with kind `image`. A browser's "Copy image" also puts the
+image's link, or an `<img>` tag, on the clipboard; that does not count as
+text, so the image is sent.
 
 ```text
 $ passalong clipboard
@@ -274,9 +276,8 @@ devices send, which turns passalong into two-way sync:
 
 `serve` checks every `pull_interval_ms`, 5 seconds by default. A server
 that cannot be reached is retried at the next check without skipping
-anything. Keep the devices' clocks in sync (NTP): items are ordered by
-their creation time, so an item from a device whose clock runs behind can
-look older than the last one pulled and be missed.
+anything. Pull mode remembers which items it has already handled, so an
+item from a device whose clock runs behind is still applied, once.
 
 ### Running `serve` in the background
 

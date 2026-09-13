@@ -148,8 +148,11 @@ interrupted upload leaves nothing under `items/`.
 
 `Store::list_after(id)` lists only the items newer than `id`, newest
 first, reading `meta.json` for those items alone. Ids start with their
-creation time, so comparing ids is enough; pull mode uses it to poll a
-large store cheaply.
+creation time, so comparing ids is enough. `Store::list_ids` returns the
+ids alone, from one directory listing, which is how pull mode polls a large
+store cheaply. `Store::get_meta(id)` reads one item's `meta.json`
+without opening its content; the choice prompt for an ambiguous id uses it
+for the candidates it shows, at most 9, instead of listing the store.
 
 Deleting an item renames `items/<id>` to `tmp/deleted-<id>-<random>` and
 then removes it, so the item disappears from every listing in one step.
@@ -174,7 +177,9 @@ that lists the candidates.
 
 - **Clipboard watcher.** Reads the clipboard every poll interval and queues
   text whose SHA-256 differs from the last text seen. Blank text is ignored.
-  When the clipboard holds no text and `serve.clipboard_images` is on, it
+  When the clipboard holds no text, or only the link or
+  `<img>` tag a browser adds when copying an image, and
+  `serve.clipboard_images` is on, it
   reads the image instead and queues it when its pixels differ from the last
   image seen; the uploader stores it as a PNG clipboard image. Clipboard
   access runs on a blocking thread, off the async runtime.
@@ -183,14 +188,18 @@ that lists the candidates.
   A file is queued once two scans at least `file_stable_wait_ms` apart show
   the same size and modification time.
 - **Pull loop** (only with `serve.pull = true`). At start-up, before
-  `serve` reports ready, it records the newest stored item. Every pull
-  interval it asks the store for newer items with `Store::list_after`,
-  ignores this device's own items, and handles the rest oldest first: files
-  are downloaded, verified, into `client.download_dir` when it exists, and
-  the newest text or clipboard image is handed to the clipboard task. The
-  clipboard task writes it and marks it as seen, so it is not sent back.
-  The recorded position advances item by item, so a store error retries
-  from where it stopped without downloading anything twice.
+  `serve` reports ready, it records the ids of every stored item with
+  `Store::list_ids`, one directory listing. Every pull interval it lists the
+  ids again, forgets those no longer stored, reads `meta.json` only for ids
+  it has not seen, ignores this device's own items, and handles the rest
+  oldest id first: files are downloaded, verified, into
+  `client.download_dir` when it exists, and the newest text or clipboard
+  image is handed to the clipboard task. Like `load`, each download is written and verified in its own part file
+  and only then linked into place under a free name, so it appears only when
+  complete and two downloads never share a name. The clipboard task writes pulled content and marks
+  it as seen, so it is not sent back. Each item is marked as handled once
+  done, so a store error retries only what is left, and an item from a
+  device whose clock runs behind is still applied.
 - **Uploader.** Sends queued jobs one at a time. Before uploading text it
   checks whether that content key is already stored, which is how text that
   `load` just put on the clipboard is not sent back. After a file is sent,

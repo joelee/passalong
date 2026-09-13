@@ -137,6 +137,29 @@ fn pre_release_wording_in_the_readme_fails() {
 }
 
 #[test]
+fn relative_links_in_the_release_notes_fail() {
+    // GitHub release pages resolve relative links against the release URL,
+    // so `../plans/...` loses its `docs/` there.
+    let tree = Tree::finalised("1.2.3");
+    tree.write(
+        "docs/release/v1.2.3.md",
+        "# passalong v1.2.3\n\nDelivered by [Plan 7](../plans/00007-Plan.md) and [the guide](https://example.com/guide).\n\n## Summary\n",
+    );
+    let (code, out) = tree.check("v1.2.3");
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("relative link"), "{out}");
+    assert!(out.contains("../plans/00007-Plan.md"), "{out}");
+    assert!(!out.contains("example.com"), "{out}");
+
+    tree.write(
+        "docs/release/v1.2.3.md",
+        "# passalong v1.2.3\n\nSee [the plan](https://github.com/o/r/blob/v1.2.3/docs/plans/p.md) and [below](#summary).\n\n## Summary\n",
+    );
+    let (code, out) = tree.check("v1.2.3");
+    assert_eq!(code, 0, "absolute and anchor links pass: {out}");
+}
+
+#[test]
 fn every_problem_is_reported_at_once() {
     let tree = Tree::finalised("1.2.3");
     tree.write("CHANGELOG.md", "# Changelog\n\n## Unreleased\n");

@@ -308,3 +308,20 @@ async fn list_after_works_over_sftp() {
     );
     assert_eq!(store.list_after(None).await.unwrap().len(), 2);
 }
+
+#[tokio::test]
+#[ignore = "needs the Docker SSH server: just test-integration"]
+async fn get_meta_works_over_sftp() {
+    let params = SshParams::from_config(&config()).unwrap();
+    let fs = SftpFs::open(&params, &unique_root()).await.unwrap();
+    let store = FsStore::new(fs, Arc::new(SystemClock), Box::new(StdRandom::new()));
+    let meta = store
+        .put(
+            NewItem::text("it"),
+            Box::new(Cursor::new(b"meta only".to_vec())),
+        )
+        .await
+        .unwrap()
+        .meta;
+    assert_eq!(store.get_meta(&meta.id).await.unwrap(), meta);
+}

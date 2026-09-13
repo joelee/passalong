@@ -37,6 +37,68 @@ pub trait Clipboard: Send {
     }
 }
 
+/// Reads what passalong sends from a clipboard: its text, or its image
+/// when `images` is on and the text is missing, blank, or only refers to
+/// that image. Browsers copying an image put such a reference beside it: a
+/// link, or an `<img>` tag. Text containing NUL characters is a non-text
+/// format, such as UTF-16 `text/x-moz-url`, read as text by mistake, and
+/// counts as missing. Returns the text alone when there is no image.
+///
+/// # Errors
+///
+/// The clipboard's error.
+pub fn read_payload(
+    clipboard: &mut dyn Clipboard,
+    images: bool,
+) -> Result<(Option<String>, Option<RgbaImage>), ClipboardError> {
+    let text = clipboard.read_text()?.filter(|text| !text.contains('\0'));
+    let is_content = text
+        .as_deref()
+        .is_some_and(|text| !text.trim().is_empty() && !refers_to_image(text));
+    if is_content || !images {
+        return Ok((text, None));
+    }
+    match clipboard.read_image()? {
+        Some(image) => Ok((None, Some(image))),
+        None => Ok((text, None)),
+    }
+}
+
+/// Whether `text` only refers to an image instead of being content: a
+/// single `http`, `https`, or `file` link, optionally followed by one title
+/// line, or HTML that is nothing but an `<img>` tag after any `<meta>`
+/// tags. Browsers put these beside an image they copy.
+pub fn refers_to_image(text: &str) -> bool {
+    let text = text.trim();
+    let lines: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    let is_link = |line: &str| {
+        let lower = line.to_ascii_lowercase();
+        ["http://", "https://", "file://"]
+            .iter()
+            .any(|scheme| lower.starts_with(scheme))
+            && !line.contains(char::is_whitespace)
+    };
+    if lines.len() <= 2 && lines.first().is_some_and(|line| is_link(line)) {
+        return true;
+    }
+    let mut html = text.to_ascii_lowercase();
+    while let Some(rest) = html.trim_start().strip_prefix("<meta") {
+        match rest.find('>') {
+            Some(end) => html = rest[end + 1..].to_owned(),
+            None => return false,
+        }
+    }
+    let html = html.trim();
+    html.starts_with("<img")
+        && html
+            .find('>')
+            .is_some_and(|end| html[end + 1..].trim().is_empty())
+}
+
 /// Clipboard failures.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ClipboardError {
@@ -220,5 +282,86 @@ mod tests {
             .recv_timeout(std::time::Duration::from_secs(10))
             .expect("holder returns once replaced");
         assert!(released);
+    }
+
+    /// A UTF-16 clipboard format, such as `text/x-moz-url`, misread as UTF-8
+    /// text: every ASCII character followed by a NUL.
+    fn utf16_as_text(text: &str) -> String {
+        let bytes: Vec<u8> = text.encode_utf16().flat_map(u16::to_le_bytes).collect();
+        String::from_utf8(bytes).unwrap()
+    }
+
+    fn picture() -> RgbaImage {
+        RgbaImage::new(1, 1, vec![1, 2, 3, 255]).unwrap()
+    }
+
+    #[test]
+    fn links_and_image_tags_refer_to_an_image() {
+        for text in [
+            "https://cdn.example.com/a.webp?v=1",
+            "https://cdn.example.com/a.webp\nPage title",
+            "  http://x/y.png  ",
+            "file:///home/u/a.png",
+            "<meta charset='utf-8'><img src=\"https://x/a.png\">",
+            "<IMG SRC=a.png>",
+        ] {
+            assert!(refers_to_image(text), "{text:?}");
+        }
+        for text in [
+            "hello",
+            "see https://x.com for details",
+            "https://a\nline two\nline three",
+            "<p>hi</p><img src=a.png>",
+            "",
+        ] {
+            assert!(!refers_to_image(text), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn the_image_wins_over_a_link_to_it() {
+        let mut clip = MockClipboard::with_text("https://cdn.example.com/a.webp")
+            .with_image_reads([Some(picture())]);
+        assert_eq!(
+            read_payload(&mut clip, true).unwrap(),
+            (None, Some(picture()))
+        );
+    }
+
+    #[test]
+    fn utf16_link_text_is_never_text() {
+        let text = utf16_as_text("https://cdn.example.com/a.webp\nPage title");
+        let mut clip = MockClipboard::with_text(&text).with_image_reads([Some(picture())]);
+        assert_eq!(
+            read_payload(&mut clip, true).unwrap(),
+            (None, Some(picture()))
+        );
+        let mut clip = MockClipboard::with_text(&text);
+        assert_eq!(
+            read_payload(&mut clip, true).unwrap(),
+            (None, None),
+            "garbled text is dropped"
+        );
+    }
+
+    #[test]
+    fn real_text_still_wins_and_links_without_an_image_stay_text() {
+        let mut clip = MockClipboard::with_text("words").with_image_reads([Some(picture())]);
+        assert_eq!(
+            read_payload(&mut clip, true).unwrap(),
+            (Some("words".to_owned()), None)
+        );
+        let mut clip = MockClipboard::with_text("https://example.com/page");
+        assert_eq!(
+            read_payload(&mut clip, true).unwrap(),
+            (Some("https://example.com/page".to_owned()), None)
+        );
+        let mut clip = MockClipboard::with_text("https://cdn.example.com/a.webp")
+            .with_image_reads([Some(picture())]);
+        assert_eq!(
+            read_payload(&mut clip, false).unwrap(),
+            (Some("https://cdn.example.com/a.webp".to_owned()), None),
+            "with images off, the link is the content"
+        );
     }
 }

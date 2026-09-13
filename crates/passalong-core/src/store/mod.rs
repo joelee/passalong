@@ -44,8 +44,24 @@ pub trait Store: Send + Sync {
     /// cheap on a large store.
     async fn list_after(&self, after: Option<&ItemId>) -> Result<Vec<ItemMeta>, StoreError>;
 
+    /// Every item's id, newest first, without reading any metadata. The
+    /// default lists every item; backends override it with something
+    /// cheaper.
+    async fn list_ids(&self) -> Result<Vec<ItemId>, StoreError> {
+        Ok(self
+            .list_after(None)
+            .await?
+            .into_iter()
+            .map(|meta| meta.id)
+            .collect())
+    }
+
     /// The newest item's id, or `None` for an empty store. The default
     /// lists every item; backends override it with something cheaper.
+    #[deprecated(
+        since = "0.1.3",
+        note = "pull mode no longer uses it; use list_ids and take the first"
+    )]
     async fn newest_id(&self) -> Result<Option<ItemId>, StoreError> {
         Ok(self
             .list_after(None)
@@ -57,6 +73,17 @@ pub trait Store: Send + Sync {
 
     /// Returns an item's metadata and a stream of its content.
     async fn get(&self, id: &ItemId) -> Result<(ItemMeta, BoxRead), StoreError>;
+
+    /// An item's metadata alone, without opening its content. The default
+    /// calls [`Store::get`] and drops the content; backends override it
+    /// with a single metadata read.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::NotFound`] for an unknown id, or the backend's error.
+    async fn get_meta(&self, id: &ItemId) -> Result<ItemMeta, StoreError> {
+        Ok(self.get(id).await?.0)
+    }
 
     /// Whether an item exists.
     async fn exists(&self, id: &ItemId) -> Result<bool, StoreError>;

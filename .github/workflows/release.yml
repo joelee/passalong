@@ -30,6 +30,11 @@ jobs:
       # cargo would reuse when verifying the packages.
       - run: cargo clean -p passalong-core -p passalong-ssh -p passalong
       - run: cargo publish --workspace --dry-run --locked
+      # Swatinem/rust-cache's post step fails with ENOENT on the tests/
+      # folders of the crates cargo unpacks into target/package, which are
+      # not worth caching anyway, so remove them first, even after a failure.
+      - if: always()
+        run: rm -rf target/package
 
   binaries:
     name: Build ${{ matrix.target }}
@@ -62,7 +67,7 @@ jobs:
           cp "target/$TARGET/release/passalong" LICENSE README.md "$name/"
           tar -czf "$name.tar.gz" "$name"
           shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target }}
           path: passalong-*.tar.gz*
@@ -84,6 +89,11 @@ jobs:
       - run: cargo publish --workspace --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      # Swatinem/rust-cache's post step fails with ENOENT on the tests/
+      # folders of the crates cargo unpacks into target/package, which are
+      # not worth caching anyway, so remove them first, even after a failure.
+      - if: always()
+        run: rm -rf target/package
 
   release:
     name: Create the GitHub release and attach binaries
@@ -91,7 +101,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true

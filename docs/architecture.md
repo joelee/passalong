@@ -248,9 +248,13 @@ Pushing a tag `vX.Y.Z` runs `.github/workflows/release.yml`:
    three crates.
 2. Release binaries are built for Linux x86_64 and macOS arm64 and packed
    as `.tar.gz` files with SHA-256 checksums.
-3. The GitHub release is created from `docs/release/vX.Y.Z.md` and the
+3. After a maintainer approves the `release` environment, the crates are
+   published to crates.io in dependency order.
+4. The GitHub release is created from `docs/release/vX.Y.Z.md` and the
    archives are attached.
-4. The crates are published to crates.io in dependency order.
+
+The jobs that package crates remove `target/package` before the cache
+action saves the build, because its cleanup fails on the unpacked crates.
 
 CI audits dependencies with `cargo deny` (`deny.toml`) on every push and
 runs the desktop clipboard tests under a virtual X server.

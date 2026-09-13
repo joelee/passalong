@@ -147,8 +147,13 @@ When `just audit` reports a new duplicate:
 Three crates are published to crates.io, in dependency order:
 `passalong-core`, `passalong-ssh`, and `passalong`, the CLI package in
 `crates/passalong-cli/`. `just publish-dry-run` packages and verifies all
-three exactly as crates.io would, without uploading. The published CLI
-installs with `cargo install passalong`.
+three exactly as crates.io would, without uploading, and then removes the
+unpacked packages in `target/package`. The published CLI installs with
+`cargo install passalong`.
+
+`.github/dependabot.yml` has Dependabot open a pull request each month
+when an action used by the workflows has a new version. Cargo dependencies
+are updated by hand and checked by `just audit`.
 
 ## Releasing
 

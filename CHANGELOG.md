@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- The Release workflow no longer reports errors from the build cache's
+  cleanup of `target/package`, and its artifact actions run on Node.js 24
+  (`upload-artifact@v7`, `download-artifact@v8`). Dependabot proposes
+  action updates monthly (PLAN-00005 STEP-01).
+
 ## v0.1.3 - 2026-09-13T16:39:56Z
 
 ### Added

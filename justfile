@@ -127,6 +127,9 @@ publish-dry-run *ARGS:
     cargo clean -p passalong-core -p passalong-ssh -p passalong
     rm -rf "${CARGO_HOME:-$HOME/.cargo}"/registry/src/-*/passalong-*
     cargo publish --workspace --dry-run --locked {{ARGS}}
+    # The unpacked packages in target/package are only needed during
+    # verification, and rust-cache's cleanup fails on their tests/ folders.
+    rm -rf target/package
 
 # Run the CLI, e.g. `just run list`
 run *ARGS:

@@ -32,14 +32,14 @@ confidence: medium                # high | medium | low
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; Delivery Planner initializes them.
-implementation_status: not-started # not-started | in-progress | blocked | completed | abandoned
-builder_agent: null
-builder_model: null
-execution_branch: null
-execution_started_at: null
-execution_updated_at: null
+implementation_status: in-progress # not-started | in-progress | blocked | completed | abandoned
+builder_agent: "Claude Code"
+builder_model: "anthropic/claude-opus-5"
+execution_branch: "feature/00005-v0.1.4"
+execution_started_at: "2026-09-13T20:51:24Z"
+execution_updated_at: "2026-09-13T20:52:56Z"
 execution_completed_at: null
-current_step: null
+current_step: "PLAN-00005-STEP-02"
 ---
 
 # Delivery Plan 00005: V0 1 4 Service Check Get Quiet
@@ -737,7 +737,7 @@ macOS through CI's `just check`.
 
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
-| PLAN-00005-STEP-01 | not-started | — | — | — | — |
+| PLAN-00005-STEP-01 | completed | 2026-09-13T20:51:24Z | 2026-09-13T20:52:56Z | Commit `build: complete PLAN-00005-STEP-01 - Quiet Release workflow`; `just check` green, 91.92% lines | AC-01; AC-02 is checked on the v0.1.4 Release run. release.yml verify and crates jobs end with an if: always() `rm -rf target/package` step; publish-dry-run removes target/package; artifact actions moved to their Node.js 24 majors; .github/dependabot.yml monthly github-actions. Architecture release pipeline now lists crates.io before the GitHub release, as the workflow does since v0.1.2 |
 | PLAN-00005-STEP-02 | not-started | — | — | — | — |
 | PLAN-00005-STEP-03 | not-started | — | — | — | — |
 | PLAN-00005-STEP-04 | not-started | — | — | — | — |
@@ -753,6 +753,9 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 
 | Timestamp (UTC) | Step | Event | Evidence or reference | Next action |
 |---|---|---|---|---|
+| 2026-09-13T20:51:24Z | PLAN-00005 | Plan approved (commit 9f56d49); Builder starts on feature/00005-v0.1.4 | `docs(plan): approve PLAN-00005 - V0 1 4 Service Check Get Quiet` | Begin PLAN-00005-STEP-01 |
+| 2026-09-13T20:51:24Z | PLAN-00005-STEP-01 | Started | — | Red phase |
+| 2026-09-13T20:52:56Z | PLAN-00005-STEP-01 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00005-STEP-01 - Quiet Release workflow` | Begin PLAN-00005-STEP-02 |
 
 ### Deviations and blockers
 
@@ -765,6 +768,11 @@ None.
 
 | Timestamp (UTC) | Step | Command or check | Result | Evidence |
 |---|---|---|---|---|
+| 2026-09-13T20:51:24Z | PLAN-00005-STEP-01 | Before: `just publish-dry-run`, then `ls target/package` | Exit 0; target/package present (expected) | target/package holds passalong{,-core,-ssh}-0.1.0 to 0.1.3, each with a tests/ folder: what rust-cache post steps walk and fail on (Release run 34772392506: 20 ENOENT annotations, 3 Node.js 20 warnings for upload-artifact@v4 and download-artifact@v4) |
+| 2026-09-13T20:52:56Z | PLAN-00005-STEP-01 | `just publish-dry-run`; `test ! -e target/package` | Pass | 3 crates packaged and verified at 0.1.3; target/package removed afterwards |
+| 2026-09-13T20:52:56Z | PLAN-00005-STEP-01 | `just lint-workflows` (actionlint) | Pass | no findings with upload-artifact@v7, download-artifact@v8, and the if: always() cleanup steps |
+| 2026-09-13T20:52:56Z | PLAN-00005-STEP-01 | `uvx check-jsonschema --builtin-schema vendor.dependabot .github/dependabot.yml` | Pass | ok -- validation done |
+| 2026-09-13T20:52:56Z | PLAN-00005-STEP-01 | `just check` | Exit 0 | Lines 91.92% |
 
 ### Completion summary
 

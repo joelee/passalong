@@ -78,6 +78,7 @@ flowchart LR
 | `passalong delete <id>...` | Delete items |
 | `passalong prune` | Delete items older than `--older-than`, keeping the newest `--keep` |
 | `passalong init` | Write a config file for an SSH server and pin its host key |
+| `passalong check` | Check the config, and that the server can be reached, read, and written |
 
 An id can be shortened to its first 4 or more distinctive characters. See
 [docs/usage.md](https://github.com/joelee/passalong/blob/main/docs/usage.md) for every option and exit code.

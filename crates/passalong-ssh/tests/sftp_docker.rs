@@ -11,7 +11,7 @@ use passalong_core::config::SshConfig;
 use passalong_core::fs::{FsError, RemoteFs, RemotePath};
 use passalong_core::model::NewItem;
 use passalong_core::random::{RandomSource, StdRandom};
-use passalong_core::store::{FsStore, Store};
+use passalong_core::store::{FsStore, Store, WriteProbe};
 use passalong_core::testing::{FixedClock, ManualClock};
 use passalong_ssh::connect::SshParams;
 use passalong_ssh::error::SshError;
@@ -324,4 +324,15 @@ async fn get_meta_works_over_sftp() {
         .unwrap()
         .meta;
     assert_eq!(store.get_meta(&meta.id).await.unwrap(), meta);
+}
+
+#[tokio::test]
+#[ignore = "needs the Docker SSH server: just test-integration"]
+async fn probe_write_works_over_sftp_and_leaves_nothing() {
+    let params = SshParams::from_config(&config()).unwrap();
+    let fs = SftpFs::open(&params, &unique_root()).await.unwrap();
+    let store = FsStore::new(fs, Arc::new(SystemClock), Box::new(StdRandom::new()));
+    assert_eq!(store.probe_write().await.unwrap(), WriteProbe::Verified);
+    assert!(store.fs().read_dir(&p("tmp")).await.unwrap().is_empty());
+    assert!(store.list_ids().await.unwrap().is_empty());
 }

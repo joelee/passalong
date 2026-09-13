@@ -65,6 +65,30 @@ For scripts, `--yes` alone is refused so a key is never trusted blindly:
 passalong init --host nas.local --fingerprint SHA256:5Si4lWKPwa0+I2wCQf3eOtcF8jWo30BWybHoXLTxABo --yes
 ```
 
+## `passalong check`
+
+Checks the setup in four steps and prints one line for each:
+
+```text
+config         ok    /home/me/.config/passalong/config.toml
+server         ok    ssh passalong@192.168.1.10:22, /srv/passalong
+storage read   ok    12 items
+storage write  ok    wrote and removed a probe in tmp/
+```
+
+- `config`: the config file is found and valid.
+- `server`: passalong connects. For `ssh`, the server must present the
+  pinned host key and accept the login.
+- `storage read`: the storage directory can be listed.
+- `storage write`: a small probe file is written under the store's `tmp/`
+  folder and removed again. Listings and other devices never see it, so it
+  does not reach pull mode.
+
+The first failure is shown as `FAIL` with the reason, the remaining checks
+as `skip`, and `check` exits with 1 and an `error: check failed: ...` line.
+A backend that cannot test writes shows `n/a` for the last check, which is
+not a failure.
+
 ## Output and exit codes
 
 Results go to standard output; logs and errors go to standard error. A

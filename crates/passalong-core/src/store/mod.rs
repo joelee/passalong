@@ -28,6 +28,16 @@ pub struct PutOutcome {
     pub created: bool,
 }
 
+/// Result of [`Store::probe_write`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum WriteProbe {
+    /// A probe was written where listings never look, then removed.
+    Verified,
+    /// This backend cannot test writing without storing an item.
+    NotSupported,
+}
+
 /// A place items are stored.
 #[async_trait]
 pub trait Store: Send + Sync {
@@ -105,6 +115,17 @@ pub trait Store: Send + Sync {
     /// left behind, when older than `older_than`, and returns how many were
     /// removed. Younger ones may belong to uploads in progress and stay.
     async fn clean_staging(&self, older_than: Duration) -> Result<usize, StoreError>;
+
+    /// Checks that the store accepts writes without storing an item: a
+    /// probe is written where listings and other devices never look, then
+    /// removed. The default reports [`WriteProbe::NotSupported`].
+    ///
+    /// # Errors
+    ///
+    /// The backend's error when the probe cannot be written or removed.
+    async fn probe_write(&self) -> Result<WriteProbe, StoreError> {
+        Ok(WriteProbe::NotSupported)
+    }
 }
 
 /// Storage errors.

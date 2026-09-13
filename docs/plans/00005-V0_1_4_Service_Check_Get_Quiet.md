@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00005-v0.1.4"
 execution_started_at: "2026-09-13T20:51:24Z"
-execution_updated_at: "2026-09-13T21:06:03Z"
+execution_updated_at: "2026-09-13T21:13:22Z"
 execution_completed_at: null
-current_step: "PLAN-00005-STEP-05"
+current_step: "PLAN-00005-STEP-06"
 ---
 
 # Delivery Plan 00005: V0 1 4 Service Check Get Quiet
@@ -741,7 +741,7 @@ macOS through CI's `just check`.
 | PLAN-00005-STEP-02 | completed | 2026-09-13T20:53:05Z | 2026-09-13T20:57:46Z | Commit `build: complete PLAN-00005-STEP-02 - Working links and the Mermaid diagram`; `just check` green, 91.93% lines | AC-03, AC-04; AC-05 rendering is checked on the pushed branch in STEP-08. README relative links now absolute on main (blob/main, tree/main/docs/service); #server-setup anchor kept. check-links.sh also verifies links to this repository on main name existing paths and headings, which keeps the absolute README links honest. Mermaid flowchart replaces the ASCII diagram |
 | PLAN-00005-STEP-03 | completed | 2026-09-13T20:58:01Z | 2026-09-13T21:02:47Z | Commit `build: complete PLAN-00005-STEP-03 - cat without a log line, and --quiet`; `just check` green, 92.07% lines | AC-06; AC-07 for the existing commands (get, check, install-service follow in STEP-04 to 06). Level order lives in the CLI (app::resolve_level: flag, PASSALONG_LOG_LEVEL, error under --quiet, client.log_level, info), used by init too; core effective_log_level is unchanged. Prompt::show puts init fingerprint and prune list on stderr only when quiet and a question follows. serve --daemon already passes the effective level to its child, so no change was needed there |
 | PLAN-00005-STEP-04 | completed | 2026-09-13T21:03:00Z | 2026-09-13T21:06:03Z | Commit `build: complete PLAN-00005-STEP-04 - passalong get <ID>`; `just check` green, 92.23% lines | AC-08; get covered by AC-07 --quiet. Renderers output::render_meta and render_meta_json; the origin line uses the stored serde name. Usage section, README command row, and CHANGELOG added here rather than in STEP-07 |
-| PLAN-00005-STEP-05 | not-started | — | — | — | — |
+| PLAN-00005-STEP-05 | completed | 2026-09-13T21:06:51Z | 2026-09-13T21:13:22Z | Commit `build: complete PLAN-00005-STEP-05 - passalong check and Store::probe_write`; `just check` green, 92.27% lines; Docker tests pass | AC-09, AC-10; check covered by AC-07 --quiet. check runs before the normal config load (like init) so a config problem is its first line; the failure error is "check failed: <check>: <reason>", so --quiet still shows why. Usage, architecture, README, and CHANGELOG updated |
 | PLAN-00005-STEP-06 | not-started | — | — | — | — |
 | PLAN-00005-STEP-07 | not-started | — | — | — | — |
 | PLAN-00005-STEP-08 | not-started | — | — | — | — |
@@ -762,6 +762,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T21:02:47Z | PLAN-00005-STEP-03 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00005-STEP-03 - cat without a log line, and --quiet` | Begin PLAN-00005-STEP-04 |
 | 2026-09-13T21:03:00Z | PLAN-00005-STEP-04 | Started | — | Red phase |
 | 2026-09-13T21:06:03Z | PLAN-00005-STEP-04 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00005-STEP-04 - passalong get <ID>` | Begin PLAN-00005-STEP-05 |
+| 2026-09-13T21:06:51Z | PLAN-00005-STEP-05 | Started | — | Red phase |
+| 2026-09-13T21:13:22Z | PLAN-00005-STEP-05 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00005-STEP-05 - passalong check and Store::probe_write` | Begin PLAN-00005-STEP-06 |
 
 ### Deviations and blockers
 
@@ -791,6 +793,11 @@ None.
 | 2026-09-13T21:06:03Z | PLAN-00005-STEP-04 | Red: `cargo test -p passalong --no-run` with the get tests and subcommand | Exit 101 (expected) | E0425 cannot find function run (3); E0004 Command::Get not covered in dispatch |
 | 2026-09-13T21:06:03Z | PLAN-00005-STEP-04 | `cargo test -p passalong` | Pass | 106 unit tests: text fields and preview, file name and image origin, local time beside UTC, --json equals the list --json entry, prefix and unknown id, one OpenRead (meta.json only, never content, FaultyFs counter); 27 binary tests incl. get_prints_an_items_metadata_as_fields_or_json (fields, --json, --quiet silent, unknown id exit 1) |
 | 2026-09-13T21:06:03Z | PLAN-00005-STEP-04 | `just check` | Exit 0 | Lines 92.23% (first run failed on an unused test import, removed) |
+| 2026-09-13T21:13:22Z | PLAN-00005-STEP-05 | Red: `cargo test -p passalong-core --all-features --no-run`; `cargo test -p passalong --no-run` | Exit 101 (expected) | core: E0433 WriteProbe (2), E0599 probe_write on FsStore (4) and DefaultMeta (1); CLI: E0405 Opener, E0425 run and describe |
+| 2026-09-13T21:13:22Z | PLAN-00005-STEP-05 | `cargo test -p passalong-core --all-features --lib store` | Pass | 35 passed: the default probe_write is NotSupported; FsStore probe writes one file and leaves items/ and tmp/ unchanged; failed OpenWrite, CreateDirAll, and RemoveDirAll are errors, and a failed write leaves tmp/ empty |
+| 2026-09-13T21:13:22Z | PLAN-00005-STEP-05 | `cargo test -p passalong` | Pass | 113 unit tests (healthy store exact lines, config error skips the rest, failed connection, unreadable and unwritable stores, backend without a probe n/a and exit 0, ssh and local descriptions); 28 binary tests incl. check_reports_each_step_and_fails_at_the_first_problem (local pass, --quiet silent, missing config FAIL with exit 1, read-only tmp/ fails storage write, no probe left) |
+| 2026-09-13T21:13:22Z | PLAN-00005-STEP-05 | `just test-integration` (Docker) | Exit 0 | probe_write_works_over_sftp_and_leaves_nothing; check_passes_against_the_server_and_fails_on_a_wrong_host_key (server FAIL, storage read skip, host key mismatch on stderr) |
+| 2026-09-13T21:13:22Z | PLAN-00005-STEP-05 | `just check` | Exit 0 | Lines 92.27% |
 
 ### Completion summary
 

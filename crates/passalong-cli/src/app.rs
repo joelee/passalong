@@ -2,7 +2,7 @@
 //! command.
 
 use std::io::{self, IsTerminal, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::Context as _;
@@ -56,6 +56,10 @@ async fn execute(cli: Cli, env: &dyn EnvProvider, out: &mut dyn Write) -> anyhow
             out,
         )
         .await;
+    }
+    // `check` reports a missing or invalid config as its first result.
+    if matches!(cli.command, Command::Check) {
+        return check(&cli, env, out).await;
     }
     // The clipboard holder needs no configuration either.
     if let Command::HoldClipboard { image } = cli.command {
@@ -119,6 +123,7 @@ async fn dispatch(
     let device = config.client.device_name.as_str();
     match command {
         Command::Init(_) => anyhow::bail!("init runs before configuration is loaded"),
+        Command::Check => anyhow::bail!("check loads the configuration itself"),
         Command::HoldClipboard { .. } => {
             anyhow::bail!("the clipboard holder runs before configuration is loaded")
         }
@@ -246,6 +251,29 @@ async fn dispatch(
             .await
         }
     }
+}
+
+/// Runs `check`, which loads the config itself so that a config problem is
+/// reported as one of its checks.
+async fn check(cli: &Cli, env: &dyn EnvProvider, out: &mut dyn Write) -> anyhow::Result<()> {
+    let loaded = load_config(cli.config.as_deref(), env);
+    let config = loaded.as_ref().ok().map(|(_, config)| config);
+    let level = resolve_level(cli.log_level, cli.quiet, env, config)?;
+    let _ = telemetry::init(level, io::stderr);
+    let mut backends = BackendRegistry::with_builtin();
+    passalong_ssh::register(&mut backends);
+    let span = telemetry::op_span("check", &mut StdRandom::new());
+    commands::check::run(loaded, &backends, out)
+        .instrument(span)
+        .await
+}
+
+/// Finds and loads the config: `--config`, or the standard locations.
+fn load_config(flag: Option<&Path>, env: &dyn EnvProvider) -> anyhow::Result<(PathBuf, Config)> {
+    let roots = SearchRoots::from_system().context("cannot determine the working directory")?;
+    let located = config::locate(flag, env, &roots)?;
+    let config = config::load(&located.path, env)?;
+    Ok((located.path, config))
 }
 
 /// Runs `init`: logging from the flag or the environment, the target from

@@ -22,7 +22,7 @@ use crate::model::{
     ContentDigest, ContentHasher, ContentKey, ItemId, ItemKind, ItemMeta, NewItem, preview_of,
 };
 use crate::random::RandomSource;
-use crate::store::{PutOutcome, Store, StoreError};
+use crate::store::{PutOutcome, Store, StoreError, WriteProbe};
 
 const ITEMS_DIR: &str = "items";
 const TMP_DIR: &str = "tmp";
@@ -341,6 +341,37 @@ impl<F: RemoteFs> Store for FsStore<F> {
         self.fs.remove_dir_all(&grave).await?;
         tracing::info!(id = %id, size = meta.size, "item deleted");
         Ok(meta)
+    }
+
+    async fn probe_write(&self) -> Result<WriteProbe, StoreError> {
+        let tmp = RemotePath::new(TMP_DIR)?;
+        self.fs.create_dir_all(&tmp).await?;
+        let token = self
+            .rng
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .next_u64();
+        // Under tmp/ like an upload's staging, so listings never see it.
+        let probe = tmp.join(&format!("probe-{token:016x}"))?;
+        self.fs.create_dir_all(&probe).await?;
+        let file = probe.join("probe")?;
+        let written = async {
+            let mut writer = self.fs.open_write(&file).await?;
+            writer
+                .write_all(b"passalong write probe\n")
+                .await
+                .map_err(|err| FsError::from_io(&file, err))?;
+            writer
+                .shutdown()
+                .await
+                .map_err(|err| FsError::from_io(&file, err))?;
+            Ok::<(), FsError>(())
+        }
+        .await;
+        let removed = self.fs.remove_dir_all(&probe).await;
+        written?;
+        removed?;
+        Ok(WriteProbe::Verified)
     }
 
     async fn clean_staging(&self, older_than: Duration) -> Result<usize, StoreError> {
@@ -1103,6 +1134,48 @@ mod tests {
             store.get_meta(&unknown).await,
             Err(StoreError::NotFound(_))
         ));
+        assert_eq!(
+            store.probe_write().await.unwrap(),
+            crate::store::WriteProbe::NotSupported,
+            "the default probe_write writes nothing"
+        );
+    }
+
+    #[tokio::test]
+    async fn probe_write_leaves_items_and_staging_as_they_were() {
+        let fx = Fixture::new();
+        let store = fx.faulty();
+        three_items(&fx, &store).await;
+        let (items, tmp) = (fx.item_dirs(), tmp_entries(&fx));
+        let writes = store.fs().calls(FsOp::OpenWrite);
+        assert_eq!(
+            store.probe_write().await.unwrap(),
+            crate::store::WriteProbe::Verified
+        );
+        assert_eq!(
+            store.fs().calls(FsOp::OpenWrite) - writes,
+            1,
+            "one probe file is written"
+        );
+        assert_eq!(fx.item_dirs(), items);
+        assert_eq!(tmp_entries(&fx), tmp);
+        assert_eq!(store.list().await.unwrap().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn a_failed_probe_is_reported_and_cleaned_up() {
+        let fx = Fixture::new();
+        let store = fx.faulty();
+        store.fs().fail_next(FsOp::OpenWrite, 1);
+        assert!(store.probe_write().await.is_err());
+        assert!(fx.tmp_is_empty(), "{:?}", tmp_entries(&fx));
+        store.fs().fail_next(FsOp::CreateDirAll, 1);
+        assert!(store.probe_write().await.is_err());
+        store.fs().fail_next(FsOp::RemoveDirAll, 1);
+        assert!(
+            store.probe_write().await.is_err(),
+            "a probe that cannot be removed is an error"
+        );
     }
 
     #[tokio::test]

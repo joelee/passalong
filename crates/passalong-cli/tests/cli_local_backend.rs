@@ -410,6 +410,68 @@ async fn get_prints_an_items_metadata_as_fields_or_json() {
 }
 
 #[tokio::test]
+async fn check_reports_each_step_and_fails_at_the_first_problem() {
+    let sb = Sandbox::new();
+    sb.seed(&["one"]).await;
+    sb.with_config().arg("check").assert().success().stdout(
+        predicate::str::contains("config         ok    ")
+            .and(predicate::str::contains("server         ok    local "))
+            .and(predicate::str::contains("storage read   ok    1 item\n"))
+            .and(predicate::str::contains(
+                "storage write  ok    wrote and removed a probe in tmp/\n",
+            )),
+    );
+    sb.with_config()
+        .args(["--quiet", "check"])
+        .assert()
+        .success()
+        .stdout("")
+        .stderr("");
+    sb.cmd()
+        .arg("check")
+        .assert()
+        .code(1)
+        .stdout(
+            predicate::str::contains("config         FAIL  ")
+                .and(predicate::str::ends_with("storage write  skip\n")),
+        )
+        .stderr(predicate::str::contains("error: check failed: config"));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = sb.path("store/tmp");
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o555)).unwrap();
+        // Root ignores permissions, and then there is nothing to test.
+        let enforced = std::fs::create_dir(tmp.join("root-test")).is_err();
+        if enforced {
+            sb.with_config()
+                .arg("check")
+                .assert()
+                .code(1)
+                .stdout(predicate::str::contains("storage write  FAIL  "))
+                .stderr(predicate::str::contains(
+                    "error: check failed: storage write",
+                ));
+        }
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            std::fs::read_dir(&tmp)
+                .unwrap()
+                .filter(|entry| entry
+                    .as_ref()
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("probe-"))
+                .count(),
+            0,
+            "no probe is left behind"
+        );
+    }
+}
+
+#[tokio::test]
 async fn quiet_prints_nothing_but_errors_and_cat_output() {
     let sb = Sandbox::new();
     let metas = sb.seed(&["one", "two", "three"]).await;

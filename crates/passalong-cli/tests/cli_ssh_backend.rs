@@ -92,6 +92,32 @@ fn clipboard_list_load_round_trip_over_ssh() {
 
 #[test]
 #[ignore = "needs the Docker SSH server: just test-integration"]
+fn check_passes_against_the_server_and_fails_on_a_wrong_host_key() {
+    let dir = TempDir::new().unwrap();
+    let config = write_config(dir.path(), &var("PASSALONG_IT_SSH_HOST_KEY"));
+    passalong(dir.path(), &config)
+        .arg("check")
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("server         ok    ssh ")
+                .and(predicate::str::contains("storage read   ok    0 items\n"))
+                .and(predicate::str::contains("storage write  ok    ")),
+        );
+    let config = write_config(dir.path(), OTHER_KEY);
+    passalong(dir.path(), &config)
+        .arg("check")
+        .assert()
+        .code(1)
+        .stdout(
+            predicate::str::contains("server         FAIL  ")
+                .and(predicate::str::contains("storage read   skip\n")),
+        )
+        .stderr(predicate::str::contains("host key mismatch"));
+}
+
+#[test]
+#[ignore = "needs the Docker SSH server: just test-integration"]
 fn a_wrong_host_key_fails_with_a_mismatch_error() {
     let dir = TempDir::new().unwrap();
     let config = write_config(dir.path(), OTHER_KEY);

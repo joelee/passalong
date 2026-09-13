@@ -106,6 +106,9 @@ pub enum Command {
     /// Write a config file for your SSH server, pinning its host key after
     /// you confirm its fingerprint.
     Init(InitArgs),
+    /// Check the configuration, and that the server can be reached, read,
+    /// and written.
+    Check,
     /// Keeps text on the Linux clipboard after `load` exits (internal).
     #[command(name = "__hold-clipboard", hide = true)]
     HoldClipboard {
@@ -135,6 +138,7 @@ impl Command {
             Self::Delete { .. } => "delete",
             Self::Prune { .. } => "prune",
             Self::Init(_) => "init",
+            Self::Check => "check",
             Self::HoldClipboard { .. } => "hold-clipboard",
         }
     }
@@ -392,6 +396,7 @@ mod tests {
             }
         );
         assert!(Cli::try_parse_from(["passalong", "get"]).is_err());
+        assert_eq!(parse(&["check"]).command, Command::Check);
     }
 
     #[test]
@@ -453,6 +458,7 @@ mod tests {
                 dry_run: false,
                 yes: false,
             },
+            Command::Check,
         ]
         .iter()
         .map(Command::name)
@@ -469,7 +475,8 @@ mod tests {
                 "serve",
                 "delete",
                 "init",
-                "prune"
+                "prune",
+                "check"
             ]
         );
     }

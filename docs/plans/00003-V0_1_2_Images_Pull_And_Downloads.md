@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00003-v0.1.2"
 execution_started_at: "2026-09-12T23:55:51Z"
-execution_updated_at: "2026-09-13T00:04:58Z"
+execution_updated_at: "2026-09-13T00:07:52Z"
 execution_completed_at: null
-current_step: "PLAN-00003-STEP-03"
+current_step: "PLAN-00003-STEP-04"
 ---
 
 # Delivery Plan 00003: V0 1 2 Images Pull And Downloads
@@ -907,7 +907,7 @@ run at STEP-01, STEP-09, STEP-10, and STEP-14.
 |---|---|---|---|---|---|
 | PLAN-00003-STEP-01 | completed | 2026-09-12T23:56:44Z | 2026-09-13T00:02:03Z | Commit `build: complete PLAN-00003-STEP-01 - RSA support per D-06`; `just check` green, 92.44% lines | AC-16: default build has no rsa crate; deny.toml has no advisory ignore and audits default features; RSA identity file and ssh-rsa host key fail with the feature message; RSA Docker login passes with --features rsa |
 | PLAN-00003-STEP-02 | completed | 2026-09-13T00:02:03Z | 2026-09-13T00:04:58Z | Commit `build: complete PLAN-00003-STEP-02 - New settings`; `just check` green, 92.53% lines | AC-04. Keys documented in docs/configuration.md and config.sample.toml; init output unchanged. STEP-01 audit evidence row corrected (the finisher had recorded a dependency-tree line) |
-| PLAN-00003-STEP-03 | not-started | — | — | — | — |
+| PLAN-00003-STEP-03 | completed | 2026-09-13T00:04:59Z | 2026-09-13T00:07:52Z | Commit `build: complete PLAN-00003-STEP-03 - passalong cat`; `just check` green, 92.62% lines | AC-01, AC-02, AC-03. Docs: usage section, README command row, CHANGELOG |
 | PLAN-00003-STEP-04 | not-started | — | — | — | — |
 | PLAN-00003-STEP-05 | not-started | — | — | — | — |
 | PLAN-00003-STEP-06 | not-started | — | — | — | — |
@@ -932,6 +932,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T00:02:03Z | PLAN-00003-STEP-01 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-01 - RSA support per D-06` | Begin PLAN-00003-STEP-02 |
 | 2026-09-13T00:02:03Z | PLAN-00003-STEP-02 | Started | — | Red phase |
 | 2026-09-13T00:04:58Z | PLAN-00003-STEP-02 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-02 - New settings` | Begin PLAN-00003-STEP-03 |
+| 2026-09-13T00:04:59Z | PLAN-00003-STEP-03 | Started | — | Red phase |
+| 2026-09-13T00:07:52Z | PLAN-00003-STEP-03 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-03 - passalong cat` | Begin PLAN-00003-STEP-04 |
 
 ### Deviations and blockers
 
@@ -939,6 +941,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 |---|---|---|---|---|
 | 2026-09-13T00:02:03Z | PLAN-00003-STEP-01 | The Docker test server now trusts every public key in `tests/docker/keys/authorized/` (`PUBLIC_KEY_DIR`) instead of one `PUBLIC_KEY_FILE`, so `_with-sshd` can authorise the generated RSA key beside the Ed25519 key. `cargo deny` sets `all-features = false`: the audit covers default features, which is what ships. | None | None (routine) |
 | 2026-09-13T00:04:58Z | PLAN-00003-STEP-02 | The default `client.download_dir` (`~/Downloads`) is validated before `[serve]`, so with HOME unset the first reported key is now `client.download_dir` instead of `serve.drop_folder`; `tilde_without_home_names_the_key` and the serve options test (which parses without HOME) were updated accordingly. As before, a config without HOME must give absolute paths. | Error names a different key when HOME is unset | None (routine) |
+| 2026-09-13T00:07:52Z | PLAN-00003-STEP-03 | `cat` also ends quietly with exit 0 when the reader closes the pipe (for example `| head`), as `cat` does, instead of reporting a broken pipe; covered by a_closed_pipe_ends_the_output_quietly. | None | None (routine) |
 
 None.
 
@@ -960,12 +963,17 @@ None.
 | 2026-09-13T00:04:58Z | PLAN-00003-STEP-02 | `cargo test -p passalong-core --lib config` | Pass | test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 0.00s |
 | 2026-09-13T00:04:58Z | PLAN-00003-STEP-02 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
 | 2026-09-13T00:04:58Z | PLAN-00003-STEP-02 | `just check` | Exit 0 | Lines 92.53% (7106 lines, 531 missed); config.rs 97.96% |
+| 2026-09-13T00:04:59Z | PLAN-00003-STEP-03 | Red: `cargo test -p passalong` with the cat unit, parse, name, and binary tests | Exit 101 (expected) | E0425: cannot find function `run` in commands/cat.rs; 2 x E0599: no variant named `Cat` found for enum `cli::Command` |
+| 2026-09-13T00:07:52Z | PLAN-00003-STEP-03 | `cargo test -p passalong` | Exit 0 | 75 unit tests (cat: exact text, exact 200 kB file, binary refused on a terminal and printed with --force, text files print on a terminal, corrupted content fails verification after output, unknown id prints nothing, closed pipe ends quietly) and 22 binary tests (cat_prints_text_and_file_items_exactly) |
+| 2026-09-13T00:07:52Z | PLAN-00003-STEP-03 | `cargo test -p passalong --bin passalong cat` | Pass | test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 68 filtered out; finished in 0.01s |
+| 2026-09-13T00:07:52Z | PLAN-00003-STEP-03 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
+| 2026-09-13T00:07:52Z | PLAN-00003-STEP-03 | `just check` | Exit 0 | Lines 92.62% (7266 lines, 536 missed); cat.rs 96.53% |
 
 ### Completion summary
 
 - **Implementation status:** `not-started`
-- **Completed requirements:** REQ-03, REQ-15; REQ-12 (settings)
-- **Incomplete requirements:** REQ-01, REQ-02, REQ-04 to REQ-11, REQ-13, REQ-14, REQ-16 to REQ-20
+- **Completed requirements:** REQ-01, REQ-02, REQ-03, REQ-15; REQ-12 (settings)
+- **Incomplete requirements:** REQ-04 to REQ-11, REQ-13, REQ-14, REQ-16 to REQ-20
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

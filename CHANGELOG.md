@@ -26,6 +26,9 @@ All notable changes to this project are documented here. The format follows
   and macOS arm64 binaries, creates the GitHub release, and publishes the
   crates to crates.io; CI also audits dependencies with `cargo deny` and
   runs the desktop clipboard tests under Xvfb (PLAN-00002 STEP-12).
+- `passalong cat <ID>` prints an item to standard output exactly as stored,
+  verifying its SHA-256; binary items are refused on a terminal unless
+  `--force` is given (PLAN-00003 STEP-03).
 
 ### Changed
 

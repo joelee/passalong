@@ -329,6 +329,31 @@ fn file_list_load_round_trip_is_byte_identical() {
         .success();
 }
 
+#[tokio::test]
+async fn cat_prints_text_and_file_items_exactly() {
+    let sb = Sandbox::new();
+    let metas = sb.seed(&["first line\nsecond line"]).await;
+    sb.with_config()
+        .args(["cat", metas[0].id.as_str()])
+        .assert()
+        .success()
+        .stdout("first line\nsecond line");
+    let source = sb.path("work/data.bin");
+    let data: Vec<u8> = (0..300_000_u32).map(|i| (i % 253) as u8).collect();
+    std::fs::write(&source, &data).unwrap();
+    let out = sb.with_config().arg("file").arg(&source).assert().success();
+    let id = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    let printed = sb
+        .with_config()
+        .args(["cat", id.trim()])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    assert_eq!(printed, data);
+}
+
 #[test]
 fn loading_an_unknown_id_fails() {
     let sb = Sandbox::new();

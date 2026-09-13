@@ -66,6 +66,7 @@ and no custom server daemon.
 | `passalong file <path>` | Send a file |
 | `passalong list` | List stored items, newest first (`--json` for scripts) |
 | `passalong load <id> [dest]` | Copy an item to `dest`, or to the clipboard when `dest` is omitted |
+| `passalong cat <id>` | Print an item to standard output |
 | `passalong serve` | Keep running, sending every new clipboard text and every file dropped into the drop folder (`--daemon`, `--status`, `--stop`) |
 | `passalong delete <id>...` | Delete items |
 | `passalong prune` | Delete items older than `--older-than`, keeping the newest `--keep` |

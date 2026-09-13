@@ -1,7 +1,7 @@
 //! Start-up and dispatch: configuration, logging, the store, then the
 //! command.
 
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::path::Path;
 use std::process::ExitCode;
 
@@ -112,6 +112,11 @@ async fn dispatch(
         Command::List { json } => {
             let store = backends.open(config).await?;
             commands::list::run(store.as_ref(), json, local_offset(), out).await
+        }
+        Command::Cat { id, force } => {
+            let store = backends.open(config).await?;
+            let terminal = io::stdout().is_terminal();
+            commands::cat::run(store.as_ref(), &id, force, terminal, out).await
         }
         Command::Delete { ids } => {
             let store = backends.open(config).await?;

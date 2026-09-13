@@ -62,6 +62,14 @@ pub enum Command {
         #[arg(long)]
         force: bool,
     },
+    /// Print an item's content to standard output.
+    Cat {
+        /// The item's id, or at least 4 characters of it.
+        id: String,
+        /// Print a binary item even when standard output is a terminal.
+        #[arg(long)]
+        force: bool,
+    },
     /// Keep running: send every new clipboard text and every file dropped
     /// into the drop folder.
     Serve(ServeArgs),
@@ -103,6 +111,7 @@ impl Command {
             Self::File { .. } => "file",
             Self::List { .. } => "list",
             Self::Load { .. } => "load",
+            Self::Cat { .. } => "cat",
             Self::Serve(_) => "serve",
             Self::Delete { .. } => "delete",
             Self::Prune { .. } => "prune",
@@ -331,6 +340,14 @@ mod tests {
             Cli::try_parse_from(["passalong", "delete"]).is_err(),
             "delete needs at least one id"
         );
+        assert_eq!(
+            parse(&["cat", "2cf2", "--force"]).command,
+            Command::Cat {
+                id: "2cf2".into(),
+                force: true
+            }
+        );
+        assert!(Cli::try_parse_from(["passalong", "cat"]).is_err());
     }
 
     #[test]
@@ -367,6 +384,10 @@ mod tests {
                 dest: None,
                 force: false,
             },
+            Command::Cat {
+                id: "x".into(),
+                force: false,
+            },
             Command::Serve(ServeArgs::default()),
             Command::Delete { ids: vec![] },
             Command::Init(InitArgs::default()),
@@ -387,6 +408,7 @@ mod tests {
                 "file",
                 "list",
                 "load",
+                "cat",
                 "serve",
                 "delete",
                 "init",

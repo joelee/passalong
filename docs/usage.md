@@ -138,6 +138,32 @@ the destination directory.
 
 A prefix that matches several items is refused, and the error lists them.
 
+## `passalong cat <ID>`
+
+Prints an item's content to standard output exactly as stored, with
+nothing added, so it can be piped or redirected:
+
+```sh
+passalong cat 2cf2 | wc -l
+passalong cat 8f3a > report.pdf
+```
+
+The content is checked against the item's SHA-256 as it streams. A
+mismatch is reported with `item <ID> failed verification` and exit code 1
+after the output has been written, as `curl` does, so treat that output
+as damaged.
+
+On a terminal, items that are not text are refused, because binary data
+can garble the terminal:
+
+```text
+error: item 8f3a9c0d-... is binary (application/pdf); redirect the output or use --force
+```
+
+| Option | Meaning |
+|---|---|
+| `--force` | Print a binary item to the terminal anyway |
+
 ## `passalong delete <ID>...`
 
 Deletes items from the store and prints each deleted id. Each `ID` is a full

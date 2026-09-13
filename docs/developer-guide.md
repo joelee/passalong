@@ -178,18 +178,17 @@ The steps, and who does each, are in the "Release workflow" section of
 
 5. The workflow runs `scripts/check-release-tag.sh` again, which fails
    unless the tag matches the workspace version and the release records are
-   final. It then runs `cargo publish --dry-run` and builds Linux x86_64 and
-   macOS arm64 binaries with SHA-256 files. Publishing waits until a
-   maintainer approves the pending `release` deployment on the run's page.
-   After approval the workflow publishes the three crates to crates.io, then
-   creates the GitHub release from `docs/release/vX.Y.Z.md` and attaches the
-   binaries. Do not create the release by hand.
+   final. It then runs `cargo publish --dry-run`, builds Linux x86_64 and macOS
+   arm64 binaries with SHA-256 files, and publishes the three crates to
+   crates.io. Only once publishing succeeds does it create the GitHub
+   release from `docs/release/vX.Y.Z.md` and attach the binaries. Do not
+   create the release by hand.
 
 Publishing needs a crates.io API token with the `publish-new` and
-`publish-update` scopes, stored as the secret `CARGO_REGISTRY_TOKEN` of the
-`release` environment (Settings, Environments, `release`). That environment
-requires a maintainer's approval and accepts only `v*` tags, so no one else
-can publish with the token. A
+`publish-update` scopes, stored as the repository secret
+`CARGO_REGISTRY_TOKEN` (Settings, Secrets and variables, Actions). The `v*`
+tag ruleset limits who can start a release. Moving the token into a
+protected `release` environment that waits for approval is on the backlog. A
 published version cannot be replaced, only yanked, which is why the dry run
 and the binary builds must pass first.
 

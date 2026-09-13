@@ -31,9 +31,12 @@ Every invocation goes through the same start-up:
 1. Load `./.env` if it exists, without overriding the environment.
 2. Parse the command line; usage errors exit with code 2.
 3. Find and validate `config.toml` (see [configuration](configuration.md)).
-   `init`, which writes that file, and the hidden clipboard holder described
-   below run before this step.
-4. Choose the log level and start logging to standard error.
+   `init`, which writes that file, `install-service`, which needs none,
+   `check`, which reports a config problem as its first result, and the
+   hidden clipboard holder described below run before this step.
+4. Choose the log level and start logging to standard error. With
+   `--quiet`, standard output is discarded for every command but `cat`, and
+   the level is `error` unless one is set explicitly.
 5. Open a correlation span, so every log line of this run shares one `op`
    id.
 6. Build the backend registry (`local`, `ssh`) and run the command.
@@ -44,10 +47,14 @@ Every invocation goes through the same start-up:
 | `file` | Streams the file into `Store::put` |
 | `list` | `Store::list`, then renders a table or JSON |
 | `load` | `Store::resolve`, `Store::get`, verifies SHA-256, then writes a file or the clipboard |
+| `cat` | `Store::resolve`, `Store::get`, streams the content to standard output while verifying SHA-256 |
+| `get` | `Store::resolve`, then `Store::get_meta`; prints fields or JSON |
 | `serve` | Runs the loop below until stopped; `--daemon`, `--status`, and `--stop` manage a background copy |
 | `delete` | Resolves every id first, then `Store::delete` for each |
 | `prune` | `Store::list`, selects items older than `--older-than` beyond the newest `--keep`, confirms, deletes, then `Store::clean_staging` |
 | `init` | Fetches the server host key without authenticating, asks you to confirm its fingerprint, writes the config file, then runs `Store::list` as a connection test |
+| `check` | Loads the config, opens the backend, `Store::list_ids`, then `Store::probe_write`, printing one line per step |
+| `install-service` | Writes a systemd user unit or launchd agent for `serve` and loads it with `systemctl --user` or `launchctl` |
 
 Each one-shot command opens its own connection; `serve` keeps one and
 reopens it when needed.

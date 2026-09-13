@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00005-v0.1.4"
 execution_started_at: "2026-09-13T20:51:24Z"
-execution_updated_at: "2026-09-13T21:21:57Z"
+execution_updated_at: "2026-09-13T21:26:04Z"
 execution_completed_at: null
-current_step: "PLAN-00005-STEP-07"
+current_step: "PLAN-00005-STEP-08"
 ---
 
 # Delivery Plan 00005: V0 1 4 Service Check Get Quiet
@@ -743,7 +743,7 @@ macOS through CI's `just check`.
 | PLAN-00005-STEP-04 | completed | 2026-09-13T21:03:00Z | 2026-09-13T21:06:03Z | Commit `build: complete PLAN-00005-STEP-04 - passalong get <ID>`; `just check` green, 92.23% lines | AC-08; get covered by AC-07 --quiet. Renderers output::render_meta and render_meta_json; the origin line uses the stored serde name. Usage section, README command row, and CHANGELOG added here rather than in STEP-07 |
 | PLAN-00005-STEP-05 | completed | 2026-09-13T21:06:51Z | 2026-09-13T21:13:22Z | Commit `build: complete PLAN-00005-STEP-05 - passalong check and Store::probe_write`; `just check` green, 92.27% lines; Docker tests pass | AC-09, AC-10; check covered by AC-07 --quiet. check runs before the normal config load (like init) so a config problem is its first line; the failure error is "check failed: <check>: <reason>", so --quiet still shows why. Usage, architecture, README, and CHANGELOG updated |
 | PLAN-00005-STEP-06 | completed | 2026-09-13T21:14:48Z | 2026-09-13T21:21:57Z | Commit `build: complete PLAN-00005-STEP-06 - passalong install-service`; `just check` green, 92.43% lines | AC-11, AC-12, AC-13; install-service covered by AC-07 --quiet. docs/service units regenerated from the templates (WorkingDirectory home; launchd logs to ~/Library/Logs/passalong/serve.log and uses launchctl bootstrap). Usage section, README quick start and command row, architecture, CHANGELOG updated |
-| PLAN-00005-STEP-07 | not-started | — | — | — | — |
+| PLAN-00005-STEP-07 | completed | 2026-09-13T21:22:21Z | 2026-09-13T21:26:04Z | Commit `build: complete PLAN-00005-STEP-07 - Documentation and v0.1.4 release preparation`; `just check` green, 92.42% lines | AC-14, AC-15. Architecture command flow lists cat, get, check, install-service and the --quiet start-up; backlog drops the delivered v0.1.4 road map and the Engineering entry; docs/release/v0.1.4.md drafted with absolute links only (plan pinned to v0.1.4, crates.io); CHANGELOG Unreleased entries were added per step; README, usage, configuration, developer guide were updated in STEP-01 to STEP-06 |
 | PLAN-00005-STEP-08 | not-started | — | — | — | — |
 
 Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
@@ -766,6 +766,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T21:13:22Z | PLAN-00005-STEP-05 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00005-STEP-05 - passalong check and Store::probe_write` | Begin PLAN-00005-STEP-06 |
 | 2026-09-13T21:14:48Z | PLAN-00005-STEP-06 | Started | — | Red phase |
 | 2026-09-13T21:21:57Z | PLAN-00005-STEP-06 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00005-STEP-06 - passalong install-service` | Begin PLAN-00005-STEP-07 |
+| 2026-09-13T21:22:21Z | PLAN-00005-STEP-07 | Started | — | Red phase |
+| 2026-09-13T21:26:04Z | PLAN-00005-STEP-07 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00005-STEP-07 - Documentation and v0.1.4 release preparation` | Begin PLAN-00005-STEP-08 |
 
 ### Deviations and blockers
 
@@ -803,6 +805,12 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T21:21:57Z | PLAN-00005-STEP-06 | `cargo test -p passalong` (first green run) | Exit 101 | the_launchd_plist_lists_every_argument_escaped and the_documented_units_are_the_templates_with_placeholders failed: string line continuations dropped the plist indentation; the body now uses raw strings |
 | 2026-09-13T21:21:57Z | PLAN-00005-STEP-06 | `cargo test -p passalong` | Pass | 129 unit tests: exec start quoting and % escaping; unit and plist contents; docs/service files equal the templates with their placeholders; systemd install (daemon-reload, enable --now), XDG_CONFIG_HOME, --no-start, unchanged/--force, refusal while serve runs (pid 42), failed start leaves the unit, uninstall (disable --now, remove, daemon-reload, not installed); launchd bootstrap gui/501, log folder, bootout before replacing, uninstall tolerating a not-loaded agent; platform follows the build target. 29 binary tests incl. install_service_writes_a_systemd_unit_and_drives_systemctl (fake systemctl on PATH: unit path and ExecStart with the absolute binary and --config, unchanged rerun, --quiet --uninstall silent) |
 | 2026-09-13T21:21:57Z | PLAN-00005-STEP-06 | `just check` | Exit 0 | Lines 92.43%; install_service.rs 93.66%, service.rs 97.56% |
+| 2026-09-13T21:26:04Z | PLAN-00005-STEP-07 | Before: version and records | 0.1.3 (expected) | workspace at 0.1.3; no docs/release/v0.1.4.md; backlog still listed the v0.1.4 road map and the Release-annotations Engineering entry |
+| 2026-09-13T21:26:04Z | PLAN-00005-STEP-07 | `cargo run -p passalong -- --version` | Pass | passalong 0.1.4; Cargo.lock changed for the three workspace crates only |
+| 2026-09-13T21:26:04Z | PLAN-00005-STEP-07 | Documentation consistency script (job tmp doccheck.sh: every subcommand has a usage section and README row, every flag is in docs/usage.md, every recipe in the developer guide, check-links.sh) | Pass | documentation consistent: 12 subcommands and their flags, 19 recipes, links |
+| 2026-09-13T21:26:04Z | PLAN-00005-STEP-07 | `just publish-dry-run --allow-dirty` | Exit 0 | 3 crates packaged and verified at 0.1.4; target/package removed afterwards |
+| 2026-09-13T21:26:04Z | PLAN-00005-STEP-07 | `just coverage-full` (for the release notes) | Exit 0 | 94.47 % lines; 16 Docker tests |
+| 2026-09-13T21:26:04Z | PLAN-00005-STEP-07 | `just check` | Exit 0 | Lines 92.42% |
 
 ### Completion summary
 

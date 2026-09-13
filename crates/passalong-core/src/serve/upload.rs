@@ -282,6 +282,9 @@ mod tests {
         async fn list(&self) -> Result<Vec<ItemMeta>, StoreError> {
             self.inner.list().await
         }
+        async fn list_after(&self, after: Option<&ItemId>) -> Result<Vec<ItemMeta>, StoreError> {
+            self.inner.list_after(after).await
+        }
         async fn get(&self, id: &ItemId) -> Result<(ItemMeta, BoxRead), StoreError> {
             self.inner.get(id).await
         }

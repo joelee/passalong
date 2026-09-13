@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00003-v0.1.2"
 execution_started_at: "2026-09-12T23:55:51Z"
-execution_updated_at: "2026-09-13T00:32:20Z"
+execution_updated_at: "2026-09-13T00:34:45Z"
 execution_completed_at: null
-current_step: "PLAN-00003-STEP-09"
+current_step: "PLAN-00003-STEP-10"
 ---
 
 # Delivery Plan 00003: V0 1 2 Images Pull And Downloads
@@ -913,7 +913,7 @@ run at STEP-01, STEP-09, STEP-10, and STEP-14.
 | PLAN-00003-STEP-06 | completed | 2026-09-13T00:17:05Z | 2026-09-13T00:23:24Z | Commit `build: complete PLAN-00003-STEP-06 - Image items, PNG codec, clipboard image access`; `just check` green, 92.14% lines | AC-07, AC-08 (model part). desktop_image_round_trip (ignored) runs under Xvfb in CI (STEP-12). png 0.18.1 and arboard image-data added; audit passes; architecture meta.json table documents origin |
 | PLAN-00003-STEP-07 | completed | 2026-09-13T00:23:24Z | 2026-09-13T00:28:00Z | Commit `build: complete PLAN-00003-STEP-07 - Images in clipboard, load, cat, and list`; `just check` green, 92.19% lines | AC-08 (list part), AC-09, AC-10. desktop_loaded_image_survives_load_exiting (ignored, Linux) runs under Xvfb in STEP-12. The hidden __hold-clipboard --image holds a PNG read from standard input |
 | PLAN-00003-STEP-08 | completed | 2026-09-13T00:28:00Z | 2026-09-13T00:32:20Z | Commit `build: complete PLAN-00003-STEP-08 - serve sends clipboard images`; `just check` green, 92.30% lines | AC-11. Clipboard reads now run on spawn_blocking, the clipboard moving in and out of the blocking task each poll; images are read only when there is no text |
-| PLAN-00003-STEP-09 | not-started | — | — | — | — |
+| PLAN-00003-STEP-09 | completed | 2026-09-13T00:32:20Z | 2026-09-13T00:34:45Z | Commit `build: complete PLAN-00003-STEP-09 - Store::list_after`; `just check` green, 92.32% lines | AC-12. list() now delegates to list_after(None); the upload test store forwards list_after. Architecture documents the method |
 | PLAN-00003-STEP-10 | not-started | — | — | — | — |
 | PLAN-00003-STEP-11 | not-started | — | — | — | — |
 | PLAN-00003-STEP-12 | not-started | — | — | — | — |
@@ -944,6 +944,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T00:28:00Z | PLAN-00003-STEP-07 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-07 - Images in clipboard, load, cat, and list` | Begin PLAN-00003-STEP-08 |
 | 2026-09-13T00:28:00Z | PLAN-00003-STEP-08 | Started | — | Red phase |
 | 2026-09-13T00:32:20Z | PLAN-00003-STEP-08 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-08 - serve sends clipboard images` | Begin PLAN-00003-STEP-09 |
+| 2026-09-13T00:32:20Z | PLAN-00003-STEP-09 | Started | — | Red phase |
+| 2026-09-13T00:34:45Z | PLAN-00003-STEP-09 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-09 - Store::list_after` | Begin PLAN-00003-STEP-10 |
 
 ### Deviations and blockers
 
@@ -1013,12 +1015,18 @@ None.
 | 2026-09-13T00:32:20Z | PLAN-00003-STEP-08 | `cargo test -p passalong-core --all-features --test serve_local` | Pass | test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.61s |
 | 2026-09-13T00:32:20Z | PLAN-00003-STEP-08 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
 | 2026-09-13T00:32:20Z | PLAN-00003-STEP-08 | `just check` | Exit 0 | Lines 92.30% (8472 lines, 652 missed); clipboard_watcher.rs 100.00%; mod.rs 90.00%; upload.rs 94.64% |
+| 2026-09-13T00:32:20Z | PLAN-00003-STEP-09 | Red: `cargo test -p passalong-core --all-features --lib store` with the list_after tests | Exit 101 (expected) | 5 x E0599: no method named list_after found for FsStore |
+| 2026-09-13T00:34:45Z | PLAN-00003-STEP-09 | `cargo test -p passalong-core --all-features` | Exit 0 | list_after(Some(old)) returns [new, mid]; after the newest is empty; None equals list(); only 2 OpenRead calls for 2 newer items (FaultyFs counter); a corrupt newer item is skipped like list() |
+| 2026-09-13T00:34:45Z | PLAN-00003-STEP-09 | `just test-integration` (Docker) | Exit 0 | list_after_works_over_sftp passed with the other ignored SSH tests |
+| 2026-09-13T00:34:45Z | PLAN-00003-STEP-09 | `cargo test -p passalong-core --all-features --lib store` | Pass | test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 134 filtered out; finished in 0.08s |
+| 2026-09-13T00:34:45Z | PLAN-00003-STEP-09 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
+| 2026-09-13T00:34:45Z | PLAN-00003-STEP-09 | `just check` | Exit 0 | Lines 92.32% (8533 lines, 655 missed); fs_store.rs 98.16% |
 
 ### Completion summary
 
 - **Implementation status:** `not-started`
-- **Completed requirements:** REQ-01 to REQ-10, REQ-15; REQ-12 (settings)
-- **Incomplete requirements:** REQ-11, REQ-13, REQ-14, REQ-16 to REQ-20
+- **Completed requirements:** REQ-01 to REQ-11, REQ-15; REQ-12 (settings)
+- **Incomplete requirements:** REQ-13, REQ-14, REQ-16 to REQ-20
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

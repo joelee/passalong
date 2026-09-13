@@ -211,8 +211,16 @@ impl<F: RemoteFs> Store for FsStore<F> {
     }
 
     async fn list(&self) -> Result<Vec<ItemMeta>, StoreError> {
+        self.list_after(None).await
+    }
+
+    async fn list_after(&self, after: Option<&ItemId>) -> Result<Vec<ItemMeta>, StoreError> {
         let mut items = Vec::new();
         for id in self.item_ids().await? {
+            // Ids sort by creation time and come newest first.
+            if after.is_some_and(|after| id <= *after) {
+                break;
+            }
             match self.read_meta(&id).await {
                 Ok(meta) => items.push(meta),
                 Err(StoreError::Fs(FsError::NotFound(_))) => {
@@ -919,6 +927,64 @@ mod tests {
             store.clean_staging(std::time::Duration::MAX).await.unwrap(),
             0,
             "nothing is older than forever"
+        );
+    }
+
+    async fn three_items(fx: &Fixture, store: &impl Store) -> Vec<ItemMeta> {
+        let mut metas = Vec::new();
+        for text in ["old", "mid", "new"] {
+            metas.push(
+                store
+                    .put(NewItem::text("box"), content(text.as_bytes()))
+                    .await
+                    .unwrap()
+                    .meta,
+            );
+            fx.clock.advance(1);
+        }
+        metas
+    }
+
+    #[tokio::test]
+    async fn list_after_returns_only_newer_items_newest_first() {
+        let fx = Fixture::new();
+        let store = fx.store();
+        let metas = three_items(&fx, &store).await;
+        let (old, mid, new) = (&metas[0], &metas[1], &metas[2]);
+        assert_eq!(
+            store.list_after(Some(&old.id)).await.unwrap(),
+            vec![new.clone(), mid.clone()]
+        );
+        assert!(store.list_after(Some(&new.id)).await.unwrap().is_empty());
+        assert_eq!(
+            store.list_after(None).await.unwrap(),
+            store.list().await.unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn list_after_reads_only_the_newer_meta_files() {
+        let fx = Fixture::new();
+        let store = fx.faulty();
+        let metas = three_items(&fx, &store).await;
+        let before = store.fs().calls(FsOp::OpenRead);
+        assert_eq!(store.list_after(Some(&metas[0].id)).await.unwrap().len(), 2);
+        assert_eq!(store.fs().calls(FsOp::OpenRead) - before, 2);
+    }
+
+    #[tokio::test]
+    async fn list_after_skips_corrupt_items_like_list() {
+        let fx = Fixture::new();
+        let store = fx.store();
+        let metas = three_items(&fx, &store).await;
+        std::fs::write(
+            fx.path(&format!("items/{}/meta.json", metas[2].id)),
+            b"not json",
+        )
+        .unwrap();
+        assert_eq!(
+            store.list_after(Some(&metas[0].id)).await.unwrap(),
+            vec![metas[1].clone()]
         );
     }
 }

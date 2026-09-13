@@ -146,6 +146,11 @@ Storing an item works like this:
 An item directory therefore appears only when it is complete, and an
 interrupted upload leaves nothing under `items/`.
 
+`Store::list_after(id)` lists only the items newer than `id`, newest
+first, reading `meta.json` for those items alone. Ids start with their
+creation time, so comparing ids is enough; pull mode uses it to poll a
+large store cheaply.
+
 Deleting an item renames `items/<id>` to `tmp/deleted-<id>-<random>` and
 then removes it, so the item disappears from every listing in one step.
 If the removal fails, only a staging leftover remains. Staging directories

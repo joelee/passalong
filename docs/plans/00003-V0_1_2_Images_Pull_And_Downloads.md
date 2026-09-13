@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00003-v0.1.2"
 execution_started_at: "2026-09-12T23:55:51Z"
-execution_updated_at: "2026-09-13T00:42:12Z"
+execution_updated_at: "2026-09-13T00:46:12Z"
 execution_completed_at: null
-current_step: "PLAN-00003-STEP-11"
+current_step: "PLAN-00003-STEP-12"
 ---
 
 # Delivery Plan 00003: V0 1 2 Images Pull And Downloads
@@ -915,7 +915,7 @@ run at STEP-01, STEP-09, STEP-10, and STEP-14.
 | PLAN-00003-STEP-08 | completed | 2026-09-13T00:28:00Z | 2026-09-13T00:32:20Z | Commit `build: complete PLAN-00003-STEP-08 - serve sends clipboard images`; `just check` green, 92.30% lines | AC-11. Clipboard reads now run on spawn_blocking, the clipboard moving in and out of the blocking task each poll; images are read only when there is no text |
 | PLAN-00003-STEP-09 | completed | 2026-09-13T00:32:20Z | 2026-09-13T00:34:45Z | Commit `build: complete PLAN-00003-STEP-09 - Store::list_after`; `just check` green, 92.32% lines | AC-12. list() now delegates to list_after(None); the upload test store forwards list_after. Architecture documents the method |
 | PLAN-00003-STEP-10 | completed | 2026-09-13T00:34:45Z | 2026-09-13T00:42:12Z | Commit `build: complete PLAN-00003-STEP-10 - Pull mode`; `just check` green, 92.19% lines | AC-13, AC-14, AC-15, AC-19. The clipboard task owns the clipboard and accepts write requests from the pull loop, marking written content as seen; the puller starts before any task is spawned and before ready. Docs: usage pull-mode section (with the clock-sync caveat), architecture pull loop, CHANGELOG |
-| PLAN-00003-STEP-11 | not-started | — | — | — | — |
+| PLAN-00003-STEP-11 | completed | 2026-09-13T00:42:12Z | 2026-09-13T00:46:12Z | Commit `build: complete PLAN-00003-STEP-11 - Duplicate dependency policy`; `just check` green, 92.19% lines | AC-17. Developer guide explains handling a new duplicate and the dry-run clean-up |
 | PLAN-00003-STEP-12 | not-started | — | — | — | — |
 | PLAN-00003-STEP-13 | not-started | — | — | — | — |
 | PLAN-00003-STEP-14 | not-started | — | — | — | — |
@@ -948,6 +948,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T00:34:45Z | PLAN-00003-STEP-09 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-09 - Store::list_after` | Begin PLAN-00003-STEP-10 |
 | 2026-09-13T00:34:45Z | PLAN-00003-STEP-10 | Started | — | Red phase |
 | 2026-09-13T00:42:12Z | PLAN-00003-STEP-10 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-10 - Pull mode` | Begin PLAN-00003-STEP-11 |
+| 2026-09-13T00:42:12Z | PLAN-00003-STEP-11 | Started | — | Red phase |
+| 2026-09-13T00:46:12Z | PLAN-00003-STEP-11 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-11 - Duplicate dependency policy` | Begin PLAN-00003-STEP-12 |
 
 ### Deviations and blockers
 
@@ -959,6 +961,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T00:17:05Z | PLAN-00003-STEP-05 | Each candidate line also shows the full id besides D-03's number, kind, name or preview, device, and age, so the user can type more characters of it. | None | None (routine) |
 | 2026-09-13T00:28:00Z | PLAN-00003-STEP-07 | `passalong clipboard` takes the current time to name image items (`clipboard-YYYYMMDD-HHMMSS.png`); the item id comes from the store's clock, so the two can differ by the upload time. | None | None (routine) |
 | 2026-09-13T00:42:12Z | PLAN-00003-STEP-10 | Added `Store::newest_id` (default: first of `list_after(None)`; `FsStore` overrides it with one directory read) so the puller's starting position reads no metadata. Reading every meta.json before ready could exceed the 5 s `serve --daemon` readiness wait on a large store over SSH. D-05's meaning (start after the newest existing item) is unchanged; covered by newest_id_is_the_latest_item_without_reading_metadata. | One extra Store method with a default | None (routine) |
+| 2026-09-13T00:46:12Z | PLAN-00003-STEP-11 | `cargo deny` now checks only the four supported targets (x86_64 and aarch64 Linux and macOS) instead of every target, so Windows-only duplicates (windows-sys x3, windows-targets and the windows_* crates x2) need no skip entries; Windows is out of scope before v0.2. Advisory and licence checks cover the same targets, and BSL-1.0, now unused, left the allow-list. | Windows-only crates are no longer audited | None (routine) |
+| 2026-09-13T00:46:12Z | PLAN-00003-STEP-11 | `just publish-dry-run` also deletes `passalong-*` sources unpacked from cargo's temporary registries (`~/.cargo/registry/src/-<hash>/`). The dry run verified the new CLI against a passalong-core 0.1.1 copy unpacked during the v0.1.1 dry run (no download.rs), because cargo never re-unpacks an unchanged version; `cargo clean` alone does not cover this. | None | None (routine) |
 
 None.
 
@@ -1032,12 +1036,20 @@ None.
 | 2026-09-13T00:42:12Z | PLAN-00003-STEP-10 | `cargo test -p passalong --test cli_local_backend serve_daemon_pulls` | Pass | test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 25 filtered out; finished in 1.12s |
 | 2026-09-13T00:42:12Z | PLAN-00003-STEP-10 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
 | 2026-09-13T00:42:12Z | PLAN-00003-STEP-10 | `just check` | Exit 0 | Lines 92.19% (8927 lines, 697 missed); pull.rs 87.41%; mod.rs 89.51%; clipboard_watcher.rs 100.00% |
+| 2026-09-13T00:42:12Z | PLAN-00003-STEP-11 | Red: `cargo deny check bans` with multiple-versions = "deny" and no skip list | Failed (expected) | bans FAILED: duplicate getrandom x2, hashbrown x3, miniz_oxide x2, sha3 x2, syn x2 |
+| 2026-09-13T00:46:12Z | PLAN-00003-STEP-11 | `cargo update -p crc32fast` | Exit 0 | the only semver-compatible update (1.5.1 -> 1.5.2); no duplicate resolved by updating |
+| 2026-09-13T00:46:12Z | PLAN-00003-STEP-11 | `cargo deny check` with the skip list | Exit 0 | advisories ok, bans ok, licenses ok, sources ok with no warnings; 6 skip entries, each naming crate@version and the dependency that needs it (ring, dashmap, petgraph, png, ml-kem, syn 2 proc macros) |
+| 2026-09-13T00:46:12Z | PLAN-00003-STEP-11 | `just publish-dry-run --allow-dirty` | Exit 0 | 3 crates packaged and verified after removing stale unpacked 0.1.1 sources |
+| 2026-09-13T00:46:12Z | PLAN-00003-STEP-11 | `just audit` | Pass | advisories ok, bans ok, licenses ok, sources ok |
+| 2026-09-13T00:46:12Z | PLAN-00003-STEP-11 | `just publish-dry-run --allow-dirty` | Pass | warning: aborting upload due to dry run |
+| 2026-09-13T00:46:12Z | PLAN-00003-STEP-11 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
+| 2026-09-13T00:46:12Z | PLAN-00003-STEP-11 | `just check` | Exit 0 | Lines 92.19% (8927 lines, 697 missed) |
 
 ### Completion summary
 
 - **Implementation status:** `not-started`
-- **Completed requirements:** REQ-01 to REQ-13, REQ-15
-- **Incomplete requirements:** REQ-14, REQ-16 to REQ-20
+- **Completed requirements:** REQ-01 to REQ-15
+- **Incomplete requirements:** REQ-16 to REQ-20
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

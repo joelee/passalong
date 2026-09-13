@@ -4,6 +4,14 @@
 # Default features only: the optional `rsa` feature of passalong-ssh is left
 # out, because the `rsa` crate has an unfixed advisory (RUSTSEC-2023-0071).
 all-features = false
+# The platforms passalong supports. Windows is not supported before v0.2,
+# so its target-specific crates are left out of every check.
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+]
 
 [advisories]
 
@@ -14,7 +22,6 @@ allow = [
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",
     "BSD-3-Clause",
-    "BSL-1.0",
     "CC0-1.0",
     "ISC",
     "MIT",
@@ -24,8 +31,18 @@ allow = [
 confidence-threshold = 0.9
 
 [bans]
-multiple-versions = "warn"
+# A crate in two versions fails the audit. Each duplicate below cannot be
+# avoided until the named dependency updates; see docs/developer-guide.md.
+multiple-versions = "deny"
 wildcards = "deny"
+skip = [
+    { crate = "getrandom@0.2.17", reason = "ring 0.17, russh's crypto backend, still uses getrandom 0.2" },
+    { crate = "hashbrown@0.14.5", reason = "dashmap 6, through russh-sftp, uses hashbrown 0.14" },
+    { crate = "hashbrown@0.15.5", reason = "petgraph 0.8, through wl-clipboard-rs (arboard's Wayland support, Linux only), uses hashbrown 0.15" },
+    { crate = "miniz_oxide@0.8.9", reason = "png 0.18, for clipboard images, uses miniz_oxide 0.8 while flate2 uses 0.9" },
+    { crate = "sha3@0.11.0", reason = "ml-kem 0.3, russh's post-quantum key exchange, uses sha3 0.11" },
+    { crate = "syn@2.0.119", reason = "tracing-attributes, enum_dispatch, delegate, and other proc macros still use syn 2 while clap_derive and async-trait use syn 3" },
+]
 
 [sources]
 unknown-registry = "deny"

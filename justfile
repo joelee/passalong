@@ -120,9 +120,12 @@ docker-build:
 # Package and verify every crate for crates.io without uploading
 publish-dry-run *ARGS:
     # Verification compiles the packaged crates as registry dependencies, and
-    # cargo never rebuilds a registry crate whose version is unchanged, so
-    # clear earlier builds of the workspace crates first.
+    # cargo never rebuilds or re-unpacks a registry crate whose version is
+    # unchanged, so clear earlier builds of the workspace crates and their
+    # sources unpacked from cargo's temporary registries (the `-<hash>`
+    # folders; the crates.io cache is left alone) first.
     cargo clean -p passalong-core -p passalong-ssh -p passalong
+    rm -rf "${CARGO_HOME:-$HOME/.cargo}"/registry/src/-*/passalong-*
     cargo publish --workspace --dry-run --locked {{ARGS}}
 
 # Run the CLI, e.g. `just run list`

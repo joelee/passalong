@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00003-v0.1.2"
 execution_started_at: "2026-09-12T23:55:51Z"
-execution_updated_at: "2026-09-13T00:46:12Z"
+execution_updated_at: "2026-09-13T00:52:42Z"
 execution_completed_at: null
-current_step: "PLAN-00003-STEP-12"
+current_step: "PLAN-00003-STEP-13"
 ---
 
 # Delivery Plan 00003: V0 1 2 Images Pull And Downloads
@@ -916,7 +916,7 @@ run at STEP-01, STEP-09, STEP-10, and STEP-14.
 | PLAN-00003-STEP-09 | completed | 2026-09-13T00:32:20Z | 2026-09-13T00:34:45Z | Commit `build: complete PLAN-00003-STEP-09 - Store::list_after`; `just check` green, 92.32% lines | AC-12. list() now delegates to list_after(None); the upload test store forwards list_after. Architecture documents the method |
 | PLAN-00003-STEP-10 | completed | 2026-09-13T00:34:45Z | 2026-09-13T00:42:12Z | Commit `build: complete PLAN-00003-STEP-10 - Pull mode`; `just check` green, 92.19% lines | AC-13, AC-14, AC-15, AC-19. The clipboard task owns the clipboard and accepts write requests from the pull loop, marking written content as seen; the puller starts before any task is spawned and before ready. Docs: usage pull-mode section (with the clock-sync caveat), architecture pull loop, CHANGELOG |
 | PLAN-00003-STEP-11 | completed | 2026-09-13T00:42:12Z | 2026-09-13T00:46:12Z | Commit `build: complete PLAN-00003-STEP-11 - Duplicate dependency policy`; `just check` green, 92.19% lines | AC-17. Developer guide explains handling a new duplicate and the dry-run clean-up |
-| PLAN-00003-STEP-12 | not-started | — | — | — | — |
+| PLAN-00003-STEP-12 | completed | 2026-09-13T00:46:12Z | 2026-09-13T00:52:42Z | Commit `build: complete PLAN-00003-STEP-12 - CI proof for desktop images`; `just check` green, 92.19% lines | AC-18. No workflow change was needed: the Xvfb job already runs every ignored desktop_ test on one thread |
 | PLAN-00003-STEP-13 | not-started | — | — | — | — |
 | PLAN-00003-STEP-14 | not-started | — | — | — | — |
 
@@ -950,6 +950,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T00:42:12Z | PLAN-00003-STEP-10 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-10 - Pull mode` | Begin PLAN-00003-STEP-11 |
 | 2026-09-13T00:42:12Z | PLAN-00003-STEP-11 | Started | — | Red phase |
 | 2026-09-13T00:46:12Z | PLAN-00003-STEP-11 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-11 - Duplicate dependency policy` | Begin PLAN-00003-STEP-12 |
+| 2026-09-13T00:46:12Z | PLAN-00003-STEP-12 | Started | — | Evidence first |
+| 2026-09-13T00:52:42Z | PLAN-00003-STEP-12 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-12 - CI proof for desktop images` | Begin PLAN-00003-STEP-13 |
 
 ### Deviations and blockers
 
@@ -1044,12 +1046,17 @@ None.
 | 2026-09-13T00:46:12Z | PLAN-00003-STEP-11 | `just publish-dry-run --allow-dirty` | Pass | warning: aborting upload due to dry run |
 | 2026-09-13T00:46:12Z | PLAN-00003-STEP-11 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
 | 2026-09-13T00:46:12Z | PLAN-00003-STEP-11 | `just check` | Exit 0 | Lines 92.19% (8927 lines, 697 missed) |
+| 2026-09-13T00:52:42Z | PLAN-00003-STEP-12 | GitHub CI run 34728833171 on 3cc9c9e (pushed branch) | Pass | Linux desktop clipboard (Xvfb): desktop_image_round_trip, desktop_loaded_image_survives_load_exiting, desktop_clipboard_round_trip, desktop_held_text_outlives_the_writer_until_replaced, desktop_loaded_text_survives_load_exiting all ok; Linux (just ci with Docker SSH tests): success; macOS (just check): success |
+| 2026-09-13T00:52:42Z | PLAN-00003-STEP-12 | `actionlint` | Pass | ci.yml unchanged; the existing desktop job picked up the new desktop_ tests |
+| 2026-09-13T00:52:42Z | PLAN-00003-STEP-12 | `bash -c 'actionlint && echo actionlint: no findings passed'` | Pass | actionlint: no findings passed |
+| 2026-09-13T00:52:42Z | PLAN-00003-STEP-12 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
+| 2026-09-13T00:52:42Z | PLAN-00003-STEP-12 | `just check` | Exit 0 | Lines 92.19% (8927 lines, 697 missed) |
 
 ### Completion summary
 
 - **Implementation status:** `not-started`
-- **Completed requirements:** REQ-01 to REQ-15
-- **Incomplete requirements:** REQ-16 to REQ-20
+- **Completed requirements:** REQ-01 to REQ-16
+- **Incomplete requirements:** REQ-17 to REQ-20
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

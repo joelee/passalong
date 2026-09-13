@@ -17,7 +17,7 @@ All notable changes to this project are documented here. The format follows
 - `Store::newest_id`, which pull mode no longer uses; use `list_ids`
   (PLAN-00004 STEP-04).
 - `download::free_target`, whose name could be taken by another writer
-  before it was written; use `reserve_target` (PLAN-00004 STEP-03).
+  before it was written; use `download_into` (PLAN-00004 STEP-03).
 
 ### Fixed
 
@@ -28,10 +28,11 @@ All notable changes to this project are documented here. The format follows
   of the items shown, not the whole store, which on an SSH server meant one
   request per stored item (Code Review 00001, REV-00001-MED-01; PLAN-00004
   STEP-02).
-- Downloads by `load` and pull mode claim their file name with an exclusive
-  create before writing, so two downloads of the same name at the same
-  moment can no longer pick the same file (Code Review 00001,
-  REV-00001-LOW-01; PLAN-00004 STEP-03).
+- Downloads by `load` and pull mode choose their file name only once the
+  content is complete and verified, and link it into place without ever
+  replacing a file, so two downloads of the same name at the same moment
+  keep both files (Code Review 00001, REV-00001-LOW-01; PLAN-00004
+  STEP-03).
 - The release notes link to their delivery plans with absolute URLs pinned
   to the release tag, because GitHub release pages cannot resolve relative
   links. `scripts/check-release-tag.sh` now rejects relative links in

@@ -173,17 +173,9 @@ impl Puller {
                 return Ok(());
             }
         };
-        // Fetch before reserving, so a store error leaves no empty file.
         let (_, content) = store.get(&meta.id).await?;
-        let target = match download::reserve_target(&self.download_dir, &name).await {
-            Ok(target) => target,
-            Err(err) => {
-                tracing::warn!(id = %meta.id, error = %err, "cannot name the pulled file; skipped");
-                return Ok(());
-            }
-        };
-        match download::write_reserved(content, meta, &target).await {
-            Ok(()) => tracing::info!(id = %meta.id, path = %target.display(), "pulled file"),
+        match download::download_into(content, meta, &self.download_dir, &name).await {
+            Ok(target) => tracing::info!(id = %meta.id, path = %target.display(), "pulled file"),
             Err(DownloadError::Read(err)) => return Err(read_failed(meta, &err)),
             Err(err) => {
                 tracing::warn!(id = %meta.id, error = %err, "cannot save the pulled file; skipped");

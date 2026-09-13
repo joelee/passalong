@@ -192,9 +192,9 @@ that lists the candidates.
   it has not seen, ignores this device's own items, and handles the rest
   oldest id first: files are downloaded, verified, into
   `client.download_dir` when it exists, and the newest text or clipboard
-  image is handed to the clipboard task. Like `load`, each download first
-  claims its file name with an exclusive create, so two downloads can never
-  write the same file. The clipboard task writes pulled content and marks
+  image is handed to the clipboard task. Like `load`, each download is written and verified in its own part file
+  and only then linked into place under a free name, so it appears only when
+  complete and two downloads never share a name. The clipboard task writes pulled content and marks
   it as seen, so it is not sent back. Each item is marked as handled once
   done, so a store error retries only what is left, and an item from a
   device whose clock runs behind is still applied.

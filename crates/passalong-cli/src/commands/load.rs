@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context as _;
 use passalong_core::clipboard::{Clipboard, ClipboardError, decode_png};
-use passalong_core::download::{self, check_integrity, write_reserved, write_verified};
+use passalong_core::download::{self, check_integrity, write_verified};
 use passalong_core::fs::BoxRead;
 use passalong_core::model::{ContentHasher, ItemKind, ItemMeta, sanitise_file_name};
 use passalong_core::store::Store;
@@ -36,9 +36,7 @@ pub async fn run(
 ) -> anyhow::Result<()> {
     let id = lookup.resolve(store).await?;
     let (meta, content) = store.get(&id).await?;
-    // A download writes into a name it reserved; any other target is
-    // written as given and left alone if the write fails.
-    let (target, reserved) = match dest {
+    let target = match dest {
         None if meta.kind == ItemKind::Text => {
             let bytes = read_verified(content, &meta).await?;
             let text =
@@ -54,7 +52,7 @@ pub async fn run(
             tracing::info!(id = %id, size = meta.size, "image copied to the clipboard");
             return Ok(());
         }
-        None => download_target(download_dir, &meta, force).await?,
+        None => download(content, &meta, download_dir, force).await?,
         Some(dest) => {
             let target = target_path(dest, &meta)?;
             if !force && tokio::fs::try_exists(&target).await.unwrap_or(false) {
@@ -63,37 +61,36 @@ pub async fn run(
                     target.display()
                 );
             }
-            (target, false)
+            write_verified(content, &meta, &target).await?;
+            target
         }
     };
-    if reserved {
-        write_reserved(content, &meta, &target).await?;
-    } else {
-        write_verified(content, &meta, &target).await?;
-    }
     tracing::info!(id = %id, size = meta.size, path = %target.display(), "item written");
     writeln!(out, "{}", target.display())?;
     Ok(())
 }
 
-/// Where a download goes: the item's name in `dir` with `force`, or the
-/// first free numbered variant, reserved so no other download can take it.
-/// Returns the path and whether it was reserved.
-async fn download_target(
-    dir: &Path,
+/// Downloads into `dir` under the item's name: over it with `force`,
+/// otherwise under the first free numbered variant, the file appearing only
+/// once complete.
+async fn download(
+    content: BoxRead,
     meta: &ItemMeta,
+    dir: &Path,
     force: bool,
-) -> anyhow::Result<(PathBuf, bool)> {
+) -> anyhow::Result<PathBuf> {
     let name = sanitise_file_name(meta.name.as_deref().unwrap_or_default())
         .context("give a destination for this item instead")?;
     tokio::fs::create_dir_all(dir)
         .await
         .with_context(|| format!("cannot create the download directory {}", dir.display()))?;
-    Ok(if force {
-        (dir.join(name), false)
+    if force {
+        let target = dir.join(name);
+        write_verified(content, meta, &target).await?;
+        Ok(target)
     } else {
-        (download::reserve_target(dir, &name).await?, true)
-    })
+        Ok(download::download_into(content, meta, dir, &name).await?)
+    }
 }
 
 /// A directory destination gets the item's sanitised name, or `<id>.txt`

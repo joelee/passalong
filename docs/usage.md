@@ -256,6 +256,28 @@ or a drop folder that cannot be created or watched. Without a desktop
 clipboard, for example over SSH or in a container, it keeps watching the
 drop folder and logs `clipboard unavailable`.
 
+### Pull mode
+
+With `pull = true` in `[serve]`, `serve` also applies items that other
+devices send, which turns passalong into two-way sync:
+
+- The newest text or clipboard image sent since the last check goes onto
+  this device's clipboard. Older ones in the same check are skipped.
+- Every file, including PNG files sent with `passalong file`, is downloaded
+  into `client.download_dir`, but only if that directory exists. It is
+  never created, and an existing name is kept: the download is numbered, as
+  in `report (1).pdf`. Files that arrive while the directory is missing are
+  skipped for good.
+- Items sent by this device (same `client.device_name`) and items that
+  existed before `serve` started are ignored. Pulled content is never sent
+  back.
+
+`serve` checks every `pull_interval_ms`, 5 seconds by default. A server
+that cannot be reached is retried at the next check without skipping
+anything. Keep the devices' clocks in sync (NTP): items are ordered by
+their creation time, so an item from a device whose clock runs behind can
+look older than the last one pulled and be missed.
+
 ### Running `serve` in the background
 
 Only one `serve` runs at a time: a second one exits with

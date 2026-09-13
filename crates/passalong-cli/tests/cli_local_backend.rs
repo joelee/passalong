@@ -680,6 +680,63 @@ fn serve_daemon_starts_reports_refuses_a_second_copy_and_stops() {
 
 #[cfg(unix)]
 #[test]
+fn serve_daemon_pulls_files_sent_by_another_device() {
+    use std::time::{Duration, Instant};
+    let sb = Sandbox::new();
+    std::fs::create_dir_all(sb.path("home/dl")).unwrap();
+    let config = sb.path("cfg/pull.toml");
+    std::fs::write(
+        &config,
+        format!(
+            "[client]\ndevice_name = \"laptop\"\ndownload_dir = \"{}\"\n\n[server]\nkind = \"local\"\n\n[server.local]\npath = \"{}\"\n\n[serve]\ndrop_folder = \"{}\"\npull = true\npull_interval_ms = 1000\n",
+            sb.path("home/dl").display(),
+            sb.path("store").display(),
+            sb.path("drop").display()
+        ),
+    )
+    .unwrap();
+    let started = sb
+        .cmd()
+        .arg("--config")
+        .arg(&config)
+        .args(["serve", "--daemon"])
+        .timeout(Duration::from_secs(20))
+        .assert()
+        .success();
+    let out = String::from_utf8(started.get_output().stdout.clone()).unwrap();
+    let pid: u32 = out["serve started (pid ".len()..]
+        .split(',')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let _guard = DaemonGuard(Some(pid));
+
+    // Another device sharing the store (the sandbox config is "test-box").
+    let source = sb.path("work/from-phone.txt");
+    std::fs::write(&source, b"sent by the phone").unwrap();
+    sb.with_config().arg("file").arg(&source).assert().success();
+    let target = sb.path("home/dl/from-phone.txt");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !target.exists() {
+        assert!(
+            Instant::now() < deadline,
+            "the daemon never pulled the file"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert_eq!(std::fs::read(&target).unwrap(), b"sent by the phone");
+    sb.cmd()
+        .arg("--config")
+        .arg(&config)
+        .args(["serve", "--stop"])
+        .timeout(Duration::from_secs(20))
+        .assert()
+        .success();
+}
+
+#[cfg(unix)]
+#[test]
 fn serve_daemon_reports_start_up_failures() {
     let sb = Sandbox::new();
     let bad = sb.path("cfg/bad.toml");

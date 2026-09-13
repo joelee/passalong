@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00003-v0.1.2"
 execution_started_at: "2026-09-12T23:55:51Z"
-execution_updated_at: "2026-09-13T00:34:45Z"
+execution_updated_at: "2026-09-13T00:42:12Z"
 execution_completed_at: null
-current_step: "PLAN-00003-STEP-10"
+current_step: "PLAN-00003-STEP-11"
 ---
 
 # Delivery Plan 00003: V0 1 2 Images Pull And Downloads
@@ -914,7 +914,7 @@ run at STEP-01, STEP-09, STEP-10, and STEP-14.
 | PLAN-00003-STEP-07 | completed | 2026-09-13T00:23:24Z | 2026-09-13T00:28:00Z | Commit `build: complete PLAN-00003-STEP-07 - Images in clipboard, load, cat, and list`; `just check` green, 92.19% lines | AC-08 (list part), AC-09, AC-10. desktop_loaded_image_survives_load_exiting (ignored, Linux) runs under Xvfb in STEP-12. The hidden __hold-clipboard --image holds a PNG read from standard input |
 | PLAN-00003-STEP-08 | completed | 2026-09-13T00:28:00Z | 2026-09-13T00:32:20Z | Commit `build: complete PLAN-00003-STEP-08 - serve sends clipboard images`; `just check` green, 92.30% lines | AC-11. Clipboard reads now run on spawn_blocking, the clipboard moving in and out of the blocking task each poll; images are read only when there is no text |
 | PLAN-00003-STEP-09 | completed | 2026-09-13T00:32:20Z | 2026-09-13T00:34:45Z | Commit `build: complete PLAN-00003-STEP-09 - Store::list_after`; `just check` green, 92.32% lines | AC-12. list() now delegates to list_after(None); the upload test store forwards list_after. Architecture documents the method |
-| PLAN-00003-STEP-10 | not-started | — | — | — | — |
+| PLAN-00003-STEP-10 | completed | 2026-09-13T00:34:45Z | 2026-09-13T00:42:12Z | Commit `build: complete PLAN-00003-STEP-10 - Pull mode`; `just check` green, 92.19% lines | AC-13, AC-14, AC-15, AC-19. The clipboard task owns the clipboard and accepts write requests from the pull loop, marking written content as seen; the puller starts before any task is spawned and before ready. Docs: usage pull-mode section (with the clock-sync caveat), architecture pull loop, CHANGELOG |
 | PLAN-00003-STEP-11 | not-started | — | — | — | — |
 | PLAN-00003-STEP-12 | not-started | — | — | — | — |
 | PLAN-00003-STEP-13 | not-started | — | — | — | — |
@@ -946,6 +946,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T00:32:20Z | PLAN-00003-STEP-08 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-08 - serve sends clipboard images` | Begin PLAN-00003-STEP-09 |
 | 2026-09-13T00:32:20Z | PLAN-00003-STEP-09 | Started | — | Red phase |
 | 2026-09-13T00:34:45Z | PLAN-00003-STEP-09 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-09 - Store::list_after` | Begin PLAN-00003-STEP-10 |
+| 2026-09-13T00:34:45Z | PLAN-00003-STEP-10 | Started | — | Red phase |
+| 2026-09-13T00:42:12Z | PLAN-00003-STEP-10 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-10 - Pull mode` | Begin PLAN-00003-STEP-11 |
 
 ### Deviations and blockers
 
@@ -956,6 +958,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T00:07:52Z | PLAN-00003-STEP-03 | `cat` also ends quietly with exit 0 when the reader closes the pipe (for example `| head`), as `cat` does, instead of reporting a broken pipe; covered by a_closed_pipe_ends_the_output_quietly. | None | None (routine) |
 | 2026-09-13T00:17:05Z | PLAN-00003-STEP-05 | Each candidate line also shows the full id besides D-03's number, kind, name or preview, device, and age, so the user can type more characters of it. | None | None (routine) |
 | 2026-09-13T00:28:00Z | PLAN-00003-STEP-07 | `passalong clipboard` takes the current time to name image items (`clipboard-YYYYMMDD-HHMMSS.png`); the item id comes from the store's clock, so the two can differ by the upload time. | None | None (routine) |
+| 2026-09-13T00:42:12Z | PLAN-00003-STEP-10 | Added `Store::newest_id` (default: first of `list_after(None)`; `FsStore` overrides it with one directory read) so the puller's starting position reads no metadata. Reading every meta.json before ready could exceed the 5 s `serve --daemon` readiness wait on a large store over SSH. D-05's meaning (start after the newest existing item) is unchanged; covered by newest_id_is_the_latest_item_without_reading_metadata. | One extra Store method with a default | None (routine) |
 
 None.
 
@@ -1021,12 +1024,20 @@ None.
 | 2026-09-13T00:34:45Z | PLAN-00003-STEP-09 | `cargo test -p passalong-core --all-features --lib store` | Pass | test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 134 filtered out; finished in 0.08s |
 | 2026-09-13T00:34:45Z | PLAN-00003-STEP-09 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
 | 2026-09-13T00:34:45Z | PLAN-00003-STEP-09 | `just check` | Exit 0 | Lines 92.32% (8533 lines, 655 missed); fs_store.rs 98.16% |
+| 2026-09-13T00:34:45Z | PLAN-00003-STEP-10 | Red: `cargo test -p passalong-core --all-features` with the watcher, Puller, serve options, serve_local, and binary pull tests | Exit 101 (expected) | 13 compile errors: Puller and ClipboardWrite not found (E0425, E0433), ServeOptions has no fields pull, pull_interval, download_dir (E0560), no methods mark_text, mark_image (E0599) |
+| 2026-09-13T00:42:12Z | PLAN-00003-STEP-10 | `cargo test -p passalong-core --all-features` | Exit 0 | 167 lib and 11 serve_local tests. Puller: pre-start and own-device items ignored; only the newest of two texts applied, nothing twice; clipboard images decoded; files downloaded into an existing directory as report (1).pdf beside the user's report.pdf, PNG files stay files; without a directory files are skipped, nothing created, not fetched later; a store error keeps the position and the next poll applies; without a clipboard files still arrive. serve_local: pulled text reaches the clipboard and is not sent back; with pull off nothing is written |
+| 2026-09-13T00:42:12Z | PLAN-00003-STEP-10 | `cargo test -p passalong` | Exit 0 | 92 unit and 24 binary tests, including serve_daemon_pulls_files_sent_by_another_device (daemon with pull = true receives a file sent through a second config) |
+| 2026-09-13T00:42:12Z | PLAN-00003-STEP-10 | `cargo test -p passalong-core --all-features --lib pull` | Pass | test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 159 filtered out; finished in 0.00s |
+| 2026-09-13T00:42:12Z | PLAN-00003-STEP-10 | `cargo test -p passalong-core --all-features --test serve_local` | Pass | test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.61s |
+| 2026-09-13T00:42:12Z | PLAN-00003-STEP-10 | `cargo test -p passalong --test cli_local_backend serve_daemon_pulls` | Pass | test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 25 filtered out; finished in 1.12s |
+| 2026-09-13T00:42:12Z | PLAN-00003-STEP-10 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
+| 2026-09-13T00:42:12Z | PLAN-00003-STEP-10 | `just check` | Exit 0 | Lines 92.19% (8927 lines, 697 missed); pull.rs 87.41%; mod.rs 89.51%; clipboard_watcher.rs 100.00% |
 
 ### Completion summary
 
 - **Implementation status:** `not-started`
-- **Completed requirements:** REQ-01 to REQ-11, REQ-15; REQ-12 (settings)
-- **Incomplete requirements:** REQ-13, REQ-14, REQ-16 to REQ-20
+- **Completed requirements:** REQ-01 to REQ-13, REQ-15
+- **Incomplete requirements:** REQ-14, REQ-16 to REQ-20
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

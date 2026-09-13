@@ -214,6 +214,10 @@ impl<F: RemoteFs> Store for FsStore<F> {
         self.list_after(None).await
     }
 
+    async fn newest_id(&self) -> Result<Option<ItemId>, StoreError> {
+        Ok(self.item_ids().await?.into_iter().next())
+    }
+
     async fn list_after(&self, after: Option<&ItemId>) -> Result<Vec<ItemMeta>, StoreError> {
         let mut items = Vec::new();
         for id in self.item_ids().await? {
@@ -986,5 +990,16 @@ mod tests {
             store.list_after(Some(&metas[0].id)).await.unwrap(),
             vec![metas[1].clone()]
         );
+    }
+
+    #[tokio::test]
+    async fn newest_id_is_the_latest_item_without_reading_metadata() {
+        let fx = Fixture::new();
+        let store = fx.faulty();
+        assert_eq!(store.newest_id().await.unwrap(), None);
+        let metas = three_items(&fx, &store).await;
+        let before = store.fs().calls(FsOp::OpenRead);
+        assert_eq!(store.newest_id().await.unwrap(), Some(metas[2].id.clone()));
+        assert_eq!(store.fs().calls(FsOp::OpenRead), before);
     }
 }

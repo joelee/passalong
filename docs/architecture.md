@@ -182,6 +182,15 @@ that lists the candidates.
   reports a change, and at least every 5 seconds in case events are missed.
   A file is queued once two scans at least `file_stable_wait_ms` apart show
   the same size and modification time.
+- **Pull loop** (only with `serve.pull = true`). At start-up, before
+  `serve` reports ready, it records the newest stored item. Every pull
+  interval it asks the store for newer items with `Store::list_after`,
+  ignores this device's own items, and handles the rest oldest first: files
+  are downloaded, verified, into `client.download_dir` when it exists, and
+  the newest text or clipboard image is handed to the clipboard task. The
+  clipboard task writes it and marks it as seen, so it is not sent back.
+  The recorded position advances item by item, so a store error retries
+  from where it stopped without downloading anything twice.
 - **Uploader.** Sends queued jobs one at a time. Before uploading text it
   checks whether that content key is already stored, which is how text that
   `load` just put on the clipboard is not sent back. After a file is sent,

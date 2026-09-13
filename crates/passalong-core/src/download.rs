@@ -87,6 +87,26 @@ pub fn check_integrity(meta: &ItemMeta, hasher: ContentHasher) -> Result<(), Dow
     Ok(())
 }
 
+/// Reads all of `content` and checks it against the item's SHA-256 and size.
+///
+/// # Errors
+///
+/// [`DownloadError::Read`] or [`DownloadError::Integrity`].
+pub async fn read_verified(
+    mut content: BoxRead,
+    meta: &ItemMeta,
+) -> Result<Vec<u8>, DownloadError> {
+    let mut bytes = Vec::new();
+    content
+        .read_to_end(&mut bytes)
+        .await
+        .map_err(DownloadError::Read)?;
+    let mut hasher = ContentHasher::new();
+    hasher.update(&bytes);
+    check_integrity(meta, hasher)?;
+    Ok(bytes)
+}
+
 /// Streams `content` into `<target>.passalong-part`, verifies it, then
 /// renames it over `target`. The part file is removed on any failure, so a
 /// damaged download never replaces anything.

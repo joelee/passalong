@@ -40,6 +40,10 @@ All notable changes to this project are documented here. The format follows
 - `serve` also sends clipboard images, reading one only when the clipboard
   holds no text and sending it once while it is unchanged; set
   `serve.clipboard_images = false` to turn this off (PLAN-00003 STEP-08).
+- Pull mode: with `serve.pull = true`, `serve` applies items sent by other
+  devices, the newest text or image to the clipboard and files into an
+  existing `client.download_dir`, without ever sending them back
+  (PLAN-00003 STEP-10).
 
 ### Changed
 

@@ -125,4 +125,5 @@ set of fields (`id`, `size`, `name`, `path`, `kind`, `device`, `attempt`,
 
 Third-party libraries are limited to warnings and errors at every level
 except `debug`. The level is chosen by `--log-level`, then
-`PASSALONG_LOG_LEVEL`, then `client.log_level`, then `info`.
+`PASSALONG_LOG_LEVEL`, then `error` when `--quiet` is given, then
+`client.log_level`, then `info`.

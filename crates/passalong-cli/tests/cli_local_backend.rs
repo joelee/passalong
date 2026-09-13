@@ -354,6 +354,95 @@ async fn cat_prints_text_and_file_items_exactly() {
     assert_eq!(printed, data);
 }
 
+#[tokio::test]
+async fn cat_adds_nothing_to_stderr_unless_verbose() {
+    let sb = Sandbox::new();
+    let metas = sb.seed(&["hello there"]).await;
+    sb.with_config()
+        .args(["cat", metas[0].id.as_str()])
+        .assert()
+        .success()
+        .stdout("hello there")
+        .stderr("");
+    sb.with_config()
+        .args(["cat", metas[0].id.as_str(), "--log-level", "verbose"])
+        .assert()
+        .success()
+        .stdout("hello there")
+        .stderr(predicate::str::contains("item printed"));
+}
+
+#[tokio::test]
+async fn quiet_prints_nothing_but_errors_and_cat_output() {
+    let sb = Sandbox::new();
+    let metas = sb.seed(&["one", "two", "three"]).await;
+    let quiet = |args: &[&str]| {
+        let mut cmd = sb.with_config();
+        cmd.arg("--quiet").args(args);
+        cmd
+    };
+    quiet(&["list"]).assert().success().stdout("").stderr("");
+    quiet(&["clipboard", "--stdin"])
+        .write_stdin("hi")
+        .assert()
+        .success()
+        .stdout("")
+        .stderr("");
+    let source = sb.path("work/a.txt");
+    std::fs::write(&source, "file body").unwrap();
+    quiet(&["file", source.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout("")
+        .stderr("");
+    let dest = sb.path("work/out.txt");
+    quiet(&["load", metas[0].id.as_str(), dest.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout("")
+        .stderr("");
+    assert_eq!(std::fs::read_to_string(&dest).unwrap(), "one");
+    quiet(&["cat", metas[1].id.as_str()])
+        .assert()
+        .success()
+        .stdout("two")
+        .stderr("");
+    quiet(&["delete", metas[0].id.as_str()])
+        .assert()
+        .success()
+        .stdout("")
+        .stderr("");
+    quiet(&["prune", "--keep", "1", "--yes"])
+        .assert()
+        .success()
+        .stdout("")
+        .stderr("");
+    quiet(&["serve", "--status"])
+        .assert()
+        .code(3)
+        .stdout("")
+        .stderr("");
+    quiet(&["delete", "ffff"])
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr(predicate::str::ends_with("error: no item matches `ffff`\n"));
+    // An explicit level wins over --quiet, from the flag or the environment.
+    quiet(&["--log-level", "info", "clipboard", "--stdin"])
+        .write_stdin("flag")
+        .assert()
+        .success()
+        .stdout("")
+        .stderr(predicate::str::contains("item stored"));
+    quiet(&["clipboard", "--stdin"])
+        .env("PASSALONG_LOG_LEVEL", "info")
+        .write_stdin("env")
+        .assert()
+        .success()
+        .stdout("")
+        .stderr(predicate::str::contains("item stored"));
+}
+
 #[test]
 fn load_without_a_destination_downloads_files_into_downloads() {
     let sb = Sandbox::new();

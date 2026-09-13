@@ -70,6 +70,9 @@ pub struct InitDeps<'a> {
     pub keys: &'a dyn HostKeySource,
     /// Connection test after writing.
     pub check: &'a dyn ConnectionCheck,
+    /// `--quiet`: results are hidden, so what a question is about is shown
+    /// with the question instead.
+    pub quiet: bool,
 }
 
 /// Collects the settings, establishes the host key, writes `target`, and
@@ -102,6 +105,7 @@ pub async fn run(
         prompt,
         keys,
         check,
+        quiet,
     } = deps;
     let mut value =
         |question: &str, flag: Option<String>, default: Option<&str>| -> anyhow::Result<String> {
@@ -151,12 +155,21 @@ pub async fn run(
         }
         None => {
             let found = keys.fetch(&host, port).await?;
-            writeln!(
-                out,
-                "The server at {host}:{port} presented this {} host key:",
-                found.algorithm
-            )?;
-            writeln!(out, "  {}", found.fingerprint)?;
+            let asks = args.fingerprint.is_none();
+            let mut about = format!(
+                "The server at {host}:{port} presented this {} host key:\n  {}\n",
+                found.algorithm, found.fingerprint
+            );
+            if asks {
+                about.push_str(
+                    "Compare it with the server's own key, for example by running there:\n  ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub\n",
+                );
+            }
+            if quiet && asks {
+                prompt.show(&about)?;
+            } else {
+                out.write_all(about.as_bytes())?;
+            }
             match &args.fingerprint {
                 Some(expected) if expected.trim() == found.fingerprint => {}
                 Some(expected) => anyhow::bail!(
@@ -165,11 +178,6 @@ pub async fn run(
                     found.fingerprint
                 ),
                 None => {
-                    writeln!(
-                        out,
-                        "Compare it with the server's own key, for example by running there:"
-                    )?;
-                    writeln!(out, "  ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub")?;
                     if !prompt.confirm("Does the fingerprint match?")? {
                         anyhow::bail!("host key not confirmed; nothing was written");
                     }
@@ -338,6 +346,7 @@ mod tests {
                 prompt,
                 keys: &self.keys,
                 check: &self.check,
+                quiet: false,
             };
             run(args, &self.target(), deps, &mut out).await?;
             Ok(String::from_utf8(out).unwrap())
@@ -385,6 +394,30 @@ mod tests {
         );
         assert!(out.ends_with("connected: 3 items on the server\n"), "{out}");
         assert_eq!(rig.check.seen.lock().unwrap().as_ref(), Some(&cfg));
+    }
+
+    #[tokio::test]
+    async fn quiet_still_shows_the_fingerprint_before_asking() {
+        let rig = Rig::new();
+        let mut prompt = ScriptedPrompt::new(true, ["nas.local", "", "", "", "", "", "yes"]);
+        let mut out = Vec::new();
+        let deps = InitDeps {
+            env: &rig.env,
+            prompt: &mut prompt,
+            keys: &rig.keys,
+            check: &rig.check,
+            quiet: true,
+        };
+        run(&InitArgs::default(), &rig.target(), deps, &mut out)
+            .await
+            .unwrap();
+        let shown = prompt.shown();
+        assert!(shown.contains(KEY_A_FP), "{shown}");
+        assert!(shown.contains("ssh-keygen -lf"), "{shown}");
+        assert!(
+            !String::from_utf8(out).unwrap().contains(KEY_A_FP),
+            "the fingerprint goes to the prompt, not the results"
+        );
     }
 
     #[tokio::test]

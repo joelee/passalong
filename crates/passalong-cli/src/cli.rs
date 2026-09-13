@@ -27,6 +27,11 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "LEVEL")]
     pub log_level: Option<LogLevel>,
 
+    /// Print nothing but errors and prompts; `cat` still prints the item.
+    /// Scripts can rely on the exit code.
+    #[arg(short = 'q', long, global = true)]
+    pub quiet: bool,
+
     /// What to do.
     #[command(subcommand)]
     pub command: Command,
@@ -373,6 +378,14 @@ mod tests {
         let cli = parse(&["--log-level", "debug", "serve"]);
         assert_eq!(cli.log_level, Some(LogLevel::Debug));
         assert_eq!(cli.config, None);
+    }
+
+    #[test]
+    fn quiet_is_a_global_flag() {
+        assert!(!parse(&["list"]).quiet);
+        assert!(parse(&["-q", "list"]).quiet);
+        assert!(parse(&["list", "--quiet"]).quiet);
+        assert!(parse(&["cat", "2cf2", "-q"]).quiet);
     }
 
     #[test]

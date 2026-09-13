@@ -15,6 +15,9 @@ pub trait Prompt {
 
     /// Asks for a value; an empty answer takes `default`, or is empty.
     fn ask(&mut self, question: &str, default: Option<&str>) -> io::Result<String>;
+
+    /// Shows what a coming question is about, where questions appear.
+    fn show(&mut self, text: &str) -> io::Result<()>;
 }
 
 /// Whether an answer means yes.
@@ -57,6 +60,12 @@ impl Prompt for TerminalPrompt {
         }
         Ok(with_default(&answer, default))
     }
+
+    fn show(&mut self, text: &str) -> io::Result<()> {
+        let mut stderr = io::stderr();
+        stderr.write_all(text.as_bytes())?;
+        stderr.flush()
+    }
 }
 
 /// The trimmed answer, or `default` when the answer is empty.
@@ -73,6 +82,7 @@ pub struct ScriptedPrompt {
     interactive: bool,
     answers: VecDeque<String>,
     questions: Vec<String>,
+    shown: String,
 }
 
 #[cfg(test)]
@@ -83,12 +93,18 @@ impl ScriptedPrompt {
             interactive,
             answers: answers.into_iter().map(str::to_owned).collect(),
             questions: Vec::new(),
+            shown: String::new(),
         }
     }
 
     /// Every question asked so far.
     pub fn questions(&self) -> &[String] {
         &self.questions
+    }
+
+    /// Everything shown so far.
+    pub fn shown(&self) -> &str {
+        &self.shown
     }
 }
 
@@ -115,6 +131,11 @@ impl Prompt for ScriptedPrompt {
             .ok_or_else(|| io::Error::other("no scripted answer left"))?;
         Ok(with_default(&answer, default))
     }
+
+    fn show(&mut self, text: &str) -> io::Result<()> {
+        self.shown.push_str(text);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -134,6 +155,15 @@ mod tests {
             ["first?", "second?", "third?", "out of answers?"]
         );
         assert!(!ScriptedPrompt::new(false, Vec::<&str>::new()).is_interactive());
+    }
+
+    #[test]
+    fn scripted_prompt_records_what_it_shows() {
+        let mut prompt = ScriptedPrompt::new(true, Vec::<&str>::new());
+        assert_eq!(prompt.shown(), "");
+        prompt.show("first\n").unwrap();
+        prompt.show("second\n").unwrap();
+        assert_eq!(prompt.shown(), "first\nsecond\n");
     }
 
     #[test]

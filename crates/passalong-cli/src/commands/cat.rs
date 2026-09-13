@@ -56,7 +56,8 @@ pub async fn run(
             digest.size()
         );
     }
-    tracing::info!(id = %id, size = meta.size, "item printed");
+    // Verbose, so a default run adds nothing to what it printed.
+    tracing::debug!(id = %id, size = meta.size, "item printed");
     Ok(())
 }
 

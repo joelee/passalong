@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Added
+
+- `-q`/`--quiet`: print nothing but errors and prompts, with logging at
+  `error` unless a level is set explicitly; `cat` still prints the item
+  (PLAN-00005 STEP-03).
+
 ### Changed
 
 - The README's "How it works" diagram is a Mermaid diagram (PLAN-00005
@@ -13,6 +19,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `passalong cat` prints only the item: its "item printed" record is now at
+  `verbose` level, so it no longer follows the content on the terminal
+  (PLAN-00005 STEP-03).
 - The links in the README work on crates.io: they are absolute, because
   crates.io resolved the relative ones against `crates/passalong-cli/`.
   `just check` now runs `scripts/check-links.sh`, which also fails on a

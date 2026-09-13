@@ -10,6 +10,7 @@ the [README](../README.md#server-setup).
 |---|---|
 | `--config <PATH>` | Use this config file instead of the lookup order in [configuration](configuration.md) |
 | `--log-level <LEVEL>` | `error`, `warning`, `info`, `verbose`, or `debug`; overrides `PASSALONG_LOG_LEVEL` and `client.log_level` |
+| `-q`, `--quiet` | Print nothing but errors and prompts; `cat` still prints the item. Logging drops to `error` unless `--log-level` or `PASSALONG_LOG_LEVEL` sets a level |
 | `-h`, `--help` | Show help |
 | `-V`, `--version` | Show the version |
 
@@ -68,6 +69,11 @@ passalong init --host nas.local --fingerprint SHA256:5Si4lWKPwa0+I2wCQf3eOtcF8jW
 
 Results go to standard output; logs and errors go to standard error. A
 failure prints one line starting with `error:`.
+
+With `--quiet`, a successful command prints nothing, except `cat`, whose
+output is the item itself, so scripts can rely on the exit code. Errors are
+still printed. What a question asks about is shown with the question on
+standard error: `init`'s host-key fingerprint and `prune`'s list of items.
 
 | Exit code | Meaning |
 |---|---|
@@ -172,6 +178,9 @@ nothing added, so it can be piped or redirected:
 passalong cat 2cf2 | wc -l
 passalong cat 8f3a > report.pdf
 ```
+
+At the default log level nothing is written to standard error on success;
+the "item printed" record appears from `--log-level verbose`.
 
 The content is checked against the item's SHA-256 as it streams. A
 mismatch is reported with `item <ID> failed verification` and exit code 1

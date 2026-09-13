@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use passalong_core::clipboard::RgbaImage;
 use passalong_core::clock::SystemClock;
 use passalong_core::config::AfterSend;
 use passalong_core::fs::LocalFs;
@@ -39,7 +40,12 @@ fn options(drop: &Path) -> ServeOptions {
         rescan_interval: Duration::from_millis(250),
         after_send: AfterSend::Move,
         device: "it".into(),
+        clipboard_images: true,
     }
+}
+
+fn test_image() -> RgbaImage {
+    RgbaImage::new(2, 2, (0..16).map(|i| i * 13).collect()).unwrap()
 }
 
 async fn items(root: &Path) -> Vec<ItemMeta> {
@@ -232,4 +238,81 @@ async fn serve_retries_a_skipped_file_after_it_changes() {
         .unwrap()
         .unwrap()
         .unwrap();
+}
+
+async fn stop_and_join(
+    stop: watch::Sender<bool>,
+    task: tokio::task::JoinHandle<Result<(), ServeError>>,
+) {
+    stop.send(true).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), task)
+        .await
+        .expect("serve stops promptly")
+        .unwrap()
+        .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn serve_sends_a_clipboard_image_once() {
+    let dir = TempDir::new().unwrap();
+    let (store, drop) = (dir.path().join("store"), dir.path().join("drop"));
+    let clipboard = MockClipboard::with_image(test_image());
+    let (stop, stopped) = watch::channel(false);
+    let task = tokio::spawn(serve::run(
+        options(&drop),
+        Some(Box::new(clipboard)),
+        local_opener(store.clone()),
+        stopped,
+    ));
+    wait_for("the image", async || {
+        items(&store).await.iter().any(ItemMeta::is_clipboard_image)
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(items(&store).await.len(), 1, "sent once while unchanged");
+    stop_and_join(stop, task).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn serve_prefers_text_over_an_image() {
+    let dir = TempDir::new().unwrap();
+    let (store, drop) = (dir.path().join("store"), dir.path().join("drop"));
+    let clipboard = MockClipboard::with_text("words")
+        .with_image_reads(std::iter::repeat_n(Some(test_image()), 100));
+    let (stop, stopped) = watch::channel(false);
+    let task = tokio::spawn(serve::run(
+        options(&drop),
+        Some(Box::new(clipboard)),
+        local_opener(store.clone()),
+        stopped,
+    ));
+    wait_for("the text", async || items(&store).await.len() == 1).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let listed = items(&store).await;
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].kind, ItemKind::Text);
+    stop_and_join(stop, task).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn serve_ignores_images_when_turned_off() {
+    let dir = TempDir::new().unwrap();
+    let (store, drop) = (dir.path().join("store"), dir.path().join("drop"));
+    std::fs::create_dir_all(&drop).unwrap();
+    std::fs::write(drop.join("proof.txt"), b"serve is running").unwrap();
+    let mut opts = options(&drop);
+    opts.clipboard_images = false;
+    let (stop, stopped) = watch::channel(false);
+    let task = tokio::spawn(serve::run(
+        opts,
+        Some(Box::new(MockClipboard::with_image(test_image()))),
+        local_opener(store.clone()),
+        stopped,
+    ));
+    wait_for("the dropped file", async || items(&store).await.len() == 1).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let listed = items(&store).await;
+    assert_eq!(listed.len(), 1);
+    assert!(!listed[0].is_clipboard_image());
+    stop_and_join(stop, task).await;
 }

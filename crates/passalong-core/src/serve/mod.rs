@@ -3,7 +3,8 @@
 //!
 //! Three tasks cooperate:
 //!
-//! - the clipboard watcher polls the clipboard and queues new text;
+//! - the clipboard watcher polls the clipboard and queues new text, or a
+//!   new image when it holds no text;
 //! - the drop watcher scans the drop folder whenever the operating system
 //!   reports a change, and at least every `rescan_interval` in case events
 //!   are missed, queueing each file once it has stopped changing;
@@ -22,7 +23,7 @@ use std::time::Duration;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::{Instant, MissedTickBehavior};
 
-use crate::clipboard::Clipboard;
+use crate::clipboard::{Clipboard, ClipboardError, RgbaImage};
 use crate::config::{AfterSend, Config};
 use crate::store::{BackendFuture, StoreError};
 
@@ -46,6 +47,8 @@ pub enum Job {
     Text(String),
     /// A file in the drop folder.
     File(PathBuf),
+    /// A clipboard image.
+    Image(RgbaImage),
 }
 
 /// How `serve` behaves; normally built with [`ServeOptions::from_config`].
@@ -63,6 +66,8 @@ pub struct ServeOptions {
     pub after_send: AfterSend,
     /// Device name recorded on sent items.
     pub device: String,
+    /// Whether clipboard images are sent too.
+    pub clipboard_images: bool,
 }
 
 impl ServeOptions {
@@ -76,6 +81,7 @@ impl ServeOptions {
             rescan_interval: DEFAULT_RESCAN_INTERVAL,
             after_send: config.serve.after_send,
             device: config.client.device_name.clone(),
+            clipboard_images: config.serve.clipboard_images,
         }
     }
 }
@@ -159,6 +165,7 @@ pub async fn run_with_ready(
         Some(clipboard) => tasks.push(tokio::spawn(clipboard_loop(
             clipboard,
             options.clipboard_poll_interval,
+            options.clipboard_images,
             jobs_tx.clone(),
             shutdown.clone(),
         ))),
@@ -195,7 +202,7 @@ pub async fn run_with_ready(
                 Some(job) => {
                     let file = match &job {
                         Job::File(path) => Some(path.clone()),
-                        Job::Text(_) => None,
+                        Job::Text(_) | Job::Image(_) => None,
                     };
                     if uploader.handle(job, &mut shutdown).await == JobOutcome::Skipped
                         && let Some(path) = file
@@ -225,6 +232,7 @@ pub(crate) async fn stopped(shutdown: &mut watch::Receiver<bool>) {
 async fn clipboard_loop(
     mut clipboard: Box<dyn Clipboard>,
     interval: Duration,
+    images: bool,
     jobs: mpsc::Sender<Job>,
     mut shutdown: watch::Receiver<bool>,
 ) {
@@ -238,12 +246,37 @@ async fn clipboard_loop(
             () = stopped(&mut shutdown) => return,
             _ = ticker.tick() => {}
         }
-        match clipboard.read_text() {
-            Ok(text) => {
+        // Clipboard access can block, and images can be large, so it runs
+        // on a blocking thread.
+        let read = tokio::task::spawn_blocking(move || {
+            let result = read_clipboard(clipboard.as_mut(), images);
+            (clipboard, result)
+        });
+        let result = match read.await {
+            Ok((back, result)) => {
+                clipboard = back;
+                result
+            }
+            Err(err) => {
+                tracing::warn!(error = %err, "the clipboard reader stopped");
+                return;
+            }
+        };
+        match result {
+            Ok((text, image)) => {
                 last_error = None;
                 if let Some(text) = watcher.observe(text) {
                     tracing::debug!(size = text.len() as u64, "new clipboard text");
                     if jobs.send(Job::Text(text)).await.is_err() {
+                        return;
+                    }
+                } else if let Some(image) = watcher.observe_image(image) {
+                    tracing::debug!(
+                        width = image.width(),
+                        height = image.height(),
+                        "new clipboard image"
+                    );
+                    if jobs.send(Job::Image(image)).await.is_err() {
                         return;
                     }
                 }
@@ -257,6 +290,22 @@ async fn clipboard_loop(
             }
         }
     }
+}
+
+/// Reads the clipboard's text and, when it holds no text and `images` is
+/// on, its image.
+fn read_clipboard(
+    clipboard: &mut dyn Clipboard,
+    images: bool,
+) -> Result<(Option<String>, Option<RgbaImage>), ClipboardError> {
+    let text = clipboard.read_text()?;
+    let has_text = text.as_deref().is_some_and(|text| !text.trim().is_empty());
+    let image = if images && !has_text {
+        clipboard.read_image()?
+    } else {
+        None
+    };
+    Ok((text, image))
 }
 
 async fn drop_loop(
@@ -323,6 +372,7 @@ mod tests {
                 rescan_interval: Duration::from_secs(5),
                 after_send: AfterSend::Delete,
                 device: "lap".into(),
+                clipboard_images: true,
             }
         );
     }

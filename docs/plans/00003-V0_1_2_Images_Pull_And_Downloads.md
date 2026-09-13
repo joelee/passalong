@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00003-v0.1.2"
 execution_started_at: "2026-09-12T23:55:51Z"
-execution_updated_at: "2026-09-13T00:28:00Z"
+execution_updated_at: "2026-09-13T00:32:20Z"
 execution_completed_at: null
-current_step: "PLAN-00003-STEP-08"
+current_step: "PLAN-00003-STEP-09"
 ---
 
 # Delivery Plan 00003: V0 1 2 Images Pull And Downloads
@@ -912,7 +912,7 @@ run at STEP-01, STEP-09, STEP-10, and STEP-14.
 | PLAN-00003-STEP-05 | completed | 2026-09-13T00:12:12Z | 2026-09-13T00:17:05Z | Commit `build: complete PLAN-00003-STEP-05 - Interactive disambiguation`; `just check` green, 92.90% lines | AC-06. load and cat take a Lookup (input plus optional chooser); delete takes an optional chooser; app.rs builds one from TerminalPrompt and standard error. TerminalPrompt is interactive only when standard input and standard error are terminals (REQ-05), which also applies to prune and init |
 | PLAN-00003-STEP-06 | completed | 2026-09-13T00:17:05Z | 2026-09-13T00:23:24Z | Commit `build: complete PLAN-00003-STEP-06 - Image items, PNG codec, clipboard image access`; `just check` green, 92.14% lines | AC-07, AC-08 (model part). desktop_image_round_trip (ignored) runs under Xvfb in CI (STEP-12). png 0.18.1 and arboard image-data added; audit passes; architecture meta.json table documents origin |
 | PLAN-00003-STEP-07 | completed | 2026-09-13T00:23:24Z | 2026-09-13T00:28:00Z | Commit `build: complete PLAN-00003-STEP-07 - Images in clipboard, load, cat, and list`; `just check` green, 92.19% lines | AC-08 (list part), AC-09, AC-10. desktop_loaded_image_survives_load_exiting (ignored, Linux) runs under Xvfb in STEP-12. The hidden __hold-clipboard --image holds a PNG read from standard input |
-| PLAN-00003-STEP-08 | not-started | — | — | — | — |
+| PLAN-00003-STEP-08 | completed | 2026-09-13T00:28:00Z | 2026-09-13T00:32:20Z | Commit `build: complete PLAN-00003-STEP-08 - serve sends clipboard images`; `just check` green, 92.30% lines | AC-11. Clipboard reads now run on spawn_blocking, the clipboard moving in and out of the blocking task each poll; images are read only when there is no text |
 | PLAN-00003-STEP-09 | not-started | — | — | — | — |
 | PLAN-00003-STEP-10 | not-started | — | — | — | — |
 | PLAN-00003-STEP-11 | not-started | — | — | — | — |
@@ -942,6 +942,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T00:23:24Z | PLAN-00003-STEP-06 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-06 - Image items, PNG codec, clipboard image access` | Begin PLAN-00003-STEP-07 |
 | 2026-09-13T00:23:24Z | PLAN-00003-STEP-07 | Started | — | Red phase |
 | 2026-09-13T00:28:00Z | PLAN-00003-STEP-07 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-07 - Images in clipboard, load, cat, and list` | Begin PLAN-00003-STEP-08 |
+| 2026-09-13T00:28:00Z | PLAN-00003-STEP-08 | Started | — | Red phase |
+| 2026-09-13T00:32:20Z | PLAN-00003-STEP-08 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-08 - serve sends clipboard images` | Begin PLAN-00003-STEP-09 |
 
 ### Deviations and blockers
 
@@ -1005,12 +1007,18 @@ None.
 | 2026-09-13T00:28:00Z | PLAN-00003-STEP-07 | `cargo test -p passalong --bin passalong output` | Pass | test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 83 filtered out; finished in 0.00s |
 | 2026-09-13T00:28:00Z | PLAN-00003-STEP-07 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
 | 2026-09-13T00:28:00Z | PLAN-00003-STEP-07 | `just check` | Exit 0 | Lines 92.19% (8357 lines, 653 missed); clipboard.rs 100.00%; clipboard_holder.rs 79.49%; output.rs 100.00% |
+| 2026-09-13T00:28:00Z | PLAN-00003-STEP-08 | Red: `cargo test -p passalong-core` with watcher, uploader, options, and serve_local image tests | Exit 101 (expected) | 10 compile errors: ServeOptions has no field clipboard_images (E0560); no method observe_image (7 x E0599); no variant Job::Image (2 x E0599) |
+| 2026-09-13T00:32:20Z | PLAN-00003-STEP-08 | `cargo test -p passalong-core --all-features` | Exit 0 | watcher reports each new image once (size is part of identity); uploader stores Job::Image as a PNG clipboard image and returns AlreadyPresent for the same image; serve_local: an image is sent once while unchanged, text is preferred over an image, and clipboard_images = false sends no image |
+| 2026-09-13T00:32:20Z | PLAN-00003-STEP-08 | `cargo test -p passalong-core --all-features --lib serve` | Pass | test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 132 filtered out; finished in 0.00s |
+| 2026-09-13T00:32:20Z | PLAN-00003-STEP-08 | `cargo test -p passalong-core --all-features --test serve_local` | Pass | test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.61s |
+| 2026-09-13T00:32:20Z | PLAN-00003-STEP-08 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
+| 2026-09-13T00:32:20Z | PLAN-00003-STEP-08 | `just check` | Exit 0 | Lines 92.30% (8472 lines, 652 missed); clipboard_watcher.rs 100.00%; mod.rs 90.00%; upload.rs 94.64% |
 
 ### Completion summary
 
 - **Implementation status:** `not-started`
-- **Completed requirements:** REQ-01 to REQ-09, REQ-15; REQ-12 (settings)
-- **Incomplete requirements:** REQ-10, REQ-11, REQ-13, REQ-14, REQ-16 to REQ-20
+- **Completed requirements:** REQ-01 to REQ-10, REQ-15; REQ-12 (settings)
+- **Incomplete requirements:** REQ-11, REQ-13, REQ-14, REQ-16 to REQ-20
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

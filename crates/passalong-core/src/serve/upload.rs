@@ -3,9 +3,11 @@
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
+use chrono::Utc;
 use tokio::sync::watch;
 use tracing::Instrument;
 
+use crate::clipboard::{RgbaImage, encode_png};
 use crate::config::AfterSend;
 use crate::model::{ContentHasher, ItemId, NewItem};
 use crate::random::StdRandom;
@@ -120,7 +122,41 @@ impl Uploader {
         match job {
             Job::Text(text) => self.send_text(text).await,
             Job::File(path) => self.send_file(path).await,
+            Job::Image(image) => self.send_image(image).await,
         }
+    }
+
+    async fn send_image(&self, image: &RgbaImage) -> Result<JobOutcome, Failure> {
+        let png =
+            encode_png(image).map_err(|err| Failure::Local(format!("clipboard image: {err}")))?;
+        // An image that `load` or pull mode just put on the clipboard is
+        // already stored; checking first avoids uploading it again.
+        let mut hasher = ContentHasher::new();
+        hasher.update(&png);
+        let key = hasher.finalize().content_key();
+        if let Some(existing) = self
+            .store
+            .find_by_content_key(&key)
+            .await
+            .map_err(Failure::Store)?
+        {
+            tracing::debug!(id = %existing.id, "clipboard image is already stored");
+            return Ok(JobOutcome::AlreadyPresent);
+        }
+        let outcome = self
+            .store
+            .put(
+                NewItem::clipboard_image(self.device.clone(), Utc::now()),
+                Box::new(Cursor::new(png)),
+            )
+            .await
+            .map_err(Failure::Store)?;
+        tracing::info!(id = %outcome.meta.id, size = outcome.meta.size, "sent clipboard image");
+        Ok(if outcome.created {
+            JobOutcome::Sent(outcome.meta.id)
+        } else {
+            JobOutcome::AlreadyPresent
+        })
     }
 
     async fn send_text(&self, text: &str) -> Result<JobOutcome, Failure> {
@@ -484,5 +520,32 @@ mod tests {
         assert!(matches!(outcome, JobOutcome::Abandoned), "{outcome:?}");
         drop(stopper.await.unwrap());
         assert!(rig.items().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn clipboard_images_are_stored_as_png_once() {
+        use crate::clipboard::{RgbaImage, decode_png};
+        use tokio::io::AsyncReadExt;
+        let rig = Rig::new(0);
+        let mut uploader = rig.uploader(AfterSend::Move);
+        let (_tx, mut rx) = quiet();
+        let image = RgbaImage::new(2, 1, vec![1, 2, 3, 255, 4, 5, 6, 255]).unwrap();
+        let id = match uploader.handle(Job::Image(image.clone()), &mut rx).await {
+            JobOutcome::Sent(id) => id,
+            other => panic!("unexpected {other:?}"),
+        };
+        let items = rig.items().await;
+        assert_eq!(items.len(), 1);
+        assert!(items[0].is_clipboard_image());
+        assert_eq!(items[0].device, "box");
+        let (_, mut content) = rig.flaky().get(&id).await.unwrap();
+        let mut png = Vec::new();
+        content.read_to_end(&mut png).await.unwrap();
+        assert_eq!(decode_png(&png).unwrap(), image);
+        assert_eq!(
+            uploader.handle(Job::Image(image), &mut rx).await,
+            JobOutcome::AlreadyPresent
+        );
+        assert_eq!(rig.puts.load(Ordering::SeqCst), 1);
     }
 }

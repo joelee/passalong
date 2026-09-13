@@ -37,6 +37,9 @@ All notable changes to this project are documented here. The format follows
   a destination), `cat` prints the PNG, and `list` shows kind `image`.
   Images are stored as PNG files, so older clients see ordinary files
   (PLAN-00003 STEP-06 and STEP-07).
+- `serve` also sends clipboard images, reading one only when the clipboard
+  holds no text and sending it once while it is unchanged; set
+  `serve.clipboard_images = false` to turn this off (PLAN-00003 STEP-08).
 
 ### Changed
 

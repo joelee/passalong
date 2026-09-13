@@ -169,6 +169,10 @@ that lists the candidates.
 
 - **Clipboard watcher.** Reads the clipboard every poll interval and queues
   text whose SHA-256 differs from the last text seen. Blank text is ignored.
+  When the clipboard holds no text and `serve.clipboard_images` is on, it
+  reads the image instead and queues it when its pixels differ from the last
+  image seen; the uploader stores it as a PNG clipboard image. Clipboard
+  access runs on a blocking thread, off the async runtime.
 - **Drop watcher.** Scans the drop folder whenever the operating system
   reports a change, and at least every 5 seconds in case events are missed.
   A file is queued once two scans at least `file_stable_wait_ms` apart show

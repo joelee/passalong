@@ -38,6 +38,12 @@ All notable changes to this project are documented here. The format follows
   `client.download_dir` (`~/Downloads` by default) instead of refusing them;
   an existing name is kept and the download is numbered, as in
   `report (1).pdf`, unless `--force` is given (PLAN-00003 STEP-04).
+- `scripts/check-release-tag.sh`, which the release workflow runs before
+  building or publishing, also fails when `CHANGELOG.md` has no section for
+  the version, the release notes are still a draft, or the README still
+  describes the release as being prepared. `AGENTS.md` describes the
+  release workflow step by step, and the README no longer states the release
+  status.
 
 ## v0.1.1 - 2026-09-12T20:00:12Z
 

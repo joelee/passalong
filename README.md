@@ -8,11 +8,10 @@ directory. Every other device pushes clipboard text and files there, lists
 what is stored, and pulls items back. There is no cloud service, no account,
 and no custom server daemon.
 
-> **Status:** v0.1.1 is released. v0.1.2, which adds clipboard images, pull
-> mode, downloads, and `passalong cat`
-> ([Delivery Plan 00003](docs/plans/00003-V0_1_2_Images_Pull_And_Downloads.md)),
-> is being prepared. A GUI, Android, and Windows support are planned for
-> v0.2 and later.
+> **Status:** released versions and their notes are on the
+> [releases page](https://github.com/joelee/passalong/releases), and
+> [CHANGELOG.md](CHANGELOG.md) lists what changed in each. A GUI, Android,
+> and Windows support are planned for v0.2 and later.
 
 ## How it works
 

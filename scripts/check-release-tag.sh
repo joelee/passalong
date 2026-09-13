@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # Fails unless a release tag is exactly `v` followed by the workspace version
-# in Cargo.toml. The release workflow runs it before building or publishing.
+# in Cargo.toml and the release records for it are final: CHANGELOG.md has a
+# `## vX.Y.Z - <UTC timestamp>` section, docs/release/vX.Y.Z.md exists and is
+# not marked as a draft, and README.md has no pre-release wording. The
+# release workflow runs it before building or publishing anything.
 #
 # Usage: scripts/check-release-tag.sh <tag> [path/to/Cargo.toml]
+# The records are looked up next to the given Cargo.toml.
 set -euo pipefail
 
 tag="${1:-}"
@@ -11,6 +15,7 @@ if [ -z "$tag" ]; then
     echo "usage: check-release-tag.sh <tag> [path/to/Cargo.toml]" >&2
     exit 2
 fi
+root="$(cd "$(dirname "$manifest")" && pwd)"
 
 # The first `version = "..."` inside [workspace.package].
 version="$(awk '
@@ -32,4 +37,28 @@ if [ "$tag" != "v$version" ]; then
     echo "error: tag $tag does not match the workspace version $version" >&2
     exit 1
 fi
-echo "tag $tag matches the workspace version"
+
+# Every unfinished record is reported before giving up.
+problems=0
+fail() {
+    echo "error: $*" >&2
+    problems=1
+}
+if ! grep -Eq "^## ${tag//./\\.} - " "$root/CHANGELOG.md" 2>/dev/null; then
+    fail "CHANGELOG.md has no \"## $tag - <UTC timestamp>\" section; rename Unreleased when finalising the release"
+fi
+notes="$root/docs/release/$tag.md"
+if [ ! -f "$notes" ]; then
+    fail "docs/release/$tag.md is missing"
+elif grep -Eq '^Draft( |$)' "$notes"; then
+    fail "docs/release/$tag.md is still marked as a draft; remove the draft line when finalising the release"
+fi
+for phrase in "being prepared" "not yet released"; do
+    if grep -iq "$phrase" "$root/README.md" 2>/dev/null; then
+        fail "README.md still says \"$phrase\"; remove pre-release wording when finalising the release"
+    fi
+done
+if [ "$problems" -ne 0 ]; then
+    exit 1
+fi
+echo "tag $tag matches the workspace version and the release records are final"

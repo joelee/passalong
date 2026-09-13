@@ -152,25 +152,36 @@ installs with `cargo install passalong`.
 
 ## Releasing
 
-Releases are cut by pushing a version tag; `.github/workflows/release.yml`
-does the rest.
+The steps, and who does each, are in the "Release workflow" section of
+`AGENTS.md`. In short:
 
-1. On a branch, set the new version in `[workspace.package]` and the
-   internal `version = "=X.Y.Z"` requirements in `Cargo.toml`, move the
-   `CHANGELOG.md` `Unreleased` entries under `## vX.Y.Z - <UTC time>`, and
-   write `docs/release/vX.Y.Z.md`. Merge it to `main`.
-2. Tag the merge commit and push the tag:
+1. The plan's work bumps the version in `[workspace.package]` and the
+   internal `version = "=X.Y.Z"` requirements, and drafts
+   `docs/release/vX.Y.Z.md`.
+2. After the work is approved, one `release: vX.Y.Z - <top feature>` commit
+   moves the `CHANGELOG.md` `Unreleased` entries under
+   `## vX.Y.Z - <UTC time>`, removes the draft line from the release notes,
+   and removes pre-release wording from the README. This command must then
+   pass:
+
+   ```sh
+   scripts/check-release-tag.sh vX.Y.Z
+   ```
+
+3. The branch is merged into `main` through a PR whose CI passes.
+4. The merge commit on `main` is tagged, and the tag is pushed:
 
    ```sh
    git tag -a vX.Y.Z -m "passalong vX.Y.Z"
    git push origin vX.Y.Z
    ```
 
-3. The workflow checks the tag against `Cargo.toml`
-   (`scripts/check-release-tag.sh`), runs `cargo publish --dry-run`, builds
-   Linux x86_64 and macOS arm64 binaries with SHA-256 files, creates the
-   GitHub release from `docs/release/vX.Y.Z.md`, attaches the binaries, and
-   publishes the three crates to crates.io.
+5. The workflow runs `scripts/check-release-tag.sh` again, which fails
+   unless the tag matches the workspace version and the release records are
+   final. It then runs `cargo publish --dry-run`, builds Linux x86_64 and
+   macOS arm64 binaries with SHA-256 files, creates the GitHub release from
+   `docs/release/vX.Y.Z.md`, attaches the binaries, and publishes the three
+   crates to crates.io. Do not create the release by hand.
 
 Publishing needs a crates.io API token with the `publish-new` and
 `publish-update` scopes, stored as the repository secret

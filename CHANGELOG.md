@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `passalong get <ID>` prints an item's metadata without reading its
+  content; `--json` prints the same object as `list --json` (PLAN-00005
+  STEP-04).
 - `-q`/`--quiet`: print nothing but errors and prompts, with logging at
   `error` unless a level is set explicitly; `cat` still prints the item
   (PLAN-00005 STEP-03).

@@ -171,6 +171,20 @@ async fn dispatch(
             };
             commands::cat::run(store.as_ref(), lookup, force, terminal, out).await
         }
+        Command::Get { id, json } => {
+            let store = backends.open(config).await?;
+            let (mut prompt, mut stderr) = (TerminalPrompt, io::stderr());
+            let mut chooser = Chooser {
+                prompt: &mut prompt,
+                err: &mut stderr,
+                now: Utc::now(),
+            };
+            let lookup = Lookup {
+                input: &id,
+                chooser: Some(&mut chooser),
+            };
+            commands::get::run(store.as_ref(), lookup, json, local_offset(), out).await
+        }
         Command::Delete { ids } => {
             let store = backends.open(config).await?;
             let (mut prompt, mut stderr) = (TerminalPrompt, io::stderr());

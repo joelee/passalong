@@ -69,6 +69,56 @@ pub fn render_json(items: &[ItemMeta]) -> anyhow::Result<String> {
     Ok(serde_json::to_string_pretty(items)? + "\n")
 }
 
+/// Renders one item's metadata as aligned `field: value` lines: the name
+/// for files or the preview for text, the origin when there is one, and the
+/// creation time at `offset` beside UTC.
+pub fn render_meta(meta: &ItemMeta, offset: FixedOffset) -> String {
+    let mut fields = vec![
+        ("id", meta.id.to_string()),
+        ("kind", kind_label(meta).to_owned()),
+    ];
+    match (&meta.name, &meta.preview) {
+        (Some(name), _) => fields.push(("name", name.clone())),
+        (None, Some(preview)) => fields.push(("preview", preview.clone())),
+        (None, None) => {}
+    }
+    fields.push(("mime", meta.mime.clone()));
+    fields.push((
+        "size",
+        format!("{} ({} bytes)", human_size(meta.size), meta.size),
+    ));
+    fields.push(("sha256", meta.sha256.clone()));
+    fields.push(("device", meta.device.clone()));
+    // The origin's name as stored in meta.json, such as `clipboard`.
+    if let Some(origin) = meta
+        .origin
+        .as_ref()
+        .and_then(|origin| serde_json::to_value(origin).ok())
+        .and_then(|value| value.as_str().map(str::to_owned))
+    {
+        fields.push(("origin", origin));
+    }
+    fields.push((
+        "created",
+        format!(
+            "{} ({})",
+            meta.created_at
+                .with_timezone(&offset)
+                .format("%Y-%m-%d %H:%M:%S %:z"),
+            meta.created_at.format("%Y-%m-%dT%H:%M:%SZ")
+        ),
+    ));
+    fields
+        .iter()
+        .map(|(label, value)| format!("{:<9}{value}\n", format!("{label}:")))
+        .collect()
+}
+
+/// Renders one item's metadata as a pretty-printed JSON object.
+pub fn render_meta_json(meta: &ItemMeta) -> anyhow::Result<String> {
+    Ok(serde_json::to_string_pretty(meta)? + "\n")
+}
+
 /// Lower-case kind name shown in tables.
 pub fn kind_name(kind: ItemKind) -> &'static str {
     match kind {

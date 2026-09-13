@@ -76,6 +76,14 @@ pub enum Command {
         #[arg(long)]
         force: bool,
     },
+    /// Print an item's metadata.
+    Get {
+        /// The item's id, or at least 4 characters of it.
+        id: String,
+        /// Print JSON instead of one field per line.
+        #[arg(long)]
+        json: bool,
+    },
     /// Keep running: send every new clipboard text and every file dropped
     /// into the drop folder.
     Serve(ServeArgs),
@@ -122,6 +130,7 @@ impl Command {
             Self::List { .. } => "list",
             Self::Load { .. } => "load",
             Self::Cat { .. } => "cat",
+            Self::Get { .. } => "get",
             Self::Serve(_) => "serve",
             Self::Delete { .. } => "delete",
             Self::Prune { .. } => "prune",
@@ -368,6 +377,21 @@ mod tests {
             }
         );
         assert!(Cli::try_parse_from(["passalong", "cat"]).is_err());
+        assert_eq!(
+            parse(&["get", "2cf2"]).command,
+            Command::Get {
+                id: "2cf2".into(),
+                json: false
+            }
+        );
+        assert_eq!(
+            parse(&["get", "2cf2", "--json"]).command,
+            Command::Get {
+                id: "2cf2".into(),
+                json: true
+            }
+        );
+        assert!(Cli::try_parse_from(["passalong", "get"]).is_err());
     }
 
     #[test]
@@ -416,6 +440,10 @@ mod tests {
                 id: "x".into(),
                 force: false,
             },
+            Command::Get {
+                id: "x".into(),
+                json: false,
+            },
             Command::Serve(ServeArgs::default()),
             Command::Delete { ids: vec![] },
             Command::Init(InitArgs::default()),
@@ -437,6 +465,7 @@ mod tests {
                 "list",
                 "load",
                 "cat",
+                "get",
                 "serve",
                 "delete",
                 "init",

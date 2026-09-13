@@ -73,6 +73,7 @@ flowchart LR
 | `passalong list` | List stored items, newest first (`--json` for scripts) |
 | `passalong load <id> [dest]` | Copy an item to `dest`; without `dest`, text goes to the clipboard and files to `~/Downloads` |
 | `passalong cat <id>` | Print an item to standard output |
+| `passalong get <id>` | Print an item's metadata (`--json` for scripts) |
 | `passalong serve` | Keep running, sending every new clipboard text and every file dropped into the drop folder (`--daemon`, `--status`, `--stop`) |
 | `passalong delete <id>...` | Delete items |
 | `passalong prune` | Delete items older than `--older-than`, keeping the newest `--keep` |

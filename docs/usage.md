@@ -198,6 +198,30 @@ error: item 8f3a9c0d-... is binary (application/pdf); redirect the output or use
 |---|---|
 | `--force` | Print a binary item to the terminal anyway |
 
+## `passalong get <ID>`
+
+Prints an item's metadata, one field per line, without reading its
+content:
+
+```text
+id:      6aa52107-2cf24dba5fb0
+kind:    file
+name:    report.pdf
+mime:    application/pdf
+size:    1.5 KiB (1536 bytes)
+sha256:  2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
+device:  laptop
+created: 2026-09-12 11:53:11 +02:00 (2026-09-12T09:53:11Z)
+```
+
+Text items show a `preview` line instead of `name`. Clipboard images have
+kind `image` and an `origin: clipboard` line. The creation time is shown in
+local time and in UTC. The id works as for `load`.
+
+| Option | Meaning |
+|---|---|
+| `--json` | Print the metadata as a JSON object, the same as the item's entry in `list --json` |
+
 ## `passalong delete <ID>...`
 
 Deletes items from the store and prints each deleted id. Each `ID` is a full

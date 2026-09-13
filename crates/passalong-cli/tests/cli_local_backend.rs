@@ -373,6 +373,43 @@ async fn cat_adds_nothing_to_stderr_unless_verbose() {
 }
 
 #[tokio::test]
+async fn get_prints_an_items_metadata_as_fields_or_json() {
+    let sb = Sandbox::new();
+    let metas = sb.seed(&["hello"]).await;
+    let id = metas[0].id.as_str();
+    sb.with_config()
+        .args(["get", &id[9..15]])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::starts_with(format!("id:      {id}\n"))
+                .and(predicate::str::contains("preview: hello\n")),
+        )
+        .stderr("");
+    let out = sb
+        .with_config()
+        .args(["get", id, "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(json["id"], id);
+    sb.with_config()
+        .args(["--quiet", "get", id])
+        .assert()
+        .success()
+        .stdout("")
+        .stderr("");
+    sb.with_config()
+        .args(["get", "ffff"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("no item matches `ffff`"));
+}
+
+#[tokio::test]
 async fn quiet_prints_nothing_but_errors_and_cat_output() {
     let sb = Sandbox::new();
     let metas = sb.seed(&["one", "two", "three"]).await;

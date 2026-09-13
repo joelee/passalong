@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00005-v0.1.4"
 execution_started_at: "2026-09-13T20:51:24Z"
-execution_updated_at: "2026-09-13T21:02:47Z"
+execution_updated_at: "2026-09-13T21:06:03Z"
 execution_completed_at: null
-current_step: "PLAN-00005-STEP-04"
+current_step: "PLAN-00005-STEP-05"
 ---
 
 # Delivery Plan 00005: V0 1 4 Service Check Get Quiet
@@ -740,7 +740,7 @@ macOS through CI's `just check`.
 | PLAN-00005-STEP-01 | completed | 2026-09-13T20:51:24Z | 2026-09-13T20:52:56Z | Commit `build: complete PLAN-00005-STEP-01 - Quiet Release workflow`; `just check` green, 91.92% lines | AC-01; AC-02 is checked on the v0.1.4 Release run. release.yml verify and crates jobs end with an if: always() `rm -rf target/package` step; publish-dry-run removes target/package; artifact actions moved to their Node.js 24 majors; .github/dependabot.yml monthly github-actions. Architecture release pipeline now lists crates.io before the GitHub release, as the workflow does since v0.1.2 |
 | PLAN-00005-STEP-02 | completed | 2026-09-13T20:53:05Z | 2026-09-13T20:57:46Z | Commit `build: complete PLAN-00005-STEP-02 - Working links and the Mermaid diagram`; `just check` green, 91.93% lines | AC-03, AC-04; AC-05 rendering is checked on the pushed branch in STEP-08. README relative links now absolute on main (blob/main, tree/main/docs/service); #server-setup anchor kept. check-links.sh also verifies links to this repository on main name existing paths and headings, which keeps the absolute README links honest. Mermaid flowchart replaces the ASCII diagram |
 | PLAN-00005-STEP-03 | completed | 2026-09-13T20:58:01Z | 2026-09-13T21:02:47Z | Commit `build: complete PLAN-00005-STEP-03 - cat without a log line, and --quiet`; `just check` green, 92.07% lines | AC-06; AC-07 for the existing commands (get, check, install-service follow in STEP-04 to 06). Level order lives in the CLI (app::resolve_level: flag, PASSALONG_LOG_LEVEL, error under --quiet, client.log_level, info), used by init too; core effective_log_level is unchanged. Prompt::show puts init fingerprint and prune list on stderr only when quiet and a question follows. serve --daemon already passes the effective level to its child, so no change was needed there |
-| PLAN-00005-STEP-04 | not-started | — | — | — | — |
+| PLAN-00005-STEP-04 | completed | 2026-09-13T21:03:00Z | 2026-09-13T21:06:03Z | Commit `build: complete PLAN-00005-STEP-04 - passalong get <ID>`; `just check` green, 92.23% lines | AC-08; get covered by AC-07 --quiet. Renderers output::render_meta and render_meta_json; the origin line uses the stored serde name. Usage section, README command row, and CHANGELOG added here rather than in STEP-07 |
 | PLAN-00005-STEP-05 | not-started | — | — | — | — |
 | PLAN-00005-STEP-06 | not-started | — | — | — | — |
 | PLAN-00005-STEP-07 | not-started | — | — | — | — |
@@ -760,6 +760,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T20:57:46Z | PLAN-00005-STEP-02 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00005-STEP-02 - Working links and the Mermaid diagram` | Begin PLAN-00005-STEP-03 |
 | 2026-09-13T20:58:01Z | PLAN-00005-STEP-03 | Started | — | Red phase |
 | 2026-09-13T21:02:47Z | PLAN-00005-STEP-03 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00005-STEP-03 - cat without a log line, and --quiet` | Begin PLAN-00005-STEP-04 |
+| 2026-09-13T21:03:00Z | PLAN-00005-STEP-04 | Started | — | Red phase |
+| 2026-09-13T21:06:03Z | PLAN-00005-STEP-04 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00005-STEP-04 - passalong get <ID>` | Begin PLAN-00005-STEP-05 |
 
 ### Deviations and blockers
 
@@ -786,6 +788,9 @@ None.
 | 2026-09-13T21:02:47Z | PLAN-00005-STEP-03 | Red: `cargo test -p passalong --no-run`; `cargo test -p passalong --test cli_local_backend -- cat_adds_nothing quiet_prints` | Exit 101 (expected) | unit tests: E0609 no field quiet on Cli (4), E0425 resolve_level (3), E0560 InitDeps/PruneOptions quiet (5), E0599 show/shown (7); binary: --quiet rejected as unexpected argument; cat stderr had the info "item printed" line |
 | 2026-09-13T21:02:47Z | PLAN-00005-STEP-03 | `cargo test -p passalong` | Pass | 100 unit tests (quiet_is_a_global_flag, quiet_lowers_the_level_unless_one_is_given_explicitly, scripted_prompt_records_what_it_shows, quiet_still_shows_the_fingerprint_before_asking, quiet_still_shows_the_list_before_asking); 26 binary tests incl. cat_adds_nothing_to_stderr_unless_verbose and quiet_prints_nothing_but_errors_and_cat_output (list, clipboard --stdin, file, load <id> <dest>, cat, delete, prune --yes, serve --status exit 3, error exit 1, --log-level and PASSALONG_LOG_LEVEL override) |
 | 2026-09-13T21:02:47Z | PLAN-00005-STEP-03 | `just check` | Exit 0 | Lines 92.07% |
+| 2026-09-13T21:06:03Z | PLAN-00005-STEP-04 | Red: `cargo test -p passalong --no-run` with the get tests and subcommand | Exit 101 (expected) | E0425 cannot find function run (3); E0004 Command::Get not covered in dispatch |
+| 2026-09-13T21:06:03Z | PLAN-00005-STEP-04 | `cargo test -p passalong` | Pass | 106 unit tests: text fields and preview, file name and image origin, local time beside UTC, --json equals the list --json entry, prefix and unknown id, one OpenRead (meta.json only, never content, FaultyFs counter); 27 binary tests incl. get_prints_an_items_metadata_as_fields_or_json (fields, --json, --quiet silent, unknown id exit 1) |
+| 2026-09-13T21:06:03Z | PLAN-00005-STEP-04 | `just check` | Exit 0 | Lines 92.23% (first run failed on an unused test import, removed) |
 
 ### Completion summary
 

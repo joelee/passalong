@@ -6,6 +6,7 @@ pub mod cat;
 pub mod clipboard;
 pub mod delete;
 pub mod file;
+pub mod get;
 pub mod init;
 pub mod list;
 pub mod load;

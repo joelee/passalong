@@ -40,6 +40,10 @@ All notable changes to this project are documented here. The format follows
   because the `rsa` crate has an unfixed timing side channel
   (RUSTSEC-2023-0071). Ed25519 and ECDSA keys work in every build
   (PLAN-00003 STEP-01).
+- `passalong load <ID>` without a destination downloads file items into
+  `client.download_dir` (`~/Downloads` by default) instead of refusing them;
+  an existing name is kept and the download is numbered, as in
+  `report (1).pdf`, unless `--force` is given (PLAN-00003 STEP-04).
 
 ### Fixed
 

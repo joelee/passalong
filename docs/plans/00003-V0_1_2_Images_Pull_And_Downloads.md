@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00003-v0.1.2"
 execution_started_at: "2026-09-12T23:55:51Z"
-execution_updated_at: "2026-09-13T00:07:52Z"
+execution_updated_at: "2026-09-13T00:12:12Z"
 execution_completed_at: null
-current_step: "PLAN-00003-STEP-04"
+current_step: "PLAN-00003-STEP-05"
 ---
 
 # Delivery Plan 00003: V0 1 2 Images Pull And Downloads
@@ -908,7 +908,7 @@ run at STEP-01, STEP-09, STEP-10, and STEP-14.
 | PLAN-00003-STEP-01 | completed | 2026-09-12T23:56:44Z | 2026-09-13T00:02:03Z | Commit `build: complete PLAN-00003-STEP-01 - RSA support per D-06`; `just check` green, 92.44% lines | AC-16: default build has no rsa crate; deny.toml has no advisory ignore and audits default features; RSA identity file and ssh-rsa host key fail with the feature message; RSA Docker login passes with --features rsa |
 | PLAN-00003-STEP-02 | completed | 2026-09-13T00:02:03Z | 2026-09-13T00:04:58Z | Commit `build: complete PLAN-00003-STEP-02 - New settings`; `just check` green, 92.53% lines | AC-04. Keys documented in docs/configuration.md and config.sample.toml; init output unchanged. STEP-01 audit evidence row corrected (the finisher had recorded a dependency-tree line) |
 | PLAN-00003-STEP-03 | completed | 2026-09-13T00:04:59Z | 2026-09-13T00:07:52Z | Commit `build: complete PLAN-00003-STEP-03 - passalong cat`; `just check` green, 92.62% lines | AC-01, AC-02, AC-03. Docs: usage section, README command row, CHANGELOG |
-| PLAN-00003-STEP-04 | not-started | — | — | — | — |
+| PLAN-00003-STEP-04 | completed | 2026-09-13T00:07:52Z | 2026-09-13T00:12:12Z | Commit `build: complete PLAN-00003-STEP-04 - Downloads for load`; `just check` green, 92.75% lines | AC-05. Verified writing moved from commands/load.rs to passalong_core::download for reuse by pull mode; load keeps its explicit-DEST behaviour and messages |
 | PLAN-00003-STEP-05 | not-started | — | — | — | — |
 | PLAN-00003-STEP-06 | not-started | — | — | — | — |
 | PLAN-00003-STEP-07 | not-started | — | — | — | — |
@@ -934,6 +934,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T00:04:58Z | PLAN-00003-STEP-02 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-02 - New settings` | Begin PLAN-00003-STEP-03 |
 | 2026-09-13T00:04:59Z | PLAN-00003-STEP-03 | Started | — | Red phase |
 | 2026-09-13T00:07:52Z | PLAN-00003-STEP-03 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-03 - passalong cat` | Begin PLAN-00003-STEP-04 |
+| 2026-09-13T00:07:52Z | PLAN-00003-STEP-04 | Started | — | Red phase |
+| 2026-09-13T00:12:12Z | PLAN-00003-STEP-04 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-04 - Downloads for load` | Begin PLAN-00003-STEP-05 |
 
 ### Deviations and blockers
 
@@ -968,12 +970,19 @@ None.
 | 2026-09-13T00:07:52Z | PLAN-00003-STEP-03 | `cargo test -p passalong --bin passalong cat` | Pass | test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 68 filtered out; finished in 0.01s |
 | 2026-09-13T00:07:52Z | PLAN-00003-STEP-03 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
 | 2026-09-13T00:07:52Z | PLAN-00003-STEP-03 | `just check` | Exit 0 | Lines 92.62% (7266 lines, 536 missed); cat.rs 96.53% |
+| 2026-09-13T00:07:52Z | PLAN-00003-STEP-04 | Red: `cargo test -p passalong-core --lib download` and `cargo test -p passalong` | Exit 101 (expected) | core: E0425 numbered_name, free_target, write_verified, MAX_NUMBERED_NAMES not found; CLI: E0061 load::run takes 6 arguments but 7 were supplied |
+| 2026-09-13T00:12:12Z | PLAN-00003-STEP-04 | `cargo test -p passalong-core --lib download` | Exit 0 | 7 passed: numbered names (report (1).pdf, archive.tar (2).gz, README (3), .bashrc (1), trailing. (1)), free names skip existing files, the 999 limit, verified writes keep the target and leave no part file on a mismatch |
+| 2026-09-13T00:12:12Z | PLAN-00003-STEP-04 | `cargo test -p passalong` | Exit 0 | 76 unit and 23 binary tests: files without a destination go to the download directory (created), downloads are numbered unless --force; load_without_a_destination_downloads_files_into_downloads (sandbox ~/Downloads) |
+| 2026-09-13T00:12:12Z | PLAN-00003-STEP-04 | `cargo test -p passalong-core --lib download` | Pass | test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 139 filtered out; finished in 0.01s |
+| 2026-09-13T00:12:12Z | PLAN-00003-STEP-04 | `cargo test -p passalong --bin passalong load` | Pass | test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 64 filtered out; finished in 0.02s |
+| 2026-09-13T00:12:12Z | PLAN-00003-STEP-04 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
+| 2026-09-13T00:12:12Z | PLAN-00003-STEP-04 | `just check` | Exit 0 | Lines 92.75% (7437 lines, 539 missed); download.rs 96.47%; load.rs 98.78% |
 
 ### Completion summary
 
 - **Implementation status:** `not-started`
-- **Completed requirements:** REQ-01, REQ-02, REQ-03, REQ-15; REQ-12 (settings)
-- **Incomplete requirements:** REQ-04 to REQ-11, REQ-13, REQ-14, REQ-16 to REQ-20
+- **Completed requirements:** REQ-01 to REQ-04, REQ-15; REQ-12 (settings)
+- **Incomplete requirements:** REQ-05 to REQ-11, REQ-13, REQ-14, REQ-16 to REQ-20
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

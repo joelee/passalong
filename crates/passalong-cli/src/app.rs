@@ -155,6 +155,7 @@ async fn dispatch(
                 &id,
                 dest.as_deref(),
                 force,
+                &config.client.download_dir,
                 &mut open_clipboard,
                 out,
             )

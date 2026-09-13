@@ -65,7 +65,7 @@ and no custom server daemon.
 | `passalong clipboard` | Send the current clipboard text (`--stdin` reads standard input instead) |
 | `passalong file <path>` | Send a file |
 | `passalong list` | List stored items, newest first (`--json` for scripts) |
-| `passalong load <id> [dest]` | Copy an item to `dest`, or to the clipboard when `dest` is omitted |
+| `passalong load <id> [dest]` | Copy an item to `dest`; without `dest`, text goes to the clipboard and files to `~/Downloads` |
 | `passalong cat <id>` | Print an item to standard output |
 | `passalong serve` | Keep running, sending every new clipboard text and every file dropped into the drop folder (`--daemon`, `--status`, `--stop`) |
 | `passalong delete <id>...` | Delete items |

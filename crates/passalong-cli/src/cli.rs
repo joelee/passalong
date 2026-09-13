@@ -52,7 +52,8 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Copy an item to DEST, or to the clipboard when DEST is omitted.
+    /// Copy an item to DEST. Without DEST, text goes to the clipboard and
+    /// files to the download directory.
     Load {
         /// The item's id, or at least 4 characters of it.
         id: String,

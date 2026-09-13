@@ -124,7 +124,7 @@ full id when it contains a `-`.
 
 | Form | Result |
 |---|---|
-| `passalong load 2cf2` | Text items go to the clipboard. File items are refused with `destination required for file items`. |
+| `passalong load 2cf2` | Text items go to the clipboard. File items are downloaded into `client.download_dir` (`~/Downloads` by default), which is created if missing. |
 | `passalong load 2cf2 ~/Downloads` | Into an existing directory, under the item's file name, or `<id>.txt` for text. |
 | `passalong load 2cf2 ./copy.pdf` | To exactly that file. |
 
@@ -135,6 +135,10 @@ SHA-256 first, so a corrupted or truncated download never replaces
 anything. File names stored on the server are reduced to their last
 component, so a name like `../../etc/passwd` is written as `passwd` inside
 the destination directory.
+
+A download into `client.download_dir` never replaces a file: if the name is
+taken, `load` writes `report (1).pdf`, then `report (2).pdf`, and so on, and
+prints the name it used. `--force` overwrites the original name instead.
 
 A prefix that matches several items is refused, and the error lists them.
 

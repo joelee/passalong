@@ -9,6 +9,7 @@
 pub mod clipboard;
 pub mod clock;
 pub mod config;
+pub mod download;
 pub mod fs;
 pub mod model;
 pub mod random;

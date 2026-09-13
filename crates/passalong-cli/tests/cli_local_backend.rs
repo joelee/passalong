@@ -355,6 +355,22 @@ async fn cat_prints_text_and_file_items_exactly() {
 }
 
 #[test]
+fn load_without_a_destination_downloads_files_into_downloads() {
+    let sb = Sandbox::new();
+    let source = sb.path("work/notes.pdf");
+    std::fs::write(&source, b"%PDF-1.7").unwrap();
+    let out = sb.with_config().arg("file").arg(&source).assert().success();
+    let id = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    let target = sb.path("home/Downloads/notes.pdf");
+    sb.with_config()
+        .args(["load", id.trim()])
+        .assert()
+        .success()
+        .stdout(format!("{}\n", target.display()));
+    assert_eq!(std::fs::read(&target).unwrap(), b"%PDF-1.7");
+}
+
+#[test]
 fn loading_an_unknown_id_fails() {
     let sb = Sandbox::new();
     sb.with_config()

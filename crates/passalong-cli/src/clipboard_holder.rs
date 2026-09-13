@@ -136,6 +136,8 @@ mod tests {
             meta.id.as_str(),
             None,
             false,
+            // Text goes to the clipboard; the download directory is not used.
+            std::path::Path::new("/unused-downloads"),
             &mut open,
             &mut Vec::new(),
         )

@@ -187,4 +187,28 @@ mod tests {
         assert!(result.unwrap_err().to_string().contains("no item matches"));
         assert!(out.is_empty());
     }
+
+    #[tokio::test]
+    async fn images_print_as_png_bytes_but_not_on_a_terminal() {
+        use crate::commands::support::T;
+        use passalong_core::clipboard::{RgbaImage, encode_png};
+        let ts = TestStore::new();
+        let png = encode_png(&RgbaImage::new(1, 1, vec![9, 9, 9, 255]).unwrap()).unwrap();
+        let meta = put(
+            &ts,
+            NewItem::clipboard_image("box", T.parse().unwrap()),
+            &png,
+        )
+        .await;
+        let (result, out) = cat(&ts, meta.id.as_str(), false, false).await;
+        result.unwrap();
+        assert_eq!(out, png);
+        let (result, _) = cat(&ts, meta.id.as_str(), false, true).await;
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("is binary (image/png)")
+        );
+    }
 }

@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00003-v0.1.2"
 execution_started_at: "2026-09-12T23:55:51Z"
-execution_updated_at: "2026-09-13T00:23:24Z"
+execution_updated_at: "2026-09-13T00:28:00Z"
 execution_completed_at: null
-current_step: "PLAN-00003-STEP-07"
+current_step: "PLAN-00003-STEP-08"
 ---
 
 # Delivery Plan 00003: V0 1 2 Images Pull And Downloads
@@ -911,7 +911,7 @@ run at STEP-01, STEP-09, STEP-10, and STEP-14.
 | PLAN-00003-STEP-04 | completed | 2026-09-13T00:07:52Z | 2026-09-13T00:12:12Z | Commit `build: complete PLAN-00003-STEP-04 - Downloads for load`; `just check` green, 92.75% lines | AC-05. Verified writing moved from commands/load.rs to passalong_core::download for reuse by pull mode; load keeps its explicit-DEST behaviour and messages |
 | PLAN-00003-STEP-05 | completed | 2026-09-13T00:12:12Z | 2026-09-13T00:17:05Z | Commit `build: complete PLAN-00003-STEP-05 - Interactive disambiguation`; `just check` green, 92.90% lines | AC-06. load and cat take a Lookup (input plus optional chooser); delete takes an optional chooser; app.rs builds one from TerminalPrompt and standard error. TerminalPrompt is interactive only when standard input and standard error are terminals (REQ-05), which also applies to prune and init |
 | PLAN-00003-STEP-06 | completed | 2026-09-13T00:17:05Z | 2026-09-13T00:23:24Z | Commit `build: complete PLAN-00003-STEP-06 - Image items, PNG codec, clipboard image access`; `just check` green, 92.14% lines | AC-07, AC-08 (model part). desktop_image_round_trip (ignored) runs under Xvfb in CI (STEP-12). png 0.18.1 and arboard image-data added; audit passes; architecture meta.json table documents origin |
-| PLAN-00003-STEP-07 | not-started | — | — | — | — |
+| PLAN-00003-STEP-07 | completed | 2026-09-13T00:23:24Z | 2026-09-13T00:28:00Z | Commit `build: complete PLAN-00003-STEP-07 - Images in clipboard, load, cat, and list`; `just check` green, 92.19% lines | AC-08 (list part), AC-09, AC-10. desktop_loaded_image_survives_load_exiting (ignored, Linux) runs under Xvfb in STEP-12. The hidden __hold-clipboard --image holds a PNG read from standard input |
 | PLAN-00003-STEP-08 | not-started | — | — | — | — |
 | PLAN-00003-STEP-09 | not-started | — | — | — | — |
 | PLAN-00003-STEP-10 | not-started | — | — | — | — |
@@ -940,6 +940,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T00:17:05Z | PLAN-00003-STEP-05 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-05 - Interactive disambiguation` | Begin PLAN-00003-STEP-06 |
 | 2026-09-13T00:17:05Z | PLAN-00003-STEP-06 | Started | — | Red phase |
 | 2026-09-13T00:23:24Z | PLAN-00003-STEP-06 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-06 - Image items, PNG codec, clipboard image access` | Begin PLAN-00003-STEP-07 |
+| 2026-09-13T00:23:24Z | PLAN-00003-STEP-07 | Started | — | Red phase |
+| 2026-09-13T00:28:00Z | PLAN-00003-STEP-07 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-07 - Images in clipboard, load, cat, and list` | Begin PLAN-00003-STEP-08 |
 
 ### Deviations and blockers
 
@@ -949,6 +951,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T00:04:58Z | PLAN-00003-STEP-02 | The default `client.download_dir` (`~/Downloads`) is validated before `[serve]`, so with HOME unset the first reported key is now `client.download_dir` instead of `serve.drop_folder`; `tilde_without_home_names_the_key` and the serve options test (which parses without HOME) were updated accordingly. As before, a config without HOME must give absolute paths. | Error names a different key when HOME is unset | None (routine) |
 | 2026-09-13T00:07:52Z | PLAN-00003-STEP-03 | `cat` also ends quietly with exit 0 when the reader closes the pipe (for example `| head`), as `cat` does, instead of reporting a broken pipe; covered by a_closed_pipe_ends_the_output_quietly. | None | None (routine) |
 | 2026-09-13T00:17:05Z | PLAN-00003-STEP-05 | Each candidate line also shows the full id besides D-03's number, kind, name or preview, device, and age, so the user can type more characters of it. | None | None (routine) |
+| 2026-09-13T00:28:00Z | PLAN-00003-STEP-07 | `passalong clipboard` takes the current time to name image items (`clipboard-YYYYMMDD-HHMMSS.png`); the item id comes from the store's clock, so the two can differ by the upload time. | None | None (routine) |
 
 None.
 
@@ -995,12 +998,19 @@ None.
 | 2026-09-13T00:23:24Z | PLAN-00003-STEP-06 | `cargo test -p passalong-core --lib model` | Pass | test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 134 filtered out; finished in 0.00s |
 | 2026-09-13T00:23:24Z | PLAN-00003-STEP-06 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
 | 2026-09-13T00:23:24Z | PLAN-00003-STEP-06 | `just check` | Exit 0 | Lines 92.14% (8134 lines, 639 missed); image.rs 89.81%; model.rs 98.54%; testing.rs 98.08% |
+| 2026-09-13T00:23:24Z | PLAN-00003-STEP-07 | Red: `cargo test -p passalong` with clipboard, load, cat, list, holder, hold-command, and desktop image tests | Exit 101 (expected) | 15 compile errors: 11 x E0061 clipboard::run takes 4 arguments but 5 were supplied; E0407 launch_image is not a member of HolderLauncher; 3 x E0559 variant HoldClipboard has no field image |
+| 2026-09-13T00:28:00Z | PLAN-00003-STEP-07 | `cargo test -p passalong` | Exit 0 | 92 unit and 23 binary tests (2 desktop tests ignored): clipboard sends the image when there is no or only blank text and text wins; load puts clipboard images on the clipboard, writes the PNG with a destination, and downloads PNG files sent as files; cat prints image PNG bytes and refuses them on a terminal; list shows kind image and JSON origin; the holder receives PNG; __hold-clipboard --image parses |
+| 2026-09-13T00:28:00Z | PLAN-00003-STEP-07 | `cargo test -p passalong --bin passalong clipboard` | Pass | test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 77 filtered out; finished in 0.00s |
+| 2026-09-13T00:28:00Z | PLAN-00003-STEP-07 | `cargo test -p passalong --bin passalong load` | Pass | test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 77 filtered out; finished in 0.01s |
+| 2026-09-13T00:28:00Z | PLAN-00003-STEP-07 | `cargo test -p passalong --bin passalong output` | Pass | test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 83 filtered out; finished in 0.00s |
+| 2026-09-13T00:28:00Z | PLAN-00003-STEP-07 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
+| 2026-09-13T00:28:00Z | PLAN-00003-STEP-07 | `just check` | Exit 0 | Lines 92.19% (8357 lines, 653 missed); clipboard.rs 100.00%; clipboard_holder.rs 79.49%; output.rs 100.00% |
 
 ### Completion summary
 
 - **Implementation status:** `not-started`
-- **Completed requirements:** REQ-01 to REQ-05, REQ-07, REQ-15; REQ-06 (model), REQ-12 (settings)
-- **Incomplete requirements:** REQ-06 (list), REQ-08 to REQ-11, REQ-13, REQ-14, REQ-16 to REQ-20
+- **Completed requirements:** REQ-01 to REQ-09, REQ-15; REQ-12 (settings)
+- **Incomplete requirements:** REQ-10, REQ-11, REQ-13, REQ-14, REQ-16 to REQ-20
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

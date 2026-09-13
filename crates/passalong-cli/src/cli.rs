@@ -95,7 +95,11 @@ pub enum Command {
     Init(InitArgs),
     /// Keeps text on the Linux clipboard after `load` exits (internal).
     #[command(name = "__hold-clipboard", hide = true)]
-    HoldClipboard,
+    HoldClipboard {
+        /// Hold an image, read as PNG from standard input, instead of text.
+        #[arg(long)]
+        image: bool,
+    },
     /// Delete items from the store.
     Delete {
         /// The items: full ids, or at least 4 characters of each.
@@ -117,7 +121,7 @@ impl Command {
             Self::Delete { .. } => "delete",
             Self::Prune { .. } => "prune",
             Self::Init(_) => "init",
-            Self::HoldClipboard => "hold-clipboard",
+            Self::HoldClipboard { .. } => "hold-clipboard",
         }
     }
 }
@@ -270,8 +274,18 @@ mod tests {
             .render_help()
             .to_string();
         assert!(!help.contains("daemon-child"), "{help}");
-        assert_eq!(parse(&["__hold-clipboard"]).command, Command::HoldClipboard);
-        assert_eq!(Command::HoldClipboard.name(), "hold-clipboard");
+        assert_eq!(
+            parse(&["__hold-clipboard"]).command,
+            Command::HoldClipboard { image: false }
+        );
+        assert_eq!(
+            parse(&["__hold-clipboard", "--image"]).command,
+            Command::HoldClipboard { image: true }
+        );
+        assert_eq!(
+            Command::HoldClipboard { image: false }.name(),
+            "hold-clipboard"
+        );
         let top = Cli::command().render_help().to_string();
         assert!(!top.contains("hold-clipboard"), "{top}");
         let init = parse(&[

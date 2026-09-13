@@ -742,3 +742,47 @@ async fn desktop_loaded_text_survives_load_exiting() {
     );
     clipboard.write_text("released").unwrap();
 }
+
+/// Like `desktop_loaded_text_survives_load_exiting`, for a clipboard image.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+#[ignore = "needs a desktop session with a clipboard"]
+async fn desktop_loaded_image_survives_load_exiting() {
+    use passalong_core::clipboard::{ArboardClipboard, Clipboard, RgbaImage, encode_png};
+    let sb = Sandbox::new();
+    let rgba: Vec<u8> = (0..4 * 4 * 4)
+        .map(|i| {
+            if i % 4 == 3 {
+                255
+            } else {
+                (i * 23 % 256) as u8
+            }
+        })
+        .collect();
+    let image = RgbaImage::new(4, 4, rgba).unwrap();
+    let store = FsStore::new(
+        LocalFs::new(sb.path("store")),
+        Arc::new(ManualClock::at("2026-09-12T09:53:11Z")),
+        Box::new(StdRandom::new()),
+    );
+    let png = encode_png(&image).unwrap();
+    let meta = store
+        .put(
+            NewItem::clipboard_image("seed", "2026-09-12T09:53:11Z".parse().unwrap()),
+            Box::new(Cursor::new(png)),
+        )
+        .await
+        .unwrap()
+        .meta;
+    let mut cmd = sb.with_config();
+    for var in ["DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"] {
+        if let Ok(value) = std::env::var(var) {
+            cmd.env(var, value);
+        }
+    }
+    cmd.args(["load", meta.id.as_str()]).assert().success();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let mut clipboard = ArboardClipboard::new().unwrap();
+    assert_eq!(clipboard.read_image().unwrap(), Some(image));
+    clipboard.write_text("released").unwrap();
+}

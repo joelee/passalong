@@ -3,7 +3,8 @@
 use std::io::{Cursor, Read, Write};
 
 use anyhow::Context as _;
-use passalong_core::clipboard::Clipboard;
+use chrono::{DateTime, Utc};
+use passalong_core::clipboard::{Clipboard, encode_png};
 use passalong_core::model::NewItem;
 use passalong_core::store::Store;
 
@@ -15,33 +16,40 @@ pub enum TextSource<'a> {
     Reader(&'a mut dyn Read),
 }
 
-/// Stores the text as a new item and prints its id. Sending text that is
-/// already stored prints the existing item's id.
+/// Stores the clipboard's text, or its image when it holds no text, as a
+/// new item and prints its id. An image is stored as a PNG named after
+/// `now`. Sending content that is already stored prints the existing
+/// item's id.
 pub async fn run(
     store: &dyn Store,
     source: TextSource<'_>,
     device: &str,
+    now: DateTime<Utc>,
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
-    let text = match source {
-        TextSource::Clipboard(clipboard) => clipboard.read_text()?.unwrap_or_default(),
+    let (item, bytes) = match source {
+        TextSource::Clipboard(clipboard) => {
+            let text = clipboard.read_text()?.unwrap_or_default();
+            if !text.trim().is_empty() {
+                (NewItem::text(device), text.into_bytes())
+            } else if let Some(image) = clipboard.read_image()? {
+                (NewItem::clipboard_image(device, now), encode_png(&image)?)
+            } else {
+                anyhow::bail!("clipboard is empty");
+            }
+        }
         TextSource::Reader(reader) => {
             let mut text = String::new();
             reader
                 .read_to_string(&mut text)
                 .context("reading standard input as UTF-8 text")?;
-            text
+            if text.trim().is_empty() {
+                anyhow::bail!("clipboard is empty");
+            }
+            (NewItem::text(device), text.into_bytes())
         }
     };
-    if text.trim().is_empty() {
-        anyhow::bail!("clipboard is empty");
-    }
-    let outcome = store
-        .put(
-            NewItem::text(device),
-            Box::new(Cursor::new(text.into_bytes())),
-        )
-        .await?;
+    let outcome = store.put(item, Box::new(Cursor::new(bytes))).await?;
     writeln!(out, "{}", outcome.meta.id)?;
     Ok(())
 }
@@ -55,6 +63,15 @@ mod tests {
     use passalong_core::testing::MockClipboard;
     use tokio::io::AsyncReadExt;
 
+    fn now() -> chrono::DateTime<chrono::Utc> {
+        crate::commands::support::T.parse().unwrap()
+    }
+
+    fn sample_image() -> passalong_core::clipboard::RgbaImage {
+        passalong_core::clipboard::RgbaImage::new(2, 1, vec![255, 0, 0, 255, 0, 0, 255, 128])
+            .unwrap()
+    }
+
     fn printed_id(out: Vec<u8>) -> String {
         let out = String::from_utf8(out).unwrap();
         let id = out.strip_suffix('\n').expect("one line");
@@ -67,9 +84,15 @@ mod tests {
         let ts = TestStore::new();
         let mut clip = MockClipboard::with_text("hello");
         let mut out = Vec::new();
-        run(&ts.store, TextSource::Clipboard(&mut clip), "box", &mut out)
-            .await
-            .unwrap();
+        run(
+            &ts.store,
+            TextSource::Clipboard(&mut clip),
+            "box",
+            now(),
+            &mut out,
+        )
+        .await
+        .unwrap();
         let id = printed_id(out);
         let items = ts.store.list().await.unwrap();
         assert_eq!(items.len(), 1);
@@ -92,9 +115,15 @@ mod tests {
         let ts = TestStore::new();
         let mut stdin = std::io::Cursor::new(b"from stdin\n".to_vec());
         let mut out = Vec::new();
-        run(&ts.store, TextSource::Reader(&mut stdin), "box", &mut out)
-            .await
-            .unwrap();
+        run(
+            &ts.store,
+            TextSource::Reader(&mut stdin),
+            "box",
+            now(),
+            &mut out,
+        )
+        .await
+        .unwrap();
         printed_id(out);
         assert_eq!(
             ts.store.list().await.unwrap()[0].preview.as_deref(),
@@ -114,6 +143,7 @@ mod tests {
                 &ts.store,
                 TextSource::Clipboard(&mut clip),
                 "box",
+                now(),
                 &mut Vec::new(),
             )
             .await
@@ -125,6 +155,7 @@ mod tests {
             &ts.store,
             TextSource::Reader(&mut empty),
             "box",
+            now(),
             &mut Vec::new(),
         )
         .await
@@ -142,6 +173,7 @@ mod tests {
             &ts.store,
             TextSource::Clipboard(&mut clip),
             "box",
+            now(),
             &mut first,
         )
         .await
@@ -152,6 +184,7 @@ mod tests {
             &ts.store,
             TextSource::Clipboard(&mut clip),
             "box",
+            now(),
             &mut second,
         )
         .await
@@ -169,6 +202,7 @@ mod tests {
             &ts.store,
             TextSource::Clipboard(&mut clip),
             "box",
+            now(),
             &mut Vec::new(),
         )
         .await
@@ -182,10 +216,71 @@ mod tests {
             &ts.store,
             TextSource::Reader(&mut binary),
             "box",
+            now(),
             &mut Vec::new(),
         )
         .await
         .unwrap_err();
         assert!(format!("{err:#}").contains("standard input"), "{err:#}");
+    }
+
+    #[tokio::test]
+    async fn sends_the_image_when_the_clipboard_has_no_text() {
+        use passalong_core::clipboard::decode_png;
+        let ts = TestStore::new();
+        let mut clip = MockClipboard::with_image(sample_image());
+        let mut out = Vec::new();
+        run(
+            &ts.store,
+            TextSource::Clipboard(&mut clip),
+            "box",
+            now(),
+            &mut out,
+        )
+        .await
+        .unwrap();
+        let id = printed_id(out);
+        let items = ts.store.list().await.unwrap();
+        assert_eq!(items.len(), 1);
+        let meta = &items[0];
+        assert_eq!(meta.id.as_str(), id);
+        assert!(meta.is_clipboard_image());
+        assert_eq!(meta.name.as_deref(), Some("clipboard-20260912-095311.png"));
+        let (_, mut stream) = ts.store.get(&meta.id).await.unwrap();
+        let mut png = Vec::new();
+        stream.read_to_end(&mut png).await.unwrap();
+        assert_eq!(decode_png(&png).unwrap(), sample_image());
+
+        // Blank text does not hide the image.
+        let mut clip = MockClipboard::with_text(" \n").with_image_reads([Some(sample_image())]);
+        let mut out = Vec::new();
+        run(
+            &ts.store,
+            TextSource::Clipboard(&mut clip),
+            "box",
+            now(),
+            &mut out,
+        )
+        .await
+        .unwrap();
+        assert_eq!(printed_id(out), id, "same image, same item");
+    }
+
+    #[tokio::test]
+    async fn text_wins_over_an_image() {
+        let ts = TestStore::new();
+        let mut clip = MockClipboard::with_text("words").with_image_reads([Some(sample_image())]);
+        run(
+            &ts.store,
+            TextSource::Clipboard(&mut clip),
+            "box",
+            now(),
+            &mut Vec::new(),
+        )
+        .await
+        .unwrap();
+        let items = ts.store.list().await.unwrap();
+        assert_eq!(items[0].kind, ItemKind::Text);
+        assert!(!items[0].is_clipboard_image());
     }
 }

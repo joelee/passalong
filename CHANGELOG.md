@@ -32,6 +32,11 @@ All notable changes to this project are documented here. The format follows
 - When an id prefix matches several items, `load`, `cat`, and `delete` list
   the matches on a terminal and ask which one you mean; scripts still get an
   error listing them (PLAN-00003 STEP-05).
+- Clipboard images: `passalong clipboard` sends the image when the clipboard
+  has no text, `load` puts it back on the clipboard (or writes the PNG with
+  a destination), `cat` prints the PNG, and `list` shows kind `image`.
+  Images are stored as PNG files, so older clients see ordinary files
+  (PLAN-00003 STEP-06 and STEP-07).
 
 ### Changed
 

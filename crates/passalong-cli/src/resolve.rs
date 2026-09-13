@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use passalong_core::model::{ItemId, ItemMeta};
 use passalong_core::store::{Store, StoreError};
 
-use crate::output::{display_name, kind_name};
+use crate::output::{display_name, kind_label};
 use crate::prompt::Prompt;
 
 /// How many matching items are offered at most.
@@ -79,7 +79,7 @@ pub async fn resolve_item(
         .map(|id| match metas.get(id) {
             Some(meta) => [
                 id.to_string(),
-                kind_name(meta.kind).to_owned(),
+                kind_label(meta).to_owned(),
                 display_name(meta),
                 meta.device.clone(),
                 age(meta.created_at, chooser.now),

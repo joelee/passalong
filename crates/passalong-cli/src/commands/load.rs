@@ -4,7 +4,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context as _;
-use passalong_core::clipboard::{Clipboard, ClipboardError};
+use passalong_core::clipboard::{Clipboard, ClipboardError, decode_png};
 use passalong_core::download::{self, check_integrity, write_verified};
 use passalong_core::fs::BoxRead;
 use passalong_core::model::{ContentHasher, ItemKind, ItemMeta, sanitise_file_name};
@@ -19,8 +19,8 @@ use passalong_core::download::PART_SUFFIX;
 /// Opens the clipboard on demand, so only a load to the clipboard needs one.
 pub type OpenClipboard<'a> = dyn FnMut() -> Result<Box<dyn Clipboard>, ClipboardError> + 'a;
 
-/// Loads the item `lookup` identifies. Without `dest`, text goes to the
-/// clipboard and files are downloaded into `download_dir`, created if
+/// Loads the item `lookup` identifies. Without `dest`, text and clipboard
+/// images go to the clipboard and files are downloaded into `download_dir`, created if
 /// missing, under a numbered name if theirs is taken (the exact name with
 /// `force`). With `dest`, the item is written to that file, or into that
 /// directory under its own name. The written path is printed. Content is
@@ -43,6 +43,13 @@ pub async fn run(
                 String::from_utf8(bytes).with_context(|| format!("item {id} is not UTF-8 text"))?;
             open_clipboard()?.write_text(&text)?;
             tracing::info!(id = %id, size = meta.size, "item copied to the clipboard");
+            return Ok(());
+        }
+        None if meta.is_clipboard_image() => {
+            let image = decode_png(&read_verified(content, &meta).await?)
+                .with_context(|| format!("item {id} is not a usable image"))?;
+            open_clipboard()?.write_image(&image)?;
+            tracing::info!(id = %id, size = meta.size, "image copied to the clipboard");
             return Ok(());
         }
         None => download_target(download_dir, &meta, force).await?,
@@ -373,5 +380,54 @@ mod tests {
             .await
             .unwrap_err();
         assert!(format!("{err:#}").contains("missing-dir"), "{err:#}");
+    }
+
+    fn test_image() -> passalong_core::clipboard::RgbaImage {
+        passalong_core::clipboard::RgbaImage::new(1, 2, vec![1, 2, 3, 255, 5, 6, 7, 255]).unwrap()
+    }
+
+    #[tokio::test]
+    async fn clipboard_images_go_back_to_the_clipboard() {
+        use crate::commands::support::T;
+        let env = Env::new();
+        let png = passalong_core::clipboard::encode_png(&test_image()).unwrap();
+        let meta = env
+            .put(NewItem::clipboard_image("box", T.parse().unwrap()), &png)
+            .await;
+        let printed = env.load(meta.id.as_str(), None, false).await.unwrap();
+        assert_eq!(printed, "");
+        assert_eq!(env.clip.image_writes(), [test_image()]);
+        assert!(!env.downloads().exists());
+    }
+
+    #[tokio::test]
+    async fn clipboard_images_with_a_destination_are_written_as_png() {
+        use crate::commands::support::T;
+        let env = Env::new();
+        let png = passalong_core::clipboard::encode_png(&test_image()).unwrap();
+        let meta = env
+            .put(NewItem::clipboard_image("box", T.parse().unwrap()), &png)
+            .await;
+        let printed = env
+            .load(meta.id.as_str(), Some(env.out_dir.path()), false)
+            .await
+            .unwrap();
+        let target = env.out("clipboard-20260912-095311.png");
+        assert_eq!(printed, format!("{}\n", target.display()));
+        assert_eq!(std::fs::read(&target).unwrap(), png);
+        assert!(env.clip.image_writes().is_empty());
+    }
+
+    #[tokio::test]
+    async fn png_files_sent_as_files_are_downloaded() {
+        let env = Env::new();
+        let png = passalong_core::clipboard::encode_png(&test_image()).unwrap();
+        let meta = env.put(NewItem::file("photo.png", "box"), &png).await;
+        env.load(meta.id.as_str(), None, false).await.unwrap();
+        assert_eq!(
+            std::fs::read(env.downloads().join("photo.png")).unwrap(),
+            png
+        );
+        assert!(env.clip.image_writes().is_empty());
     }
 }

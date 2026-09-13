@@ -95,7 +95,10 @@ fields described in [architecture](architecture.md#metajson).
 
 ## `passalong clipboard`
 
-Sends the clipboard's text and prints the new item's id.
+Sends the clipboard's text and prints the new item's id. When the
+clipboard holds no text but an image, such as a screenshot, it sends the
+image instead, stored as a PNG file named `clipboard-YYYYMMDD-HHMMSS.png`
+and listed with kind `image`.
 
 ```text
 $ passalong clipboard
@@ -105,8 +108,8 @@ $ echo "from a script" | passalong clipboard --stdin
 ```
 
 `--stdin` reads the text from standard input instead, which also works
-without a desktop session. Empty or whitespace-only text is refused with
-`error: clipboard is empty`. Sending text that is already stored prints the
+without a desktop session. A clipboard with neither text nor an image, or
+only whitespace, is refused with `error: clipboard is empty`. Sending text that is already stored prints the
 existing item's id and stores nothing new.
 
 ## `passalong file <PATH>`
@@ -276,10 +279,18 @@ choice:
 
 ## Clipboard support
 
-Clipboard text works on macOS and on Linux under X11 or a Wayland compositor
-that supports the `wlr-data-control` protocol, such as Hyprland or Sway.
+Clipboard text and images work on macOS and on Linux under X11 or a
+Wayland compositor that supports the `wlr-data-control` protocol, such as
+Hyprland or Sway.
+
+Images are exchanged as RGBA pixels and stored as PNG. `load` puts a
+clipboard image back on the clipboard; with a destination it writes the
+PNG file, and `cat` prints the PNG bytes. PNG files sent with
+`passalong file` stay files and are downloaded like any other. Images
+larger than 64 megapixels are refused. Clients older than v0.1.2 see
+clipboard images as ordinary PNG files.
 
 On Linux the clipboard's content belongs to the program that set it, so
-`passalong load` hands the text to a small background process that keeps
-it available until something else is copied, as `wl-copy` and `xclip` do.
-`load` itself returns immediately.
+`passalong load` hands the text or image to a small background process
+that keeps it available until something else is copied, as `wl-copy` and
+`xclip` do. `load` itself returns immediately.

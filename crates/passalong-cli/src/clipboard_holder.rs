@@ -7,23 +7,27 @@
 
 use std::io::{self, Write};
 
-use passalong_core::clipboard::{Clipboard, ClipboardError};
+use passalong_core::clipboard::{Clipboard, ClipboardError, RgbaImage, encode_png};
 
-/// Starts a background holder for some text.
+/// Starts a background holder for clipboard content.
 pub trait HolderLauncher {
     /// Hands `text` to a new holder and returns without waiting for it.
     fn launch(&self, text: &str) -> io::Result<()>;
+
+    /// Hands an image, as PNG, to a new holder and returns without waiting.
+    fn launch_image(&self, png: &[u8]) -> io::Result<()>;
 }
 
-/// Starts `passalong __hold-clipboard` detached and pipes the text to it.
+/// Starts `passalong __hold-clipboard` detached and pipes the content to it.
 pub struct ProcessLauncher;
 
 #[cfg(unix)]
-impl HolderLauncher for ProcessLauncher {
-    fn launch(&self, text: &str) -> io::Result<()> {
+impl ProcessLauncher {
+    fn spawn(args: &[&str], payload: &[u8]) -> io::Result<()> {
         let exe = std::env::current_exe()?;
         let mut child = crate::daemon::detached_command(&exe)
             .arg("__hold-clipboard")
+            .args(args)
             .stdin(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())
             .spawn()?;
@@ -31,17 +35,34 @@ impl HolderLauncher for ProcessLauncher {
             .stdin
             .take()
             .ok_or_else(|| io::Error::other("the holder has no standard input"))?;
-        stdin.write_all(text.as_bytes())?;
-        // Closing standard input tells the holder the text is complete. The
-        // holder outlives this process and is reaped by init.
+        stdin.write_all(payload)?;
+        // Closing standard input tells the holder the content is complete.
+        // The holder outlives this process and is reaped by init.
         drop(stdin);
         Ok(())
+    }
+}
+
+#[cfg(unix)]
+impl HolderLauncher for ProcessLauncher {
+    fn launch(&self, text: &str) -> io::Result<()> {
+        Self::spawn(&[], text.as_bytes())
+    }
+
+    fn launch_image(&self, png: &[u8]) -> io::Result<()> {
+        Self::spawn(&["--image"], png)
     }
 }
 
 #[cfg(not(unix))]
 impl HolderLauncher for ProcessLauncher {
     fn launch(&self, _text: &str) -> io::Result<()> {
+        Err(io::Error::other(
+            "the clipboard holder is only used on Linux",
+        ))
+    }
+
+    fn launch_image(&self, _png: &[u8]) -> io::Result<()> {
         Err(io::Error::other(
             "the clipboard holder is only used on Linux",
         ))
@@ -72,6 +93,13 @@ impl<L: HolderLauncher + Send> Clipboard for HolderClipboard<L> {
             ClipboardError::Other(format!("cannot start the clipboard holder: {err}"))
         })
     }
+
+    fn write_image(&mut self, image: &RgbaImage) -> Result<(), ClipboardError> {
+        let png = encode_png(image).map_err(|err| ClipboardError::Other(err.to_string()))?;
+        self.launcher.launch_image(&png).map_err(|err| {
+            ClipboardError::Other(format!("cannot start the clipboard holder: {err}"))
+        })
+    }
 }
 
 #[cfg(test)]
@@ -85,6 +113,7 @@ mod tests {
     #[derive(Clone, Default)]
     struct Recorder {
         texts: Arc<Mutex<Vec<String>>>,
+        images: Arc<Mutex<Vec<Vec<u8>>>>,
         fail: bool,
     }
 
@@ -96,6 +125,31 @@ mod tests {
             self.texts.lock().unwrap().push(text.to_owned());
             Ok(())
         }
+
+        fn launch_image(&self, png: &[u8]) -> io::Result<()> {
+            if self.fail {
+                return Err(io::Error::other("no such executable"));
+            }
+            self.images.lock().unwrap().push(png.to_vec());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn writes_hand_images_to_a_holder_as_png() {
+        use passalong_core::clipboard::{RgbaImage, decode_png};
+        let recorder = Recorder::default();
+        let mut clipboard = HolderClipboard::new(recorder.clone());
+        let image = RgbaImage::new(1, 1, vec![1, 2, 3, 4]).unwrap();
+        clipboard.write_image(&image).unwrap();
+        let images = recorder.images.lock().unwrap();
+        assert_eq!(images.len(), 1);
+        assert_eq!(decode_png(&images[0]).unwrap(), image);
+        let mut failing = HolderClipboard::new(Recorder {
+            fail: true,
+            ..Recorder::default()
+        });
+        assert!(failing.write_image(&image).is_err());
     }
 
     #[test]

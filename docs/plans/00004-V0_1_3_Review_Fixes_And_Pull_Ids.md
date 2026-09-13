@@ -8,10 +8,10 @@ tags:
   - opencode
 type: delivery-plan
 plan_id: "PLAN-00004"
-plan_status: draft                 # draft | approved | cancelled
+plan_status: approved              # draft | approved | cancelled
 plan_kind: initial                 # initial | superseding
 created_at: "2026-09-13T11:01:43Z"
-approved_at: null
+approved_at: "2026-09-13T11:21:15Z"
 planner_agent: "Claude Code"
 planner_model: "anthropic/claude-opus-5"
 triggered_by: user                 # user | agent:<agent-name>
@@ -26,8 +26,8 @@ previous_plan: null
 requirements_count: 9
 steps_count: 6
 acceptance_criteria_count: 11
-blocking_decisions: 1
-build_ready: false
+blocking_decisions: 0
+build_ready: true
 web_research_used: false
 confidence: medium                # high | medium | low
 
@@ -45,12 +45,13 @@ current_step: null
 
 # Delivery Plan 00004: V0 1 3 Review Fixes And Pull Ids
 
-> [!abstract] Plan status: `draft`
+> [!abstract] Plan status: `approved`
 > Deliver `passalong` v0.1.3, a small release: the release-notes link fix
 > for issue #4 (already committed on the branch), the two non-blocking
 > findings of Code Review 00001, and, subject to D-03, pull mode tracking
-> the item ids it has seen instead of relying on device clocks. Decision
-> D-03 awaits the user; this draft is not Builder-ready.
+> the item ids it has seen instead of relying on device clocks. D-03 was
+> confirmed as proposed (include); approved by the user at 2026-09-13T11:21:15Z;
+> Builder-ready.
 
 ## 1. Objective and outcome
 
@@ -139,13 +140,12 @@ None. Unresolved matters are recorded as decisions.
 |---|---|---|---|---|
 | D-01 | How to read a single item's metadata. | **Resolved by planner:** add `Store::get_meta(&ItemId) -> Result<ItemMeta, StoreError>`, returning `StoreError::NotFound` for an unknown id. The default implementation calls `get` and drops the content; `FsStore` overrides it with its existing `read_meta`, one `meta.json` read. The choice prompt fetches metadata only for the candidates it shows, at most 9. | Planner | Resolved |
 | D-02 | How to make download names atomic. | **Resolved by planner:** `free_target` becomes `reserve_target`: it creates the chosen file exclusively (`create_new`), empty, and moves to the next number when the name already exists, so two writers can never hold the same name. The verified part file is then renamed over the writer's own reservation. On any failure the part file and the reservation are both removed. An explicit `DEST` and `--force` keep their v0.1.2 behaviour. | Planner | Resolved |
-| D-03 | Include the pull-mode clock-skew fix in v0.1.3. | **Proposed: include.** Pull mode remembers the ids it has seen instead of a position ordered by creation time. At start it records every stored id; each poll lists the ids with one directory read (`Store::list_ids`, default from `list_after(None)`, `FsStore` override from its directory listing) and handles the unseen ones from other devices: files oldest id first, and the newest text or clipboard image by id. Items from a device whose clock runs behind are then applied too, and the clock-sync caveat leaves the documentation. Ids no longer in the store are forgotten, so memory stays bounded. **Alternative:** defer it and keep v0.1.3 to the two review findings and issue #4. | User | Proposed; blocking |
+| D-03 | Include the pull-mode clock-skew fix in v0.1.3. | **Confirmed by user (2026-09-13): include.** Pull mode remembers the ids it has seen instead of a position ordered by creation time. At start it records every stored id; each poll lists the ids with one directory read (`Store::list_ids`, default from `list_after(None)`, `FsStore` override from its directory listing) and handles the unseen ones from other devices: files oldest id first, and the newest text or clipboard image by id. Items from a device whose clock runs behind are then applied too, and the clock-sync caveat leaves the documentation. Ids no longer in the store are forgotten, so memory stays bounded. **Alternative:** defer it and keep v0.1.3 to the two review findings and issue #4. | User | Resolved |
 | D-04 | Which other backlog items to include. | **Resolved by planner:** none. ssh-agent authentication needs an agent-based Docker test, connection reuse changes every command's lifecycle, and the Android CI check needs the Android NDK for `ring`; each is larger than this release. | Planner | Resolved |
 | D-05 | Branch and version. | **Resolved by planner:** v0.1.3 on `feature/00004-v0.1.3`, which already carries the issue #4 fix (c44d14d). The PR that merges it should say "Fixes #4". | Planner | Resolved |
 
-Blocking decisions: 1 (D-03). The plan body is written for the proposed
-resolution; if D-03 is deferred, STEP-04 and REQ-05 are removed by
-amending this draft before approval.
+Blocking decisions: 0. The user confirmed D-03 as proposed (include) on
+2026-09-13; the plan body already reflects it.
 
 ## 8. Affected architecture and components
 
@@ -527,6 +527,8 @@ None.
 | Timestamp (UTC) | Plan status | Change | Reason | Requested/approved by |
 |---|---|---|---|---|
 | 2026-09-13T11:01:43Z | draft | Created with 9 requirements, 6 steps, 11 acceptance criteria, and decisions D-01 to D-05 (D-03 proposed and blocking) | User request for a small v0.1.3 plan | User |
+| 2026-09-13T11:21:15Z | draft | D-03 confirmed as proposed (include); blocking decisions 0 | User answer: "Proceed as recommended" | User |
+| 2026-09-13T11:21:15Z | approved | Approved; `plan_status`, `approved_at`, and `build_ready` set | User approval after committing the draft (1671bca) | User |
 
 ## 19. External references
 

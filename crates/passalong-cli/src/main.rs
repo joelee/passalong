@@ -10,6 +10,7 @@ mod daemon;
 mod output;
 mod prompt;
 mod resolve;
+mod service;
 
 use std::process::ExitCode;
 

@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `passalong install-service` installs `serve` as a systemd user unit
+  (Linux) or a launchd agent (macOS), enables it, and starts it;
+  `--no-start`, `--force`, and `--uninstall` (PLAN-00005 STEP-06).
 - `passalong check` checks the config, the connection with its pinned host
   key, and that the store can be read and written, one line per check
   (PLAN-00005 STEP-05).
@@ -23,6 +26,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The units in `docs/service/` run from the home directory, so a `~/.env`
+  is found; the launchd agent logs to `~/Library/Logs/passalong/serve.log`,
+  like `serve --daemon`, and is loaded with `launchctl bootstrap`
+  (PLAN-00005 STEP-06).
 - The README's "How it works" diagram is a Mermaid diagram (PLAN-00005
   STEP-02).
 

@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00005-v0.1.4"
 execution_started_at: "2026-09-13T20:51:24Z"
-execution_updated_at: "2026-09-13T21:13:22Z"
+execution_updated_at: "2026-09-13T21:21:57Z"
 execution_completed_at: null
-current_step: "PLAN-00005-STEP-06"
+current_step: "PLAN-00005-STEP-07"
 ---
 
 # Delivery Plan 00005: V0 1 4 Service Check Get Quiet
@@ -742,7 +742,7 @@ macOS through CI's `just check`.
 | PLAN-00005-STEP-03 | completed | 2026-09-13T20:58:01Z | 2026-09-13T21:02:47Z | Commit `build: complete PLAN-00005-STEP-03 - cat without a log line, and --quiet`; `just check` green, 92.07% lines | AC-06; AC-07 for the existing commands (get, check, install-service follow in STEP-04 to 06). Level order lives in the CLI (app::resolve_level: flag, PASSALONG_LOG_LEVEL, error under --quiet, client.log_level, info), used by init too; core effective_log_level is unchanged. Prompt::show puts init fingerprint and prune list on stderr only when quiet and a question follows. serve --daemon already passes the effective level to its child, so no change was needed there |
 | PLAN-00005-STEP-04 | completed | 2026-09-13T21:03:00Z | 2026-09-13T21:06:03Z | Commit `build: complete PLAN-00005-STEP-04 - passalong get <ID>`; `just check` green, 92.23% lines | AC-08; get covered by AC-07 --quiet. Renderers output::render_meta and render_meta_json; the origin line uses the stored serde name. Usage section, README command row, and CHANGELOG added here rather than in STEP-07 |
 | PLAN-00005-STEP-05 | completed | 2026-09-13T21:06:51Z | 2026-09-13T21:13:22Z | Commit `build: complete PLAN-00005-STEP-05 - passalong check and Store::probe_write`; `just check` green, 92.27% lines; Docker tests pass | AC-09, AC-10; check covered by AC-07 --quiet. check runs before the normal config load (like init) so a config problem is its first line; the failure error is "check failed: <check>: <reason>", so --quiet still shows why. Usage, architecture, README, and CHANGELOG updated |
-| PLAN-00005-STEP-06 | not-started | — | — | — | — |
+| PLAN-00005-STEP-06 | completed | 2026-09-13T21:14:48Z | 2026-09-13T21:21:57Z | Commit `build: complete PLAN-00005-STEP-06 - passalong install-service`; `just check` green, 92.43% lines | AC-11, AC-12, AC-13; install-service covered by AC-07 --quiet. docs/service units regenerated from the templates (WorkingDirectory home; launchd logs to ~/Library/Logs/passalong/serve.log and uses launchctl bootstrap). Usage section, README quick start and command row, architecture, CHANGELOG updated |
 | PLAN-00005-STEP-07 | not-started | — | — | — | — |
 | PLAN-00005-STEP-08 | not-started | — | — | — | — |
 
@@ -764,13 +764,14 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T21:06:03Z | PLAN-00005-STEP-04 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00005-STEP-04 - passalong get <ID>` | Begin PLAN-00005-STEP-05 |
 | 2026-09-13T21:06:51Z | PLAN-00005-STEP-05 | Started | — | Red phase |
 | 2026-09-13T21:13:22Z | PLAN-00005-STEP-05 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00005-STEP-05 - passalong check and Store::probe_write` | Begin PLAN-00005-STEP-06 |
+| 2026-09-13T21:14:48Z | PLAN-00005-STEP-06 | Started | — | Red phase |
+| 2026-09-13T21:21:57Z | PLAN-00005-STEP-06 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00005-STEP-06 - passalong install-service` | Begin PLAN-00005-STEP-07 |
 
 ### Deviations and blockers
 
 | Timestamp (UTC) | Step | Deviation or blocker | Impact | Decision required from |
 |---|---|---|---|---|
-
-None.
+| 2026-09-13T21:21:57Z | PLAN-00005-STEP-06 | Two refinements within D-03: install refuses to start while serve runs, but `--no-start` still writes the unit, since it starts nothing; and ProcessManager captures systemctl/launchctl output (shown only in the error when they fail), because `systemctl enable` prints "Created symlink" lines that would break --quiet. launchd tests run on Linux through the explicit Platform parameter; CI macOS runs the same unit tests. | None | None (routine) |
 
 ### Verification results
 
@@ -798,6 +799,10 @@ None.
 | 2026-09-13T21:13:22Z | PLAN-00005-STEP-05 | `cargo test -p passalong` | Pass | 113 unit tests (healthy store exact lines, config error skips the rest, failed connection, unreadable and unwritable stores, backend without a probe n/a and exit 0, ssh and local descriptions); 28 binary tests incl. check_reports_each_step_and_fails_at_the_first_problem (local pass, --quiet silent, missing config FAIL with exit 1, read-only tmp/ fails storage write, no probe left) |
 | 2026-09-13T21:13:22Z | PLAN-00005-STEP-05 | `just test-integration` (Docker) | Exit 0 | probe_write_works_over_sftp_and_leaves_nothing; check_passes_against_the_server_and_fails_on_a_wrong_host_key (server FAIL, storage read skip, host key mismatch on stderr) |
 | 2026-09-13T21:13:22Z | PLAN-00005-STEP-05 | `just check` | Exit 0 | Lines 92.27% |
+| 2026-09-13T21:21:57Z | PLAN-00005-STEP-06 | Red: `cargo test -p passalong --no-run` with the service, install_service, CLI, and binary tests | Exit 101 (expected) | 46 errors: ServiceManager, Install, InstallServiceArgs (7), run, current_platform, systemd_exec_start, systemd_unit(_body), launchd_plist(_body), xml_escape not found |
+| 2026-09-13T21:21:57Z | PLAN-00005-STEP-06 | `cargo test -p passalong` (first green run) | Exit 101 | the_launchd_plist_lists_every_argument_escaped and the_documented_units_are_the_templates_with_placeholders failed: string line continuations dropped the plist indentation; the body now uses raw strings |
+| 2026-09-13T21:21:57Z | PLAN-00005-STEP-06 | `cargo test -p passalong` | Pass | 129 unit tests: exec start quoting and % escaping; unit and plist contents; docs/service files equal the templates with their placeholders; systemd install (daemon-reload, enable --now), XDG_CONFIG_HOME, --no-start, unchanged/--force, refusal while serve runs (pid 42), failed start leaves the unit, uninstall (disable --now, remove, daemon-reload, not installed); launchd bootstrap gui/501, log folder, bootout before replacing, uninstall tolerating a not-loaded agent; platform follows the build target. 29 binary tests incl. install_service_writes_a_systemd_unit_and_drives_systemctl (fake systemctl on PATH: unit path and ExecStart with the absolute binary and --config, unchanged rerun, --quiet --uninstall silent) |
+| 2026-09-13T21:21:57Z | PLAN-00005-STEP-06 | `just check` | Exit 0 | Lines 92.43%; install_service.rs 93.66%, service.rs 97.56% |
 
 ### Completion summary
 

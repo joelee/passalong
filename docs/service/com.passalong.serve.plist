@@ -2,12 +2,15 @@
 <!--
   launchd agent for `passalong serve` on macOS.
 
-  Install:
+  `passalong install-service` writes this agent with the right paths and
+  loads it. To install it by hand instead, replace YOU with your user name,
+  adjust the binary path if passalong is installed elsewhere, then run:
+    mkdir -p ~/Library/Logs/passalong
     cp docs/service/com.passalong.serve.plist ~/Library/LaunchAgents/
-    launchctl load ~/Library/LaunchAgents/com.passalong.serve.plist
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.passalong.serve.plist
 
-  Replace YOU with your user name and adjust the binary path if passalong
-  is installed elsewhere.
+  It runs in your home directory, so a ~/.env file holding
+  PASSALONG_SSH_KEY_PASSPHRASE is found.
 -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -19,6 +22,8 @@
     <string>/Users/YOU/.cargo/bin/passalong</string>
     <string>serve</string>
   </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/YOU</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
@@ -27,6 +32,6 @@
     <false/>
   </dict>
   <key>StandardErrorPath</key>
-  <string>/Users/YOU/Library/Logs/passalong-serve.log</string>
+  <string>/Users/YOU/Library/Logs/passalong/serve.log</string>
 </dict>
 </plist>

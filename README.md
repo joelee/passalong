@@ -60,9 +60,10 @@ flowchart LR
    ```
 
 5. Keep `passalong serve` running, so everything you copy and every file
-   you drop into `~/PassAlong` is sent automatically. Either start it in the
-   background with `passalong serve --daemon`, or install the systemd or
-   launchd unit in [`docs/service/`](https://github.com/joelee/passalong/tree/main/docs/service) to start it at login.
+   you drop into `~/PassAlong` is sent automatically. `passalong
+   install-service` installs it as a systemd user service (Linux) or a
+   launchd agent (macOS) that starts at login; `passalong serve --daemon`
+   starts it in the background until you log out.
 
 ## Commands
 
@@ -78,6 +79,7 @@ flowchart LR
 | `passalong delete <id>...` | Delete items |
 | `passalong prune` | Delete items older than `--older-than`, keeping the newest `--keep` |
 | `passalong init` | Write a config file for an SSH server and pin its host key |
+| `passalong install-service` | Start `serve` at login as a systemd user service or launchd agent (`--uninstall` removes it) |
 | `passalong check` | Check the config, and that the server can be reached, read, and written |
 
 An id can be shortened to its first 4 or more distinctive characters. See

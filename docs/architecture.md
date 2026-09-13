@@ -233,6 +233,13 @@ of the log. `serve --status` reads the pid file and exits 3 when nothing is
 running. `serve --stop` sends SIGTERM and waits for the pid file to be
 released.
 
+`install-service` renders a systemd user unit or a launchd agent from the
+templates in `crates/passalong-cli/src/service.rs`, running the same binary's
+`serve` from the home directory, and loads it with `systemctl --user` or
+`launchctl`. It does not start a service while the pid lock shows a running
+`serve`. `docs/service/` holds the same units with placeholder paths, and a
+test keeps them identical to the templates.
+
 ## Clipboard on Linux
 
 On X11 and Wayland the clipboard belongs to a running process, so text set

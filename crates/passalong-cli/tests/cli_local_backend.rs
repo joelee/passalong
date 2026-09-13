@@ -471,6 +471,72 @@ async fn check_reports_each_step_and_fails_at_the_first_problem() {
     }
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn install_service_writes_a_systemd_unit_and_drives_systemctl() {
+    use std::os::unix::fs::PermissionsExt;
+    let sb = Sandbox::new();
+    let bin = sb.path("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let fake = bin.join("systemctl");
+    std::fs::write(&fake, "#!/bin/sh\necho \"$*\" >> \"$FAKE_SYSTEMCTL_LOG\"\n").unwrap();
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let log = sb.path("systemctl.log");
+    let config = sb.config();
+    let install = |args: &[&str]| {
+        let mut cmd = sb.cmd();
+        cmd.env(
+            "PATH",
+            format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
+        )
+        .env("XDG_CONFIG_HOME", sb.path("xdg"))
+        .env("FAKE_SYSTEMCTL_LOG", &log)
+        .arg("--config")
+        .arg(&config)
+        .args(args);
+        cmd
+    };
+    let unit = sb.path("xdg/systemd/user/passalong-serve.service");
+    install(&["install-service"])
+        .assert()
+        .success()
+        .stdout(format!(
+            "wrote {}\nenabled and started passalong-serve.service\n",
+            unit.display()
+        ));
+    let text = std::fs::read_to_string(&unit).unwrap();
+    let exe = std::fs::canonicalize(env!("CARGO_BIN_EXE_passalong")).unwrap();
+    assert!(
+        text.contains(&format!(
+            "ExecStart={} --config {} serve\n",
+            exe.display(),
+            config.display()
+        )),
+        "{text}"
+    );
+    assert!(text.contains("WorkingDirectory=%h\n"), "{text}");
+    assert_eq!(
+        std::fs::read_to_string(&log).unwrap(),
+        "--user daemon-reload\n--user enable --now passalong-serve.service\n"
+    );
+    install(&["install-service"])
+        .assert()
+        .success()
+        .stdout(predicate::str::ends_with(
+            "is already installed and unchanged\n",
+        ));
+    install(&["--quiet", "install-service", "--uninstall"])
+        .assert()
+        .success()
+        .stdout("")
+        .stderr("");
+    assert!(!unit.exists());
+    assert_eq!(
+        std::fs::read_to_string(&log).unwrap(),
+        "--user daemon-reload\n--user enable --now passalong-serve.service\n--user disable --now passalong-serve.service\n--user daemon-reload\n"
+    );
+}
+
 #[tokio::test]
 async fn quiet_prints_nothing_but_errors_and_cat_output() {
     let sb = Sandbox::new();

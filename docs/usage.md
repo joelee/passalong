@@ -349,13 +349,45 @@ Only one `serve` runs at a time: a second one exits with
 
 The background process keeps running after you close the terminal and logs
 to a file (see [configuration](configuration.md#serve-files)). For start at
-login and restarts after crashes, a service manager is still the better
-choice:
-
-- **Linux (systemd):** install `docs/service/passalong-serve.service` as a
-  user unit. Its header shows the commands.
+login and restarts after crashes, use `passalong install-service`.
 - **macOS (launchd):** install `docs/service/com.passalong.serve.plist` as a
   launch agent. Its header shows the commands.
+
+## `passalong install-service`
+
+Installs `serve` as a service that starts at login and restarts after a
+crash: a systemd user unit on Linux, a launchd agent on macOS. Run
+`passalong check` first to make sure the setup works.
+
+```sh
+passalong install-service               # write the unit, enable it, start it
+passalong install-service --uninstall   # stop it and remove the unit
+```
+
+| Platform | Unit | Loaded with |
+|---|---|---|
+| Linux | `${XDG_CONFIG_HOME:-~/.config}/systemd/user/passalong-serve.service`, logging to the journal | `systemctl --user daemon-reload`, then `systemctl --user enable --now passalong-serve.service` |
+| macOS | `~/Library/LaunchAgents/com.passalong.serve.plist`, logging to `~/Library/Logs/passalong/serve.log` | `launchctl bootstrap gui/<uid>` |
+
+The unit runs this `passalong` binary by its full path, with `--config` as
+an absolute path when you give one, from your home directory, so a
+`~/.env` holding `PASSALONG_SSH_KEY_PASSPHRASE` is found.
+
+A unit with the same content is left alone; one that differs is replaced
+only with `--force`. The service is not started while another `serve` runs:
+stop it first with `passalong serve --stop`. If `systemctl` or `launchctl`
+fails, the unit is left in place and the error names the command. Other
+platforms get `install-service supports Linux (systemd) and macOS (launchd)
+only`.
+
+| Option | Meaning |
+|---|---|
+| `--no-start` | Write the unit without enabling or starting it, and print the command that would |
+| `--force` | Replace an installed unit that differs |
+| `--uninstall` | Stop, disable, and remove the installed unit |
+
+The files in `docs/service/` are the same units with placeholder paths, for
+installing by hand.
 
 ## Clipboard support
 

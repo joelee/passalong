@@ -14,7 +14,7 @@ use passalong_core::store::BackendRegistry;
 use passalong_core::telemetry::{self, LogLevel};
 use tracing::Instrument;
 
-use crate::cli::{Cli, Command, InitArgs};
+use crate::cli::{Cli, Command, InitArgs, InstallServiceArgs};
 use crate::commands;
 use crate::commands::clipboard::TextSource;
 use crate::prompt::TerminalPrompt;
@@ -56,6 +56,11 @@ async fn execute(cli: Cli, env: &dyn EnvProvider, out: &mut dyn Write) -> anyhow
             out,
         )
         .await;
+    }
+    // `install-service` needs no config: a `--config` given is passed on in
+    // the unit it writes.
+    if let Command::InstallService(args) = &cli.command {
+        return install_service(args, &cli, env, out);
     }
     // `check` reports a missing or invalid config as its first result.
     if matches!(cli.command, Command::Check) {
@@ -124,6 +129,9 @@ async fn dispatch(
     match command {
         Command::Init(_) => anyhow::bail!("init runs before configuration is loaded"),
         Command::Check => anyhow::bail!("check loads the configuration itself"),
+        Command::InstallService(_) => {
+            anyhow::bail!("install-service runs before configuration is loaded")
+        }
         Command::HoldClipboard { .. } => {
             anyhow::bail!("the clipboard holder runs before configuration is loaded")
         }
@@ -266,6 +274,49 @@ async fn check(cli: &Cli, env: &dyn EnvProvider, out: &mut dyn Write) -> anyhow:
     commands::check::run(loaded, &backends, out)
         .instrument(span)
         .await
+}
+
+/// Runs `install-service` for this binary, passing on `--config` as an
+/// absolute path when given.
+fn install_service(
+    args: &InstallServiceArgs,
+    cli: &Cli,
+    env: &dyn EnvProvider,
+    out: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let level = resolve_level(cli.log_level, cli.quiet, env, None)?;
+    let _ = telemetry::init(level, io::stderr);
+    let _span = telemetry::op_span("install-service", &mut StdRandom::new()).entered();
+    let home = env
+        .var("HOME")
+        .filter(|home| !home.is_empty())
+        .map(PathBuf::from)
+        .context("cannot find the home directory: set HOME")?;
+    let platform = commands::install_service::current_platform(&home)?;
+    let exe = std::env::current_exe().context("cannot find the passalong executable")?;
+    let config = match cli.config.as_deref() {
+        Some(path) => {
+            anyhow::ensure!(path.is_file(), "{} does not exist", path.display());
+            Some(std::path::absolute(path)?)
+        }
+        None => None,
+    };
+    let paths = crate::daemon::StatePaths::resolve(env, crate::daemon::Os::current())
+        .context("cannot find serve's pid file: set HOME")?;
+    let serve = crate::daemon::status(&paths.pid)?;
+    let mut manager = crate::service::ProcessManager;
+    commands::install_service::run(
+        args,
+        commands::install_service::Install {
+            platform,
+            env,
+            exe: &exe,
+            config: config.as_deref(),
+            serve,
+            manager: &mut manager,
+        },
+        out,
+    )
 }
 
 /// Finds and loads the config: `--config`, or the standard locations.

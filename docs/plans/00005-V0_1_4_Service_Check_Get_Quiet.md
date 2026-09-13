@@ -8,10 +8,10 @@ tags:
   - opencode
 type: delivery-plan
 plan_id: "PLAN-00005"
-plan_status: draft                 # draft | approved | cancelled
+plan_status: approved              # draft | approved | cancelled
 plan_kind: initial                 # initial | superseding
 created_at: "2026-09-13T20:40:20Z"
-approved_at: null
+approved_at: "2026-09-13T20:50:03Z"
 planner_agent: "Claude Code"
 planner_model: "anthropic/claude-opus-5"
 triggered_by: user                 # user | agent:<agent-name>
@@ -26,7 +26,7 @@ requirements_count: 12
 steps_count: 8
 acceptance_criteria_count: 17
 blocking_decisions: 0
-build_ready: false
+build_ready: true
 web_research_used: true
 confidence: medium                # high | medium | low
 
@@ -44,13 +44,13 @@ current_step: null
 
 # Delivery Plan 00005: V0 1 4 Service Check Get Quiet
 
-> [!abstract] Plan status: `draft`
+> [!abstract] Plan status: `approved`
 > Deliver `passalong` v0.1.4: the eight items of the maintainer's v0.1.4
 > road map in `docs/backlog.md`, namely a quiet Release workflow, working
 > links on crates.io, a Mermaid "How it works" diagram, `cat` without a
 > trailing log line, a global `--quiet`, and the new `get`, `check`, and
 > `install-service` commands. The user settled D-01 to D-04 on 2026-09-13
-> (all as recommended); no decision blocks approval.
+> (all as recommended); approved by the user at 2026-09-13T20:50:03Z; Builder-ready.
 
 ## 1. Objective and outcome
 
@@ -780,6 +780,7 @@ None.
 | Timestamp (UTC) | Plan status | Change | Reason | Requested/approved by |
 |---|---|---|---|---|
 | 2026-09-13T20:40:20Z | draft | Created with 12 requirements, 8 steps, 17 acceptance criteria, and decisions D-01 to D-10; D-01 to D-04 were answered by the user before drafting (all as recommended), so none blocks approval | User request to plan v0.1.4 from the backlog road map | User |
+| 2026-09-13T20:50:03Z | approved | Approved; `plan_status`, `approved_at`, and `build_ready` set | User approval after committing the draft (a50fb55) | User |
 
 ## 19. External references
 

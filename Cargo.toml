@@ -30,8 +30,9 @@ hex = "0.4.3"
 mime_guess = "2.0.5"
 notify = "8.2.0"
 # `ring` instead of the default `aws-lc-rs`: no cmake needed and friendlier
-# to cross-compilation (Android). `rsa` keeps RSA identity files working.
-russh = { version = "0.63.3", default-features = false, features = ["ring", "flate2", "rsa"] }
+# to cross-compilation (Android). RSA keys are opt-in through the `rsa`
+# feature of passalong-ssh (RUSTSEC-2023-0071 has no fixed `rsa` release).
+russh = { version = "0.63.3", default-features = false, features = ["ring", "flate2"] }
 russh-sftp = "3.0.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"

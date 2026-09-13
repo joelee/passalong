@@ -220,6 +220,12 @@ async fn connect_and_authenticate(
         path: key_path.clone(),
         message: err.to_string(),
     })?;
+    #[cfg(not(feature = "rsa"))]
+    if key.algorithm().is_rsa() {
+        return Err(SshError::RsaUnsupported {
+            what: format!("the SSH key {key_path}"),
+        });
+    }
 
     let presented = Arc::new(Mutex::new(None));
     let handler = HostKeyCheck {
@@ -398,5 +404,30 @@ mod tests {
     fn addresses_bracket_ipv6_hosts() {
         assert_eq!(format_address("nas.local", 22), "nas.local:22");
         assert_eq!(format_address("::1", 2222), "[::1]:2222");
+    }
+
+    /// The key is checked before any connection: the configured host is
+    /// unreachable, so reaching the network would end in a timeout instead.
+    #[cfg(not(feature = "rsa"))]
+    #[tokio::test]
+    async fn rsa_identity_files_need_the_rsa_feature() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let key = dir.path().join("id_rsa");
+        let status = std::process::Command::new("ssh-keygen")
+            .args(["-q", "-t", "rsa", "-b", "2048", "-N", "", "-f"])
+            .arg(&key)
+            .status()
+            .expect("ssh-keygen runs");
+        assert!(status.success());
+        let mut params = SshParams::from_config(&config()).unwrap();
+        params.identity_file = key;
+        match connect(&params).await {
+            Err(err @ SshError::RsaUnsupported { .. }) => {
+                let message = err.to_string();
+                assert!(message.contains("id_rsa"), "{message}");
+                assert!(message.contains("--features rsa"), "{message}");
+            }
+            other => panic!("unexpected {:?}", other.err()),
+        }
     }
 }

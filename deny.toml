@@ -1,18 +1,11 @@
 # cargo-deny policy. Run with `just audit`; CI runs it on every push.
 
 [graph]
-all-features = true
+# Default features only: the optional `rsa` feature of passalong-ssh is left
+# out, because the `rsa` crate has an unfixed advisory (RUSTSEC-2023-0071).
+all-features = false
 
 [advisories]
-ignore = [
-    # `rsa` has a timing side channel in RSA decryption and signing (the
-    # "Marvin" attack) and no fixed release yet. passalong reaches it only
-    # through russh's `rsa` feature, to sign the SSH login when the identity
-    # file is an RSA key; Ed25519 keys, the recommended default, never use
-    # it. Kept so RSA identity files keep working; revisit when `rsa`
-    # publishes a constant-time release.
-    { id = "RUSTSEC-2023-0071", reason = "RSA identity files only; see comment" },
-]
 
 [licenses]
 # Permissive licences only. A dependency offering several licences is

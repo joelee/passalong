@@ -19,6 +19,10 @@ path = "src/main.rs"
 [lints]
 workspace = true
 
+[features]
+# RSA identity files and host keys: `cargo install passalong --features rsa`.
+rsa = ["passalong-ssh/rsa"]
+
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true

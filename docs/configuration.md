@@ -50,8 +50,8 @@ Unknown keys are rejected, and every error names the offending key or line.
 | `host` | string | required | Server host name or IP address |
 | `port` | integer | `22` | 1 to 65535 |
 | `user` | string | required | Login user |
-| `host_key` | string | required | The server's public host key, pinned: the `ssh-ed25519 AAAA...` part of `ssh-keyscan -t ed25519 <host>` |
-| `identity_file` | path | required | Private key used to log in; `~` is expanded |
+| `host_key` | string | required | The server's public host key, pinned: the `ssh-ed25519 AAAA...` part of `ssh-keyscan -t ed25519 <host>`. An `ssh-rsa` key needs a build with the `rsa` feature |
+| `identity_file` | path | required | Private key used to log in; `~` is expanded. Ed25519 and ECDSA keys work in every build; RSA keys need a build with the `rsa` feature |
 | `remote_path` | string | required | Storage directory on the server, absolute or relative to the login home; not `~`-expanded |
 | `connect_timeout_secs` | integer | `10` | 1 to 3600 |
 

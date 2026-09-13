@@ -264,3 +264,16 @@ async fn a_closed_port_is_a_connection_error() {
         Err(SshError::Connect { .. })
     ));
 }
+
+#[cfg(feature = "rsa")]
+#[tokio::test]
+#[ignore = "needs the Docker SSH server: just test-integration"]
+async fn an_rsa_identity_logs_in_with_the_rsa_feature() {
+    let mut cfg = config();
+    cfg.identity_file = var("PASSALONG_IT_SSH_RSA_IDENTITY").into();
+    let params = SshParams::from_config(&cfg).unwrap();
+    let root = unique_root();
+    let fs = SftpFs::open(&params, &root).await.unwrap();
+    fs.create_dir_all(&p("rsa")).await.unwrap();
+    assert!(fs.stat(&p("rsa")).await.unwrap().is_some());
+}

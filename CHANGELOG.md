@@ -32,6 +32,11 @@ All notable changes to this project are documented here. The format follows
 - The CLI package is now named `passalong` (the binary name is unchanged),
   and all crates carry crates.io metadata; third-party dependency
   requirements are caret requirements (PLAN-00002 STEP-02).
+- RSA keys are now opt-in: RSA identity files and `ssh-rsa` host keys need
+  a build with the `rsa` feature (`cargo install passalong --features rsa`),
+  because the `rsa` crate has an unfixed timing side channel
+  (RUSTSEC-2023-0071). Ed25519 and ECDSA keys work in every build
+  (PLAN-00003 STEP-01).
 
 ### Fixed
 

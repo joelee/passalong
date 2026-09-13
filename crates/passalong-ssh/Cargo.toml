@@ -18,6 +18,12 @@ workspace = true
 [package.metadata.docs.rs]
 all-features = true
 
+[features]
+# RSA identity files and RSA host keys. Off by default: the `rsa` crate has
+# an unfixed timing side channel (RUSTSEC-2023-0071). Ed25519 and ECDSA keys
+# work in every build.
+rsa = ["russh/rsa"]
+
 [dependencies]
 async-trait.workspace = true
 chrono.workspace = true

@@ -107,6 +107,23 @@ Work is planned in numbered delivery plans under `docs/plans/`. Each plan's
 Builder Work Log records per-step test evidence, verification results, and
 deviations.
 
+## RSA keys
+
+RSA identity files and RSA host keys are behind the optional `rsa` feature
+of `passalong-ssh`, which the `passalong` package forwards. The `rsa` crate
+has a timing side channel with no fixed release (RUSTSEC-2023-0071), so
+default builds, the release binaries, and `cargo install passalong` leave
+it out, and `cargo deny` audits only the default features. In a default
+build an RSA key fails with an error that names this feature.
+
+```sh
+cargo install --locked passalong --features rsa   # a build with RSA keys
+```
+
+`just lint` and `just test` also run the `passalong-ssh` checks without
+the feature, and `just test-integration` logs in to the Docker server with
+an RSA key under it.
+
 ## Publishing
 
 Three crates are published to crates.io, in dependency order:

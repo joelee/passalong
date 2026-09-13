@@ -7,7 +7,7 @@ services:
     environment:
       TZ: Etc/UTC
       USER_NAME: passalong
-      PUBLIC_KEY_FILE: /keys/id_ed25519.pub
+      PUBLIC_KEY_DIR: /keys/authorized
       SUDO_ACCESS: "false"
       PASSWORD_ACCESS: "false"
     ports:

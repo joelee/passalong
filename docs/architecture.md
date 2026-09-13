@@ -149,7 +149,9 @@ interrupted upload leaves nothing under `items/`.
 `Store::list_after(id)` lists only the items newer than `id`, newest
 first, reading `meta.json` for those items alone. Ids start with their
 creation time, so comparing ids is enough; pull mode uses it to poll a
-large store cheaply.
+large store cheaply. `Store::get_meta(id)` reads one item's `meta.json`
+without opening its content; the choice prompt for an ambiguous id uses it
+for the candidates it shows, at most 9, instead of listing the store.
 
 Deleting an item renames `items/<id>` to `tmp/deleted-<id>-<random>` and
 then removes it, so the item disappears from every listing in one step.

@@ -1,6 +1,5 @@
 //! Choosing an item when an id prefix matches several.
 
-use std::collections::HashMap;
 use std::io::Write;
 
 use chrono::{DateTime, Utc};
@@ -66,17 +65,23 @@ pub async fn resolve_item(
         },
         other => return Ok(other?),
     };
-    let metas: HashMap<ItemId, ItemMeta> = store
-        .list()
-        .await?
-        .into_iter()
-        .map(|meta| (meta.id.clone(), meta))
-        .collect();
     let shown = &candidates[..candidates.len().min(MAX_CHOICES)];
+    // Only the shown candidates' metadata is read: one request each, not
+    // one per stored item.
+    let mut metas: Vec<Option<ItemMeta>> = Vec::with_capacity(shown.len());
+    for id in shown {
+        metas.push(match store.get_meta(id).await {
+            Ok(meta) => Some(meta),
+            // Deleted or damaged since it was listed: shown without details.
+            Err(StoreError::NotFound(_) | StoreError::Corrupt { .. }) => None,
+            Err(err) => return Err(err.into()),
+        });
+    }
     writeln!(chooser.err, "`{input}` matches {} items:", candidates.len())?;
     let rows: Vec<[String; 5]> = shown
         .iter()
-        .map(|id| match metas.get(id) {
+        .zip(&metas)
+        .map(|(id, meta)| match meta {
             Some(meta) => [
                 id.to_string(),
                 kind_label(meta).to_owned(),
@@ -332,5 +337,55 @@ mod tests {
         assert_eq!(ago(86_399), "23 h ago");
         assert_eq!(ago(86_400), "1 d ago");
         assert_eq!(ago(-30), "just now");
+    }
+
+    #[tokio::test]
+    async fn the_prompt_reads_only_the_candidates_it_shows() {
+        use passalong_core::fs::LocalFs;
+        use passalong_core::random::StdRandom;
+        use passalong_core::store::{FsStore, Store as _};
+        use passalong_core::testing::{FaultyFs, FsOp, ManualClock};
+        use std::sync::Arc;
+        let dir = tempfile::TempDir::new().unwrap();
+        let clock = Arc::new(ManualClock::at("2026-09-12T09:53:11Z"));
+        let store = FsStore::new(
+            FaultyFs::new(LocalFs::new(dir.path())),
+            clock.clone(),
+            Box::new(StdRandom::new()),
+        );
+        for i in 0..9 {
+            let text = format!("older {i}");
+            store
+                .put(NewItem::text("box"), bytes(text.as_bytes()))
+                .await
+                .unwrap();
+            clock.advance(1);
+        }
+        let mut prefix = String::new();
+        for i in 0..11 {
+            let text = format!("same second {i}");
+            let meta = store
+                .put(NewItem::text("box"), bytes(text.as_bytes()))
+                .await
+                .unwrap()
+                .meta;
+            prefix = meta.id.as_str()[..9].to_owned();
+        }
+        let before = store.fs().calls(FsOp::OpenRead);
+        let mut prompt = ScriptedPrompt::new(true, ["1"]);
+        let mut err = Vec::new();
+        let mut chooser = Chooser {
+            prompt: &mut prompt,
+            err: &mut err,
+            now: "2026-09-12T10:00:00Z".parse().unwrap(),
+        };
+        resolve_item(&store, &prefix, Some(&mut chooser))
+            .await
+            .unwrap();
+        assert_eq!(
+            store.fs().calls(FsOp::OpenRead) - before,
+            9,
+            "one meta.json per shown candidate, not one per stored item"
+        );
     }
 }

@@ -258,6 +258,13 @@ impl<F: RemoteFs> Store for FsStore<F> {
         Ok((meta, content))
     }
 
+    async fn get_meta(&self, id: &ItemId) -> Result<ItemMeta, StoreError> {
+        match self.read_meta(id).await {
+            Err(StoreError::Fs(FsError::NotFound(_))) => Err(StoreError::NotFound(id.to_string())),
+            other => other,
+        }
+    }
+
     async fn exists(&self, id: &ItemId) -> Result<bool, StoreError> {
         let meta_path = Self::item_dir(id)?.join(META_FILE)?;
         Ok(self.fs.stat(&meta_path).await?.is_some())
@@ -1001,5 +1008,83 @@ mod tests {
         let before = store.fs().calls(FsOp::OpenRead);
         assert_eq!(store.newest_id().await.unwrap(), Some(metas[2].id.clone()));
         assert_eq!(store.fs().calls(FsOp::OpenRead), before);
+    }
+
+    #[tokio::test]
+    async fn get_meta_reads_one_meta_file_and_names_unknown_ids() {
+        let fx = Fixture::new();
+        let store = fx.faulty();
+        let metas = three_items(&fx, &store).await;
+        let before = store.fs().calls(FsOp::OpenRead);
+        assert_eq!(store.get_meta(&metas[1].id).await.unwrap(), metas[1]);
+        assert_eq!(store.fs().calls(FsOp::OpenRead) - before, 1);
+        let unknown = ItemId::parse("00000001-000000000000").unwrap();
+        assert!(matches!(
+            store.get_meta(&unknown).await,
+            Err(StoreError::NotFound(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn the_default_get_meta_agrees_with_get() {
+        /// A store that relies on the trait's default `get_meta`.
+        struct DefaultMeta(FsStore<LocalFs>);
+
+        #[async_trait::async_trait]
+        impl Store for DefaultMeta {
+            async fn put(
+                &self,
+                item: NewItem,
+                content: crate::fs::BoxRead,
+            ) -> Result<crate::store::PutOutcome, StoreError> {
+                self.0.put(item, content).await
+            }
+            async fn list(&self) -> Result<Vec<ItemMeta>, StoreError> {
+                self.0.list().await
+            }
+            async fn list_after(
+                &self,
+                after: Option<&ItemId>,
+            ) -> Result<Vec<ItemMeta>, StoreError> {
+                self.0.list_after(after).await
+            }
+            async fn get(&self, id: &ItemId) -> Result<(ItemMeta, crate::fs::BoxRead), StoreError> {
+                self.0.get(id).await
+            }
+            async fn exists(&self, id: &ItemId) -> Result<bool, StoreError> {
+                self.0.exists(id).await
+            }
+            async fn find_by_content_key(
+                &self,
+                key: &crate::model::ContentKey,
+            ) -> Result<Option<ItemMeta>, StoreError> {
+                self.0.find_by_content_key(key).await
+            }
+            async fn resolve(&self, input: &str) -> Result<ItemId, StoreError> {
+                self.0.resolve(input).await
+            }
+            async fn delete(&self, id: &ItemId) -> Result<ItemMeta, StoreError> {
+                self.0.delete(id).await
+            }
+            async fn clean_staging(
+                &self,
+                older_than: std::time::Duration,
+            ) -> Result<usize, StoreError> {
+                self.0.clean_staging(older_than).await
+            }
+        }
+
+        let fx = Fixture::new();
+        let store = DefaultMeta(fx.store());
+        let metas = three_items(&fx, &store).await;
+        assert_eq!(
+            store.get_meta(&metas[0].id).await.unwrap(),
+            store.get(&metas[0].id).await.unwrap().0
+        );
+        let unknown = ItemId::parse("00000001-000000000000").unwrap();
+        assert!(matches!(
+            store.get_meta(&unknown).await,
+            Err(StoreError::NotFound(_))
+        ));
     }
 }

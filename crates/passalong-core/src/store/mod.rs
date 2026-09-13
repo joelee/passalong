@@ -58,6 +58,17 @@ pub trait Store: Send + Sync {
     /// Returns an item's metadata and a stream of its content.
     async fn get(&self, id: &ItemId) -> Result<(ItemMeta, BoxRead), StoreError>;
 
+    /// An item's metadata alone, without opening its content. The default
+    /// calls [`Store::get`] and drops the content; backends override it
+    /// with a single metadata read.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::NotFound`] for an unknown id, or the backend's error.
+    async fn get_meta(&self, id: &ItemId) -> Result<ItemMeta, StoreError> {
+        Ok(self.get(id).await?.0)
+    }
+
     /// Whether an item exists.
     async fn exists(&self, id: &ItemId) -> Result<bool, StoreError>;
 

@@ -40,7 +40,8 @@ tests/docker/         OpenSSH server for the integration tests
 | `just coverage` | `cargo llvm-cov --workspace --all-features --fail-under-lines 80 --summary-only` |
 | `just coverage-full` | Coverage including the Docker-backed tests |
 | `just build` | `cargo build --workspace --all-features --locked` |
-| `just check` | `fmt-check`, `lint`, `test`, `coverage`, `build` |
+| `just links` | `scripts/check-links.sh`: relative links and heading anchors resolve, links to `main` name existing paths, and crate READMEs use only absolute links, because crates.io cannot resolve relative ones |
+| `just check` | `fmt-check`, `lint`, `links`, `test`, `coverage`, `build` |
 | `just audit` | `cargo deny check`: advisories, licences, duplicate crates, and sources per `deny.toml` |
 | `just lint-workflows` | `actionlint` on the GitHub Actions workflows, or its Docker image when not installed |
 | `just ci` | `check`, `audit`, `publish-dry-run`, `lint-workflows`, `test-integration`, `test-deploy`, `coverage-full` |

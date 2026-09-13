@@ -6,8 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Changed
+
+- The README's "How it works" diagram is a Mermaid diagram (PLAN-00005
+  STEP-02).
+
 ### Fixed
 
+- The links in the README work on crates.io: they are absolute, because
+  crates.io resolved the relative ones against `crates/passalong-cli/`.
+  `just check` now runs `scripts/check-links.sh`, which also fails on a
+  missing link target or heading (PLAN-00005 STEP-02).
 - The Release workflow no longer reports errors from the build cache's
   cleanup of `target/package`, and its artifact actions run on Node.js 24
   (`upload-artifact@v7`, `download-artifact@v8`). Dependabot proposes

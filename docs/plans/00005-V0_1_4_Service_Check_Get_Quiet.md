@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00005-v0.1.4"
 execution_started_at: "2026-09-13T20:51:24Z"
-execution_updated_at: "2026-09-13T20:52:56Z"
+execution_updated_at: "2026-09-13T20:57:46Z"
 execution_completed_at: null
-current_step: "PLAN-00005-STEP-02"
+current_step: "PLAN-00005-STEP-03"
 ---
 
 # Delivery Plan 00005: V0 1 4 Service Check Get Quiet
@@ -738,7 +738,7 @@ macOS through CI's `just check`.
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
 | PLAN-00005-STEP-01 | completed | 2026-09-13T20:51:24Z | 2026-09-13T20:52:56Z | Commit `build: complete PLAN-00005-STEP-01 - Quiet Release workflow`; `just check` green, 91.92% lines | AC-01; AC-02 is checked on the v0.1.4 Release run. release.yml verify and crates jobs end with an if: always() `rm -rf target/package` step; publish-dry-run removes target/package; artifact actions moved to their Node.js 24 majors; .github/dependabot.yml monthly github-actions. Architecture release pipeline now lists crates.io before the GitHub release, as the workflow does since v0.1.2 |
-| PLAN-00005-STEP-02 | not-started | — | — | — | — |
+| PLAN-00005-STEP-02 | completed | 2026-09-13T20:53:05Z | 2026-09-13T20:57:46Z | Commit `build: complete PLAN-00005-STEP-02 - Working links and the Mermaid diagram`; `just check` green, 91.93% lines | AC-03, AC-04; AC-05 rendering is checked on the pushed branch in STEP-08. README relative links now absolute on main (blob/main, tree/main/docs/service); #server-setup anchor kept. check-links.sh also verifies links to this repository on main name existing paths and headings, which keeps the absolute README links honest. Mermaid flowchart replaces the ASCII diagram |
 | PLAN-00005-STEP-03 | not-started | — | — | — | — |
 | PLAN-00005-STEP-04 | not-started | — | — | — | — |
 | PLAN-00005-STEP-05 | not-started | — | — | — | — |
@@ -756,6 +756,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T20:51:24Z | PLAN-00005 | Plan approved (commit 9f56d49); Builder starts on feature/00005-v0.1.4 | `docs(plan): approve PLAN-00005 - V0 1 4 Service Check Get Quiet` | Begin PLAN-00005-STEP-01 |
 | 2026-09-13T20:51:24Z | PLAN-00005-STEP-01 | Started | — | Red phase |
 | 2026-09-13T20:52:56Z | PLAN-00005-STEP-01 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00005-STEP-01 - Quiet Release workflow` | Begin PLAN-00005-STEP-02 |
+| 2026-09-13T20:53:05Z | PLAN-00005-STEP-02 | Started | — | Red phase |
+| 2026-09-13T20:57:46Z | PLAN-00005-STEP-02 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00005-STEP-02 - Working links and the Mermaid diagram` | Begin PLAN-00005-STEP-03 |
 
 ### Deviations and blockers
 
@@ -773,6 +775,12 @@ None.
 | 2026-09-13T20:52:56Z | PLAN-00005-STEP-01 | `just lint-workflows` (actionlint) | Pass | no findings with upload-artifact@v7, download-artifact@v8, and the if: always() cleanup steps |
 | 2026-09-13T20:52:56Z | PLAN-00005-STEP-01 | `uvx check-jsonschema --builtin-schema vendor.dependabot .github/dependabot.yml` | Pass | ok -- validation done |
 | 2026-09-13T20:52:56Z | PLAN-00005-STEP-01 | `just check` | Exit 0 | Lines 91.92% |
+| 2026-09-13T20:57:45Z | PLAN-00005-STEP-02 | Red: `cargo test -p passalong --test link_check_script` before the script existed | Exit 101 (expected) | 7 failed: bash: scripts/check-links.sh: No such file or directory |
+| 2026-09-13T20:57:45Z | PLAN-00005-STEP-02 | Red: `scripts/check-links.sh <git archive HEAD copy>` (the README before this step) | Exit 1 (expected) | 14 errors: README.md lines 13, 61, 78, 84, 142, 146-153, 157, relative links CHANGELOG.md, docs/service/, docs/*.md, CONTRIBUTING.md, SECURITY.md, LICENSE in a crate README |
+| 2026-09-13T20:57:45Z | PLAN-00005-STEP-02 | `cargo test -p passalong --test link_check_script` | Pass | 7 passed: valid links, missing file (file:line named), missing heading, relative link in a crate readme, missing path on main (tag-pinned and other repos ignored), all problems at once, the repository passes |
+| 2026-09-13T20:57:45Z | PLAN-00005-STEP-02 | `scripts/check-links.sh`; shellcheck (koalaman/shellcheck:stable) on both scripts | Pass | links ok: 27 Markdown files checked; shellcheck no findings |
+| 2026-09-13T20:57:45Z | PLAN-00005-STEP-02 | External URL scan: every http(s) URL in tracked Markdown, `curl -L -H "Accept: text/html"` | Pass | 50 URLs, 44 answer 200; the 6 others are placeholders or recorded history, not links: crates.io/api/v1/crates/<name> (PLAN-00002 reference), https://example.com/a-link (sample list output in docs/usage.md), blob/HEAD/crates/passalong-cli/<path> and blob/main/<path> (PLAN-00005 findings), blob/vX.Y.Z/... (AGENTS.md template), github.com/joeworks/passalong (the old repository URL PLAN-00002 records fixing) |
+| 2026-09-13T20:57:45Z | PLAN-00005-STEP-02 | `just check` (now with the links recipe) | Exit 0 | Lines 91.93% |
 
 ### Completion summary
 

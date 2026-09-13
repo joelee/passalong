@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00003-v0.1.2"
 execution_started_at: "2026-09-12T23:55:51Z"
-execution_updated_at: "2026-09-13T00:17:05Z"
+execution_updated_at: "2026-09-13T00:23:24Z"
 execution_completed_at: null
-current_step: "PLAN-00003-STEP-06"
+current_step: "PLAN-00003-STEP-07"
 ---
 
 # Delivery Plan 00003: V0 1 2 Images Pull And Downloads
@@ -910,7 +910,7 @@ run at STEP-01, STEP-09, STEP-10, and STEP-14.
 | PLAN-00003-STEP-03 | completed | 2026-09-13T00:04:59Z | 2026-09-13T00:07:52Z | Commit `build: complete PLAN-00003-STEP-03 - passalong cat`; `just check` green, 92.62% lines | AC-01, AC-02, AC-03. Docs: usage section, README command row, CHANGELOG |
 | PLAN-00003-STEP-04 | completed | 2026-09-13T00:07:52Z | 2026-09-13T00:12:12Z | Commit `build: complete PLAN-00003-STEP-04 - Downloads for load`; `just check` green, 92.75% lines | AC-05. Verified writing moved from commands/load.rs to passalong_core::download for reuse by pull mode; load keeps its explicit-DEST behaviour and messages |
 | PLAN-00003-STEP-05 | completed | 2026-09-13T00:12:12Z | 2026-09-13T00:17:05Z | Commit `build: complete PLAN-00003-STEP-05 - Interactive disambiguation`; `just check` green, 92.90% lines | AC-06. load and cat take a Lookup (input plus optional chooser); delete takes an optional chooser; app.rs builds one from TerminalPrompt and standard error. TerminalPrompt is interactive only when standard input and standard error are terminals (REQ-05), which also applies to prune and init |
-| PLAN-00003-STEP-06 | not-started | — | — | — | — |
+| PLAN-00003-STEP-06 | completed | 2026-09-13T00:17:05Z | 2026-09-13T00:23:24Z | Commit `build: complete PLAN-00003-STEP-06 - Image items, PNG codec, clipboard image access`; `just check` green, 92.14% lines | AC-07, AC-08 (model part). desktop_image_round_trip (ignored) runs under Xvfb in CI (STEP-12). png 0.18.1 and arboard image-data added; audit passes; architecture meta.json table documents origin |
 | PLAN-00003-STEP-07 | not-started | — | — | — | — |
 | PLAN-00003-STEP-08 | not-started | — | — | — | — |
 | PLAN-00003-STEP-09 | not-started | — | — | — | — |
@@ -938,6 +938,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T00:12:12Z | PLAN-00003-STEP-04 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-04 - Downloads for load` | Begin PLAN-00003-STEP-05 |
 | 2026-09-13T00:12:12Z | PLAN-00003-STEP-05 | Started | — | Red phase |
 | 2026-09-13T00:17:05Z | PLAN-00003-STEP-05 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-05 - Interactive disambiguation` | Begin PLAN-00003-STEP-06 |
+| 2026-09-13T00:17:05Z | PLAN-00003-STEP-06 | Started | — | Red phase |
+| 2026-09-13T00:23:24Z | PLAN-00003-STEP-06 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-06 - Image items, PNG codec, clipboard image access` | Begin PLAN-00003-STEP-07 |
 
 ### Deviations and blockers
 
@@ -986,12 +988,19 @@ None.
 | 2026-09-13T00:17:05Z | PLAN-00003-STEP-05 | `cargo test -p passalong --bin passalong delete` | Pass | test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 76 filtered out; finished in 0.00s |
 | 2026-09-13T00:17:05Z | PLAN-00003-STEP-05 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
 | 2026-09-13T00:17:05Z | PLAN-00003-STEP-05 | `just check` | Exit 0 | Lines 92.90% (7784 lines, 553 missed); resolve.rs 95.60%; delete.rs 98.67% |
+| 2026-09-13T00:17:05Z | PLAN-00003-STEP-06 | Red: `cargo test -p passalong-core --lib` with codec, model, trait-default, mock, and desktop image tests | Exit 101 (expected) | 38 compile errors: RgbaImage, ImageError, encode_png, decode_png, NewItem::clipboard_image, ItemMeta::is_clipboard_image, ItemOrigin, Clipboard::read_image/write_image, MockClipboard::with_image/with_image_reads not found |
+| 2026-09-13T00:23:24Z | PLAN-00003-STEP-06 | `cargo test -p passalong-core --lib` | Exit 0 | 153 passed: codec round trip byte for byte with PNG signature; grey, grey+alpha, and RGB expand to RGBA; a crafted IHDR claiming 10000 x 10000 (valid CRC) is refused as TooLarge before decoding; malformed data and mismatched buffers refused; clipboard image items are kind file, image/png, origin clipboard, schema 1, named clipboard-20260913-080405.png; a v0.1.1-shaped struct reads them; v0.1.1 meta without origin parses; text-only clipboards default to no images; the mock keeps either text or an image |
+| 2026-09-13T00:23:24Z | PLAN-00003-STEP-06 | `just audit` | Pass | advisories ok, bans ok, licenses ok, sources ok |
+| 2026-09-13T00:23:24Z | PLAN-00003-STEP-06 | `cargo test -p passalong-core --lib clipboard` | Pass | test result: ok. 14 passed; 0 failed; 3 ignored; 0 measured; 139 filtered out; finished in 0.00s |
+| 2026-09-13T00:23:24Z | PLAN-00003-STEP-06 | `cargo test -p passalong-core --lib model` | Pass | test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 134 filtered out; finished in 0.00s |
+| 2026-09-13T00:23:24Z | PLAN-00003-STEP-06 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
+| 2026-09-13T00:23:24Z | PLAN-00003-STEP-06 | `just check` | Exit 0 | Lines 92.14% (8134 lines, 639 missed); image.rs 89.81%; model.rs 98.54%; testing.rs 98.08% |
 
 ### Completion summary
 
 - **Implementation status:** `not-started`
-- **Completed requirements:** REQ-01 to REQ-05, REQ-15; REQ-12 (settings)
-- **Incomplete requirements:** REQ-06 to REQ-11, REQ-13, REQ-14, REQ-16 to REQ-20
+- **Completed requirements:** REQ-01 to REQ-05, REQ-07, REQ-15; REQ-06 (model), REQ-12 (settings)
+- **Incomplete requirements:** REQ-06 (list), REQ-08 to REQ-11, REQ-13, REQ-14, REQ-16 to REQ-20
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

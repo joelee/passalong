@@ -95,7 +95,8 @@ Each item directory holds its content and a `meta.json`:
   "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
   "created_at": "2026-09-12T09:53:11Z",
   "device": "box",
-  "preview": null
+  "preview": null,
+  "origin": "clipboard"
 }
 ```
 
@@ -111,6 +112,7 @@ Each item directory holds its content and a `meta.json`:
 | `created_at` | Creation time, equal to the id's timestamp |
 | `device` | `client.device_name` of the sender |
 | `preview` | For text, the first 80 characters with whitespace collapsed; `null` for files |
+| `origin` | Optional. `clipboard` for a clipboard image, stored as a PNG file named `clipboard-YYYYMMDD-HHMMSS.png`; absent otherwise. Clients older than v0.1.2 ignore it and see an ordinary PNG file |
 
 Readers ignore fields they do not know, so items written by newer clients
 stay readable. A change that older readers cannot handle must increase

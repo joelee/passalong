@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tracing_subscriber::fmt::MakeWriter;
 
-use crate::clipboard::{Clipboard, ClipboardError};
+use crate::clipboard::{Clipboard, ClipboardError, RgbaImage};
 use crate::clock::Clock;
 use crate::config::EnvProvider;
 use crate::fs::{BoxRead, BoxWrite, DirEntry, FsError, Metadata, RemoteFs, RemotePath};
@@ -309,6 +309,9 @@ struct MockClipboardState {
     current: Option<String>,
     writes: Vec<String>,
     fail_writes: bool,
+    image_reads: VecDeque<Option<RgbaImage>>,
+    current_image: Option<RgbaImage>,
+    image_writes: Vec<RgbaImage>,
 }
 
 /// In-memory [`Clipboard`]. Clones share state, so a test can keep one
@@ -337,6 +340,31 @@ impl MockClipboard {
             .reads
             .extend(reads.into_iter().map(|read| Ok(read.map(str::to_owned))));
         self
+    }
+
+    /// A clipboard currently holding `image` and no text.
+    pub fn with_image(image: RgbaImage) -> Self {
+        let mock = Self::new();
+        mock.lock().current_image = Some(image);
+        mock
+    }
+
+    /// Queues successive image read results. Once the queue is empty, image
+    /// reads return the current image.
+    #[must_use]
+    pub fn with_image_reads(self, reads: impl IntoIterator<Item = Option<RgbaImage>>) -> Self {
+        self.lock().image_reads.extend(reads);
+        self
+    }
+
+    /// Every image written, oldest first.
+    pub fn image_writes(&self) -> Vec<RgbaImage> {
+        self.lock().image_writes.clone()
+    }
+
+    /// The image an image read would return once the queue is empty.
+    pub fn current_image(&self) -> Option<RgbaImage> {
+        self.lock().current_image.clone()
     }
 
     /// Makes the next queued read fail with `err`.
@@ -386,6 +414,31 @@ impl Clipboard for MockClipboard {
         }
         state.writes.push(text.to_owned());
         state.current = Some(text.to_owned());
+        state.current_image = None;
+        Ok(())
+    }
+
+    fn read_image(&mut self) -> Result<Option<RgbaImage>, ClipboardError> {
+        let mut state = self.lock();
+        match state.image_reads.pop_front() {
+            Some(image) => {
+                if image.is_some() {
+                    state.current_image.clone_from(&image);
+                }
+                Ok(image)
+            }
+            None => Ok(state.current_image.clone()),
+        }
+    }
+
+    fn write_image(&mut self, image: &RgbaImage) -> Result<(), ClipboardError> {
+        let mut state = self.lock();
+        if state.fail_writes {
+            return Err(ClipboardError::Other("injected write failure".to_owned()));
+        }
+        state.image_writes.push(image.clone());
+        state.current_image = Some(image.clone());
+        state.current = None;
         Ok(())
     }
 }

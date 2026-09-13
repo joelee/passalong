@@ -29,6 +29,8 @@ gethostname = "1.1.0"
 hex = "0.4.3"
 mime_guess = "2.0.5"
 notify = "8.2.0"
+# PNG encoding and decoding of clipboard images.
+png = "0.18.1"
 # `ring` instead of the default `aws-lc-rs`: no cmake needed and friendlier
 # to cross-compilation (Android). RSA keys are opt-in through the `rsa`
 # feature of passalong-ssh (RUSTSEC-2023-0071 has no fixed `rsa` release).

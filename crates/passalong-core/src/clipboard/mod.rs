@@ -2,21 +2,39 @@
 //! with `testing::MockClipboard` (available with the `testing` feature),
 //! and GUI or Android front-ends can supply their own implementation.
 //!
-//! Only UTF-8 text is supported in this release.
+//! Text is UTF-8; images are 8-bit RGBA pixels, stored as PNG.
 
 #[cfg(feature = "desktop")]
 mod desktop;
+mod image;
+
+pub use image::{ImageError, MAX_IMAGE_PIXELS, RgbaImage, decode_png, encode_png};
 
 #[cfg(feature = "desktop")]
 pub use desktop::ArboardClipboard;
 
-/// Read and write access to a clipboard's text.
+/// Read and write access to a clipboard's text and images.
 pub trait Clipboard: Send {
     /// Returns the clipboard's text, or `None` when it holds no text.
     fn read_text(&mut self) -> Result<Option<String>, ClipboardError>;
 
     /// Replaces the clipboard's content with `text`.
     fn write_text(&mut self, text: &str) -> Result<(), ClipboardError>;
+
+    /// Returns the clipboard's image, or `None` when it holds none. The
+    /// default, for clipboards without image support, is always `None`.
+    fn read_image(&mut self) -> Result<Option<RgbaImage>, ClipboardError> {
+        Ok(None)
+    }
+
+    /// Replaces the clipboard's content with `image`. The default, for
+    /// clipboards without image support, fails with `Unavailable`.
+    fn write_image(&mut self, image: &RgbaImage) -> Result<(), ClipboardError> {
+        let _ = image;
+        Err(ClipboardError::Unavailable(
+            "this clipboard does not support images".to_owned(),
+        ))
+    }
 }
 
 /// Clipboard failures.
@@ -88,6 +106,54 @@ mod tests {
         );
     }
 
+    /// A clipboard that only knows text, relying on the trait's defaults.
+    struct TextOnly;
+
+    impl Clipboard for TextOnly {
+        fn read_text(&mut self) -> Result<Option<String>, ClipboardError> {
+            Ok(None)
+        }
+        fn write_text(&mut self, _: &str) -> Result<(), ClipboardError> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn text_only_clipboards_have_no_images() {
+        let mut clip = TextOnly;
+        assert_eq!(clip.read_image().unwrap(), None);
+        let image = RgbaImage::new(1, 1, vec![1, 2, 3, 4]).unwrap();
+        assert!(matches!(
+            clip.write_image(&image),
+            Err(ClipboardError::Unavailable(_))
+        ));
+    }
+
+    #[test]
+    fn the_mock_keeps_either_text_or_an_image_like_a_real_clipboard() {
+        let image = RgbaImage::new(1, 1, vec![1, 2, 3, 4]).unwrap();
+        let other = RgbaImage::new(1, 1, vec![5, 6, 7, 8]).unwrap();
+        let mock = MockClipboard::with_image(image.clone());
+        let mut clip = mock.clone();
+        assert_eq!(clip.read_text().unwrap(), None);
+        assert_eq!(clip.read_image().unwrap(), Some(image.clone()));
+        clip.write_text("words").unwrap();
+        assert_eq!(clip.read_image().unwrap(), None, "text replaces the image");
+        clip.write_image(&other).unwrap();
+        assert_eq!(
+            clip.read_text().unwrap(),
+            None,
+            "an image replaces the text"
+        );
+        assert_eq!(mock.image_writes(), std::slice::from_ref(&other));
+        assert_eq!(mock.current_image(), Some(other.clone()));
+
+        let scripted = MockClipboard::new().with_image_reads([Some(image.clone()), None]);
+        let mut clip = scripted.clone();
+        assert_eq!(clip.read_image().unwrap(), Some(image.clone()));
+        assert_eq!(clip.read_image().unwrap(), None);
+    }
+
     /// The desktop tests share the one system clipboard, so they take this
     /// lock instead of running in parallel.
     #[cfg(feature = "desktop")]
@@ -106,6 +172,27 @@ mod tests {
             clip.read_text().unwrap().as_deref(),
             Some("passalong desktop test")
         );
+    }
+
+    /// Needs a desktop session; CI runs it under Xvfb.
+    #[cfg(feature = "desktop")]
+    #[test]
+    #[ignore = "needs a desktop session with a clipboard"]
+    fn desktop_image_round_trip() {
+        let _clipboard = DESKTOP_CLIPBOARD.lock().unwrap_or_else(|e| e.into_inner());
+        let rgba: Vec<u8> = (0..4 * 3 * 4)
+            .map(|i| {
+                if i % 4 == 3 {
+                    255
+                } else {
+                    (i * 19 % 256) as u8
+                }
+            })
+            .collect();
+        let image = RgbaImage::new(4, 3, rgba).unwrap();
+        let mut clip = ArboardClipboard::new().unwrap();
+        clip.write_image(&image).unwrap();
+        assert_eq!(clip.read_image().unwrap(), Some(image));
     }
 
     /// Holds text the way `load` does on Linux, then releases it. Needs a

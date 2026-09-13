@@ -6,6 +6,54 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## v0.1.2 - 2026-09-13T09:04:23Z
+
+### Added
+
+- `passalong cat <ID>` prints an item to standard output exactly as stored,
+  verifying its SHA-256; binary items are refused on a terminal unless
+  `--force` is given (PLAN-00003 STEP-03).
+- When an id prefix matches several items, `load`, `cat`, and `delete` list
+  the matches on a terminal and ask which one you mean; scripts still get an
+  error listing them (PLAN-00003 STEP-05).
+- Clipboard images: `passalong clipboard` sends the image when the clipboard
+  has no text, `load` puts it back on the clipboard (or writes the PNG with
+  a destination), `cat` prints the PNG, and `list` shows kind `image`.
+  Images are stored as PNG files, so older clients see ordinary files
+  (PLAN-00003 STEP-06 and STEP-07).
+- `serve` also sends clipboard images, reading one only when the clipboard
+  holds no text and sending it once while it is unchanged; set
+  `serve.clipboard_images = false` to turn this off (PLAN-00003 STEP-08).
+- Pull mode: with `serve.pull = true`, `serve` applies items sent by other
+  devices, the newest text or image to the clipboard and files into an
+  existing `client.download_dir`, without ever sending them back
+  (PLAN-00003 STEP-10).
+
+### Changed
+
+- RSA keys are now opt-in: RSA identity files and `ssh-rsa` host keys need
+  a build with the `rsa` feature (`cargo install passalong --features rsa`),
+  because the `rsa` crate has an unfixed timing side channel
+  (RUSTSEC-2023-0071). Ed25519 and ECDSA keys work in every build
+  (PLAN-00003 STEP-01).
+- `passalong load <ID>` without a destination downloads file items into
+  `client.download_dir` (`~/Downloads` by default) instead of refusing them;
+  an existing name is kept and the download is numbered, as in
+  `report (1).pdf`, unless `--force` is given (PLAN-00003 STEP-04).
+- `scripts/check-release-tag.sh`, which the release workflow runs before
+  building or publishing, also fails when `CHANGELOG.md` has no section for
+  the version, the release notes are still a draft, or the README still
+  describes the release as being prepared. `AGENTS.md` describes the
+  release workflow step by step, and the README no longer states the release
+  status.
+- The release workflow publishes to crates.io only after a maintainer
+  approves the `release` environment, which holds the crates.io token, and
+  creates the GitHub release only after publishing succeeds. `CODEOWNERS`,
+  `SECURITY.md`, and `CONTRIBUTING.md` prepare the project for other
+  contributors.
+
+## v0.1.1 - 2026-09-12T20:00:12Z
+
 ### Added
 
 - `passalong delete <ID>...` removes items; every id is resolved first, so a

@@ -2,6 +2,7 @@
 //! store, the output stream, the clipboard) so it can be tested with
 //! in-memory doubles.
 
+pub mod cat;
 pub mod clipboard;
 pub mod delete;
 pub mod file;

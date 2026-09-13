@@ -56,6 +56,15 @@ pub enum SshError {
         /// Path of the key that was offered.
         path: String,
     },
+    /// An RSA key in a build without the `rsa` feature.
+    #[error(
+        "{what}: RSA keys need passalong built with the rsa feature \
+         (cargo install passalong --features rsa); Ed25519 keys work in every build"
+    )]
+    RsaUnsupported {
+        /// Which key: the setting or the key file.
+        what: String,
+    },
     /// The SSH session opened but SFTP could not start or prepare the root.
     #[error("cannot start SFTP on {address}: {message}")]
     Sftp {

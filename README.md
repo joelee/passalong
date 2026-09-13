@@ -8,10 +8,10 @@ directory. Every other device pushes clipboard text and files there, lists
 what is stored, and pulls items back. There is no cloud service, no account,
 and no custom server daemon.
 
-> **Status:** v0.1.0 is released. v0.1.1, which completes the SSH-only CLI
-> ([Delivery Plan 00002](docs/plans/00002-V0_1_1_CLI_Stabilisation.md)),
-> is being prepared. A GUI, Android, and Windows support are planned for
-> v0.2 and later.
+> **Status:** released versions and their notes are on the
+> [releases page](https://github.com/joelee/passalong/releases), and
+> [CHANGELOG.md](CHANGELOG.md) lists what changed in each. A GUI, Android,
+> and Windows support are planned for v0.2 and later.
 
 ## How it works
 
@@ -23,6 +23,8 @@ and no custom server daemon.
 ```
 
 - The server needs nothing but `sshd` and a directory.
+- Clipboard text, clipboard images, and files travel the same way. With
+  pull mode on, `serve` also applies what other devices send.
 - Each client pins the server's SSH host public key, so there is no
   trust-on-first-use.
 - Items are identified by a time-sortable id (`<time>-<content hash>`), so
@@ -65,7 +67,8 @@ and no custom server daemon.
 | `passalong clipboard` | Send the current clipboard text (`--stdin` reads standard input instead) |
 | `passalong file <path>` | Send a file |
 | `passalong list` | List stored items, newest first (`--json` for scripts) |
-| `passalong load <id> [dest]` | Copy an item to `dest`, or to the clipboard when `dest` is omitted |
+| `passalong load <id> [dest]` | Copy an item to `dest`; without `dest`, text goes to the clipboard and files to `~/Downloads` |
+| `passalong cat <id>` | Print an item to standard output |
 | `passalong serve` | Keep running, sending every new clipboard text and every file dropped into the drop folder (`--daemon`, `--status`, `--stop`) |
 | `passalong delete <id>...` | Delete items |
 | `passalong prune` | Delete items older than `--older-than`, keeping the newest `--keep` |
@@ -146,6 +149,8 @@ See [docs/developer-guide.md](docs/developer-guide.md).
 | [docs/developer-guide.md](docs/developer-guide.md) | Toolchain, `just` recipes, testing |
 | [docs/backlog.md](docs/backlog.md) | Planned future work |
 | [CHANGELOG.md](CHANGELOG.md) | Release notes |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to propose a change |
+| [SECURITY.md](SECURITY.md) | Reporting vulnerabilities privately |
 
 ## License
 

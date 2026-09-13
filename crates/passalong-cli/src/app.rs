@@ -1,7 +1,7 @@
 //! Start-up and dispatch: configuration, logging, the store, then the
 //! command.
 
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::path::Path;
 use std::process::ExitCode;
 
@@ -18,6 +18,7 @@ use crate::cli::{Cli, Command, InitArgs};
 use crate::commands;
 use crate::commands::clipboard::TextSource;
 use crate::prompt::TerminalPrompt;
+use crate::resolve::{Chooser, Lookup};
 
 /// Runs one invocation and maps the outcome to the process exit code:
 /// 0 on success, 1 on any runtime error. Usage errors never get here; clap
@@ -46,8 +47,8 @@ async fn execute(cli: Cli, env: &dyn EnvProvider, out: &mut dyn Write) -> anyhow
         return init(args, cli.config.as_deref(), cli.log_level, env, out).await;
     }
     // The clipboard holder needs no configuration either.
-    if cli.command == Command::HoldClipboard {
-        return hold_clipboard();
+    if let Command::HoldClipboard { image } = cli.command {
+        return hold_clipboard(image);
     }
     let roots = SearchRoots::from_system().context("cannot determine the working directory")?;
     let located = config::locate(cli.config.as_deref(), env, &roots)?;
@@ -78,7 +79,7 @@ async fn dispatch(
     let device = config.client.device_name.as_str();
     match command {
         Command::Init(_) => anyhow::bail!("init runs before configuration is loaded"),
-        Command::HoldClipboard => {
+        Command::HoldClipboard { .. } => {
             anyhow::bail!("the clipboard holder runs before configuration is loaded")
         }
         // `serve` opens, and re-opens, its own store.
@@ -91,6 +92,7 @@ async fn dispatch(
                     store.as_ref(),
                     TextSource::Reader(&mut input),
                     device,
+                    Utc::now(),
                     out,
                 )
                 .await
@@ -100,6 +102,7 @@ async fn dispatch(
                     store.as_ref(),
                     TextSource::Clipboard(&mut clipboard),
                     device,
+                    Utc::now(),
                     out,
                 )
                 .await
@@ -113,9 +116,30 @@ async fn dispatch(
             let store = backends.open(config).await?;
             commands::list::run(store.as_ref(), json, local_offset(), out).await
         }
+        Command::Cat { id, force } => {
+            let store = backends.open(config).await?;
+            let terminal = io::stdout().is_terminal();
+            let (mut prompt, mut stderr) = (TerminalPrompt, io::stderr());
+            let mut chooser = Chooser {
+                prompt: &mut prompt,
+                err: &mut stderr,
+                now: Utc::now(),
+            };
+            let lookup = Lookup {
+                input: &id,
+                chooser: Some(&mut chooser),
+            };
+            commands::cat::run(store.as_ref(), lookup, force, terminal, out).await
+        }
         Command::Delete { ids } => {
             let store = backends.open(config).await?;
-            commands::delete::run(store.as_ref(), &ids, out).await
+            let (mut prompt, mut stderr) = (TerminalPrompt, io::stderr());
+            let mut chooser = Chooser {
+                prompt: &mut prompt,
+                err: &mut stderr,
+                now: Utc::now(),
+            };
+            commands::delete::run(store.as_ref(), &ids, Some(&mut chooser), out).await
         }
         Command::Prune {
             older_than,
@@ -145,11 +169,22 @@ async fn dispatch(
             let store = backends.open(config).await?;
             let mut open_clipboard =
                 || -> Result<Box<dyn Clipboard>, ClipboardError> { clipboard_for_load() };
+            let (mut prompt, mut stderr) = (TerminalPrompt, io::stderr());
+            let mut chooser = Chooser {
+                prompt: &mut prompt,
+                err: &mut stderr,
+                now: Utc::now(),
+            };
+            let lookup = Lookup {
+                input: &id,
+                chooser: Some(&mut chooser),
+            };
             commands::load::run(
                 store.as_ref(),
-                &id,
+                lookup,
                 dest.as_deref(),
                 force,
+                &config.client.download_dir,
                 &mut open_clipboard,
                 out,
             )
@@ -220,13 +255,18 @@ fn clipboard_for_load() -> Result<Box<dyn Clipboard>, ClipboardError> {
 
 /// The hidden `__hold-clipboard` command: reads text from standard input and
 /// holds it on the clipboard until something else replaces it.
-fn hold_clipboard() -> anyhow::Result<()> {
+fn hold_clipboard(image: bool) -> anyhow::Result<()> {
     use std::io::Read as _;
-    let mut text = String::new();
+    let mut bytes = Vec::new();
     io::stdin()
-        .read_to_string(&mut text)
-        .context("reading the text to hold")?;
-    ArboardClipboard::new()?.hold_text(&text)?;
+        .read_to_end(&mut bytes)
+        .context("reading what to hold")?;
+    let mut clipboard = ArboardClipboard::new()?;
+    if image {
+        clipboard.hold_image(&passalong_core::clipboard::decode_png(&bytes)?)?;
+    } else {
+        clipboard.hold_text(&String::from_utf8(bytes).context("the text is not UTF-8")?)?;
+    }
     Ok(())
 }
 

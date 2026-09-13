@@ -33,7 +33,7 @@ pub fn render_table(items: &[ItemMeta], offset: FixedOffset) -> String {
         .map(|meta| {
             [
                 meta.id.to_string(),
-                kind_name(meta.kind).to_owned(),
+                kind_label(meta).to_owned(),
                 display_name(meta),
                 human_size(meta.size),
                 meta.device.clone(),
@@ -77,8 +77,18 @@ pub fn kind_name(kind: ItemKind) -> &'static str {
     }
 }
 
+/// The kind shown to people: `image` for clipboard images, which are
+/// stored as files, otherwise the item's kind.
+pub fn kind_label(meta: &ItemMeta) -> &'static str {
+    if meta.is_clipboard_image() {
+        "image"
+    } else {
+        kind_name(meta.kind)
+    }
+}
+
 /// The file name for files, the preview for text, or `-`.
-fn display_name(meta: &ItemMeta) -> String {
+pub fn display_name(meta: &ItemMeta) -> String {
     match (&meta.name, &meta.preview) {
         (Some(text), _) | (None, Some(text)) => truncate(text, NAME_WIDTH),
         (None, None) => "-".to_owned(),
@@ -216,5 +226,22 @@ mod tests {
         assert!(json.ends_with("]\n"));
         let back: Vec<ItemMeta> = serde_json::from_str(&json).unwrap();
         assert_eq!(back, items);
+    }
+
+    #[test]
+    fn clipboard_images_are_listed_as_images_with_their_origin() {
+        let image = meta(
+            NewItem::clipboard_image("laptop", "2026-09-12T09:54:11Z".parse().unwrap()),
+            b"png",
+            "2026-09-12T09:54:11Z",
+        );
+        let table = render_table(std::slice::from_ref(&image), utc());
+        let row = table.lines().nth(1).unwrap();
+        assert!(
+            row.contains("  image  clipboard-20260912-095411.png"),
+            "{table}"
+        );
+        let json = render_json(&[image]).unwrap();
+        assert!(json.contains("\"origin\": \"clipboard\""), "{json}");
     }
 }

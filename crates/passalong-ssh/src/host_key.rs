@@ -21,19 +21,25 @@ impl PinnedHostKey {
     /// [`SshError::InvalidHostKey`] when no public key can be read.
     pub fn parse(line: &str) -> Result<Self, SshError> {
         let line = line.trim();
-        PublicKey::from_openssh(line)
+        let key = PublicKey::from_openssh(line)
             .or_else(|first| match line.split_once(char::is_whitespace) {
                 Some((_, rest)) if !rest.trim().is_empty() => {
                     PublicKey::from_openssh(rest.trim()).map_err(|_| first)
                 }
                 _ => Err(first),
             })
-            .map(|key| Self { key })
             .map_err(|err| {
                 SshError::InvalidHostKey(format!(
                     "expected an OpenSSH public key such as `ssh-ed25519 AAAA...` ({err})"
                 ))
-            })
+            })?;
+        #[cfg(not(feature = "rsa"))]
+        if key.algorithm().is_rsa() {
+            return Err(SshError::RsaUnsupported {
+                what: "server.ssh.host_key".to_owned(),
+            });
+        }
+        Ok(Self { key })
     }
 
     /// Whether `presented` is this key. Comments are ignored.
@@ -93,6 +99,9 @@ pub(crate) mod tests {
     pub const KEY_B: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMKy9BQGg0B6NYvYwyrJzGCOHCXKQBj7E/5jvWJSEDCi passalong-test-b";
     pub const KEY_C: &str = "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBDjE+RqfPVU1q3oRZ0A7kEGVjiycIFrzmrvdTMY9XxA5RwiwmWJ1Ra9XgfC5jOjwYXCvbge0k6d0MwNVN8fH/Rg= passalong-test-c";
     const KEY_A_FINGERPRINT: &str = "SHA256:5Si4lWKPwa0+I2wCQf3eOtcF8jWo30BWybHoXLTxABo";
+    pub const KEY_RSA: &str = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCc20+WNqOOyD5NLL1a8IdPRt24TG6uZkCYiCtewTNxHslQawoxE/Z0njaK8Xs2Bqsd0eEGhw2cnnMqXHlNVfWHQ3NhfBe5BXGZSin2dEVZw2nlEfI5Y2uEEVBFTir7EodMI/pJwqPEFZELPC4nm70XjDRDXBvwZDEwrzF1S/5NXZ6Xa4LG/9UOsq05C5bIlqR32/GBBfLWi8PThy1LTg6u4EJE1ovHz4xWQBGCLc/eFnwxePRrMSI1RYQzZ3u6RuCiGXmCsKba7BxaRt5/lEb1PKTPTyi50Y03mcrG4kxA2NXGFH4FAp4T7ICw9JL1z6yXwdWreWjKq9mERVctMLcL passalong-test-rsa";
+    #[cfg(feature = "rsa")]
+    const KEY_RSA_FINGERPRINT: &str = "SHA256:LY/lOwQzQWODS5oQTLX9+HhSPwqy6sX7OY+mTMZV+2w";
 
     fn public(line: &str) -> russh::keys::PublicKey {
         russh::keys::PublicKey::from_openssh(line).unwrap()
@@ -171,5 +180,27 @@ pub(crate) mod tests {
         );
         let ecdsa = DiscoveredKey::from_key(&public(KEY_C)).unwrap();
         assert_eq!(ecdsa.algorithm, "ecdsa-sha2-nistp256");
+    }
+
+    #[cfg(not(feature = "rsa"))]
+    #[test]
+    fn rsa_host_keys_need_the_rsa_feature() {
+        match PinnedHostKey::parse(KEY_RSA) {
+            Err(err @ SshError::RsaUnsupported { .. }) => {
+                let message = err.to_string();
+                assert!(message.starts_with("server.ssh.host_key: "), "{message}");
+                assert!(message.contains("--features rsa"), "{message}");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[cfg(feature = "rsa")]
+    #[test]
+    fn rsa_host_keys_parse_with_the_rsa_feature() {
+        assert_eq!(
+            PinnedHostKey::parse(KEY_RSA).unwrap().fingerprint(),
+            KEY_RSA_FINGERPRINT
+        );
     }
 }

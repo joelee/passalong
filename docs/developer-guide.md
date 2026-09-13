@@ -107,6 +107,41 @@ Work is planned in numbered delivery plans under `docs/plans/`. Each plan's
 Builder Work Log records per-step test evidence, verification results, and
 deviations.
 
+## RSA keys
+
+RSA identity files and RSA host keys are behind the optional `rsa` feature
+of `passalong-ssh`, which the `passalong` package forwards. The `rsa` crate
+has a timing side channel with no fixed release (RUSTSEC-2023-0071), so
+default builds, the release binaries, and `cargo install passalong` leave
+it out, and `cargo deny` audits only the default features. In a default
+build an RSA key fails with an error that names this feature.
+
+```sh
+cargo install --locked passalong --features rsa   # a build with RSA keys
+```
+
+`just lint` and `just test` also run the `passalong-ssh` checks without
+the feature, and `just test-integration` logs in to the Docker server with
+an RSA key under it.
+
+## Duplicate dependencies
+
+`cargo deny` rejects a crate that appears in two versions, so a new
+duplicate is a decision instead of an accident. It checks the four
+supported targets: Linux and macOS on x86_64 and aarch64. Each duplicate
+that cannot be avoided today has a `skip` entry in `deny.toml` naming the
+older version and which dependency needs it.
+
+When `just audit` reports a new duplicate:
+
+1. Run `cargo tree -d` and `cargo tree -i <crate>@<version>` to see which
+   dependency pulls in each version.
+2. Try `cargo update` within the current requirements, or a newer release of
+   the dependency that brings in the old version.
+3. If neither helps, add a `skip` entry with `crate = "<name>@<version>"` and
+   a `reason` naming the dependency path. Remove entries once upstream
+   releases catch up; `cargo deny` warns about skips that no longer match.
+
 ## Publishing
 
 Three crates are published to crates.io, in dependency order:
@@ -117,33 +152,50 @@ installs with `cargo install passalong`.
 
 ## Releasing
 
-Releases are cut by pushing a version tag; `.github/workflows/release.yml`
-does the rest.
+The steps, and who does each, are in the "Release workflow" section of
+`AGENTS.md`. In short:
 
-1. On a branch, set the new version in `[workspace.package]` and the
-   internal `version = "=X.Y.Z"` requirements in `Cargo.toml`, move the
-   `CHANGELOG.md` `Unreleased` entries under `## vX.Y.Z - <UTC time>`, and
-   write `docs/release/vX.Y.Z.md`. Merge it to `main`.
-2. Tag the merge commit and push the tag:
+1. The plan's work bumps the version in `[workspace.package]` and the
+   internal `version = "=X.Y.Z"` requirements, and drafts
+   `docs/release/vX.Y.Z.md`.
+2. After the work is approved, one `release: vX.Y.Z - <top feature>` commit
+   moves the `CHANGELOG.md` `Unreleased` entries under
+   `## vX.Y.Z - <UTC time>`, removes the draft line from the release notes,
+   and removes pre-release wording from the README. This command must then
+   pass:
+
+   ```sh
+   scripts/check-release-tag.sh vX.Y.Z
+   ```
+
+3. The branch is merged into `main` through a PR whose CI passes.
+4. The merge commit on `main` is tagged, and the tag is pushed:
 
    ```sh
    git tag -a vX.Y.Z -m "passalong vX.Y.Z"
    git push origin vX.Y.Z
    ```
 
-3. The workflow checks the tag against `Cargo.toml`
-   (`scripts/check-release-tag.sh`), runs `cargo publish --dry-run`, builds
-   Linux x86_64 and macOS arm64 binaries with SHA-256 files, creates the
-   GitHub release from `docs/release/vX.Y.Z.md`, attaches the binaries, and
-   publishes the three crates to crates.io.
+5. The workflow runs `scripts/check-release-tag.sh` again, which fails
+   unless the tag matches the workspace version and the release records are
+   final. It then runs `cargo publish --dry-run` and builds Linux x86_64 and macOS
+   arm64 binaries with SHA-256 files. Publishing waits until a maintainer
+   approves the pending `release` deployment on the run's page. The workflow
+   then publishes the three crates to crates.io, and only once that succeeds
+   creates the GitHub release from `docs/release/vX.Y.Z.md` and attaches the
+   binaries. Do not create the release by hand.
 
 Publishing needs a crates.io API token with the `publish-new` and
-`publish-update` scopes, stored as the repository secret
-`CARGO_REGISTRY_TOKEN` (Settings, Secrets and variables, Actions). A
+`publish-update` scopes, stored as the secret `CARGO_REGISTRY_TOKEN` of the
+`release` environment (Settings, Environments, `release`). That environment
+accepts only `v*` tags and requires a maintainer's approval, and the `v*`
+tag ruleset limits who can create a release tag. A
 published version cannot be replaced, only yanked, which is why the dry run
 and the binary builds must pass first.
 
 `just publish-dry-run` first removes earlier builds of the three workspace
-crates. The dry run compiles the packaged crates as if downloaded from a
-registry, and cargo never rebuilds a registry crate with an unchanged version,
-so without the clean it can verify against stale code and fail.
+crates, and their copies unpacked from cargo's temporary registries under
+`~/.cargo/registry/src/-<hash>/`. The dry run compiles the packaged crates
+as if downloaded from a registry, and cargo never rebuilds or re-unpacks a
+registry crate with an unchanged version, so without this it can verify
+against stale code and fail.

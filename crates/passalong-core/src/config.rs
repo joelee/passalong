@@ -27,6 +27,9 @@ const CONFIG_FILE_NAME: &str = "config.toml";
 const DEFAULT_SSH_PORT: i64 = 22;
 const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
 const DEFAULT_DROP_FOLDER: &str = "~/PassAlong";
+const DEFAULT_DOWNLOAD_DIR: &str = "~/Downloads";
+const DEFAULT_PULL_INTERVAL_MS: u64 = 5000;
+const MIN_PULL_INTERVAL_MS: u64 = 1000;
 const DEFAULT_CLIPBOARD_POLL_INTERVAL_MS: u64 = 750;
 const DEFAULT_FILE_STABLE_WAIT_MS: u64 = 1000;
 const MAX_CONNECT_TIMEOUT_SECS: u64 = 3600;
@@ -272,6 +275,9 @@ pub struct ClientConfig {
     pub device_name: String,
     /// Log verbosity. Default: `info`.
     pub log_level: LogLevel,
+    /// Where `load` puts file items when no destination is given, and where
+    /// pull mode writes files; absolute, `~` expanded. Default: `~/Downloads`.
+    pub download_dir: PathBuf,
 }
 
 /// `[server]` section.
@@ -327,6 +333,12 @@ pub struct ServeConfig {
     pub file_stable_wait_ms: u64,
     /// What happens to a dropped file once sent. Default: [`AfterSend::Move`].
     pub after_send: AfterSend,
+    /// Whether clipboard images are sent too. Default: `true`.
+    pub clipboard_images: bool,
+    /// Whether items sent by other devices are applied here. Default: `false`.
+    pub pull: bool,
+    /// How often pull mode checks for new items. Default: 5000 ms.
+    pub pull_interval_ms: u64,
 }
 
 /// What `serve` does with a dropped file after sending it.
@@ -577,6 +589,7 @@ struct RawConfig {
 struct RawClient {
     device_name: Option<String>,
     log_level: Option<String>,
+    download_dir: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -612,6 +625,9 @@ struct RawServe {
     clipboard_poll_interval_ms: Option<i64>,
     file_stable_wait_ms: Option<i64>,
     after_send: Option<String>,
+    clipboard_images: Option<bool>,
+    pull: Option<bool>,
+    pull_interval_ms: Option<i64>,
 }
 
 impl RawConfig {
@@ -627,6 +643,13 @@ impl RawConfig {
         let server = ServerConfig { kind, ssh, local };
         let client = self.client.validate(env)?;
         let serve = self.serve.validate(env)?;
+        // A pulled file written into the drop folder would be sent back.
+        if serve.pull && client.download_dir.starts_with(&serve.drop_folder) {
+            return Err(invalid(
+                "client.download_dir",
+                "must not be serve.drop_folder or inside it when serve.pull is true",
+            ));
+        }
         Ok(Config {
             client,
             server,
@@ -647,9 +670,21 @@ impl RawClient {
                 .map_err(|err: ParseLogLevelError| invalid("client.log_level", err.to_string()))?,
             None => LogLevel::default(),
         };
+        let download_dir = match self.download_dir {
+            Some(dir) => required(Some(dir), "client.download_dir")?,
+            None => DEFAULT_DOWNLOAD_DIR.to_owned(),
+        };
+        let download_dir = expand_tilde(&download_dir, "client.download_dir", env)?;
+        if !download_dir.is_absolute() {
+            return Err(invalid(
+                "client.download_dir",
+                "must be an absolute path or start with `~/`",
+            ));
+        }
         Ok(ClientConfig {
             device_name,
             log_level,
+            download_dir,
         })
     }
 }
@@ -723,6 +758,15 @@ impl RawServe {
                 "serve.file_stable_wait_ms",
             )?,
             after_send,
+            clipboard_images: self.clipboard_images.unwrap_or(true),
+            pull: self.pull.unwrap_or(false),
+            pull_interval_ms: bounded(
+                self.pull_interval_ms,
+                DEFAULT_PULL_INTERVAL_MS,
+                MIN_PULL_INTERVAL_MS,
+                MAX_INTERVAL_MS,
+                "serve.pull_interval_ms",
+            )?,
         })
     }
 }
@@ -1234,8 +1278,9 @@ remote_path = "/srv/pa"
             &MapEnv::new().with_hostname("h"),
         )
         .unwrap_err();
-        // identity_file is absolute here, so the failing key is the default drop folder.
-        assert_eq!(invalid_key(err), "serve.drop_folder");
+        // identity_file is absolute here, so the failing key is the default
+        // download directory, the first `~` path validated.
+        assert_eq!(invalid_key(err), "client.download_dir");
         let text = MINIMAL_SSH.replace("\"/keys/id\"", "\"~/id\"");
         let err = parse(
             &text,
@@ -1443,5 +1488,69 @@ remote_path = "/srv/pa"
             Some(PathBuf::from("/home/u/.config/passalong/config.toml"))
         );
         assert_eq!(default_config_path(&MapEnv::new()), None);
+    }
+
+    #[test]
+    fn download_and_pull_settings_have_documented_defaults() {
+        let cfg = parse_ok(MINIMAL_SSH);
+        assert_eq!(cfg.client.download_dir, PathBuf::from("/home/u/Downloads"));
+        assert!(cfg.serve.clipboard_images);
+        assert!(!cfg.serve.pull);
+        assert_eq!(cfg.serve.pull_interval_ms, 5000);
+    }
+
+    #[test]
+    fn download_and_pull_settings_can_be_set() {
+        let text = format!(
+            "{MINIMAL_SSH}\n[client]\ndownload_dir = \"~/dl\"\n\n[serve]\nclipboard_images = false\npull = true\npull_interval_ms = 1000\n"
+        );
+        let cfg = parse_ok(&text);
+        assert_eq!(cfg.client.download_dir, PathBuf::from("/home/u/dl"));
+        assert!(!cfg.serve.clipboard_images);
+        assert!(cfg.serve.pull);
+        assert_eq!(cfg.serve.pull_interval_ms, 1000);
+    }
+
+    #[test]
+    fn invalid_download_and_pull_settings_name_their_key() {
+        for (section, bad, key) in [
+            (
+                "[serve]\npull_interval_ms = 10",
+                "",
+                "serve.pull_interval_ms",
+            ),
+            (
+                "[serve]\npull_interval_ms = 3600001",
+                "",
+                "serve.pull_interval_ms",
+            ),
+            ("[client]\ndownload_dir = \"dl\"", "", "client.download_dir"),
+            ("[client]\ndownload_dir = \"\"", "", "client.download_dir"),
+        ] {
+            let text = format!("{MINIMAL_SSH}\n{section}\n{bad}");
+            assert_eq!(invalid_key(parse_err(&text)), key, "{section}");
+        }
+    }
+
+    #[test]
+    fn pulled_files_may_not_land_in_the_drop_folder() {
+        for download_dir in ["/drop", "/drop/in"] {
+            let text = format!(
+                "{MINIMAL_SSH}\n[client]\ndownload_dir = \"{download_dir}\"\n\n[serve]\ndrop_folder = \"/drop\"\npull = true\n"
+            );
+            let err = parse_err(&text);
+            assert!(err.to_string().contains("serve.drop_folder"), "{err}");
+            assert_eq!(invalid_key(err), "client.download_dir", "{download_dir}");
+        }
+        // Without pull, nothing is written there automatically.
+        let text = format!(
+            "{MINIMAL_SSH}\n[client]\ndownload_dir = \"/drop\"\n\n[serve]\ndrop_folder = \"/drop\"\n"
+        );
+        assert_eq!(parse_ok(&text).client.download_dir, PathBuf::from("/drop"));
+        // A sibling that merely shares a name prefix is fine.
+        let text = format!(
+            "{MINIMAL_SSH}\n[client]\ndownload_dir = \"/drop2\"\n\n[serve]\ndrop_folder = \"/drop\"\npull = true\n"
+        );
+        assert_eq!(parse_ok(&text).client.download_dir, PathBuf::from("/drop2"));
     }
 }

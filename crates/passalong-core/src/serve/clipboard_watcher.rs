@@ -1,5 +1,6 @@
-//! Detecting new clipboard text.
+//! Detecting new clipboard text and images.
 
+use crate::clipboard::RgbaImage;
 use crate::model::ContentHasher;
 
 /// Remembers the last clipboard text by its SHA-256, so repeated polls of
@@ -7,6 +8,7 @@ use crate::model::ContentHasher;
 #[derive(Debug, Default)]
 pub struct ClipboardWatcher {
     last: Option<[u8; 32]>,
+    last_image: Option<[u8; 32]>,
 }
 
 impl ClipboardWatcher {
@@ -19,15 +21,50 @@ impl ClipboardWatcher {
     /// blank. `None` (no text on the clipboard) changes nothing.
     pub fn observe(&mut self, text: Option<String>) -> Option<String> {
         let text = text?;
-        let mut hasher = ContentHasher::new();
-        hasher.update(text.as_bytes());
-        let digest = *hasher.finalize().sha256_bytes();
+        let digest = text_digest(&text);
         if self.last == Some(digest) {
             return None;
         }
         self.last = Some(digest);
         (!text.trim().is_empty()).then_some(text)
     }
+
+    /// Remembers `text` as seen, so it is not reported: for text that
+    /// `serve` itself put on the clipboard.
+    pub fn mark_text(&mut self, text: &str) {
+        self.last = Some(text_digest(text));
+    }
+
+    /// Returns `image` when its size or pixels differ from the last image
+    /// seen. `None` (no image on the clipboard) changes nothing.
+    pub fn observe_image(&mut self, image: Option<RgbaImage>) -> Option<RgbaImage> {
+        let image = image?;
+        let digest = image_digest(&image);
+        if self.last_image == Some(digest) {
+            return None;
+        }
+        self.last_image = Some(digest);
+        Some(image)
+    }
+
+    /// Remembers `image` as seen, like [`Self::mark_text`].
+    pub fn mark_image(&mut self, image: &RgbaImage) {
+        self.last_image = Some(image_digest(image));
+    }
+}
+
+fn text_digest(text: &str) -> [u8; 32] {
+    let mut hasher = ContentHasher::new();
+    hasher.update(text.as_bytes());
+    *hasher.finalize().sha256_bytes()
+}
+
+fn image_digest(image: &RgbaImage) -> [u8; 32] {
+    let mut hasher = ContentHasher::new();
+    hasher.update(&image.width().to_le_bytes());
+    hasher.update(&image.height().to_le_bytes());
+    hasher.update(image.rgba());
+    *hasher.finalize().sha256_bytes()
 }
 
 #[cfg(test)]
@@ -64,5 +101,39 @@ mod tests {
         assert_eq!(watcher.observe(some("")), None);
         assert_eq!(watcher.observe(some("x")).as_deref(), Some("x"));
         assert_eq!(watcher.observe(some(" ")), None);
+    }
+
+    #[test]
+    fn reports_each_new_image_once() {
+        use crate::clipboard::RgbaImage;
+        let a = RgbaImage::new(1, 1, vec![1, 2, 3, 4]).unwrap();
+        let b = RgbaImage::new(1, 1, vec![5, 6, 7, 8]).unwrap();
+        let mut watcher = ClipboardWatcher::new();
+        assert_eq!(watcher.observe_image(Some(a.clone())), Some(a.clone()));
+        assert_eq!(watcher.observe_image(Some(a.clone())), None);
+        assert_eq!(watcher.observe_image(None), None);
+        assert_eq!(
+            watcher.observe_image(Some(a.clone())),
+            None,
+            "a read without an image does not reset"
+        );
+        assert_eq!(watcher.observe_image(Some(b.clone())), Some(b));
+        // The same bytes in another shape are another image.
+        let tall = RgbaImage::new(1, 2, vec![1, 2, 3, 4, 1, 2, 3, 4]).unwrap();
+        let wide = RgbaImage::new(2, 1, vec![1, 2, 3, 4, 1, 2, 3, 4]).unwrap();
+        assert_eq!(watcher.observe_image(Some(tall.clone())), Some(tall));
+        assert_eq!(watcher.observe_image(Some(wide.clone())), Some(wide));
+    }
+
+    #[test]
+    fn content_marked_as_seen_is_not_reported() {
+        use crate::clipboard::RgbaImage;
+        let mut watcher = ClipboardWatcher::new();
+        watcher.mark_text("pulled");
+        assert_eq!(watcher.observe(some("pulled")), None);
+        assert_eq!(watcher.observe(some("typed")).as_deref(), Some("typed"));
+        let image = RgbaImage::new(1, 1, vec![1, 2, 3, 4]).unwrap();
+        watcher.mark_image(&image);
+        assert_eq!(watcher.observe_image(Some(image)), None);
     }
 }

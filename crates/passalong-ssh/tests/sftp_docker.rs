@@ -12,7 +12,7 @@ use passalong_core::fs::{FsError, RemoteFs, RemotePath};
 use passalong_core::model::NewItem;
 use passalong_core::random::{RandomSource, StdRandom};
 use passalong_core::store::{FsStore, Store};
-use passalong_core::testing::FixedClock;
+use passalong_core::testing::{FixedClock, ManualClock};
 use passalong_ssh::connect::SshParams;
 use passalong_ssh::error::SshError;
 use passalong_ssh::fetch_host_key;
@@ -263,4 +263,48 @@ async fn a_closed_port_is_a_connection_error() {
         SftpFs::open(&params, &unique_root()).await,
         Err(SshError::Connect { .. })
     ));
+}
+
+#[cfg(feature = "rsa")]
+#[tokio::test]
+#[ignore = "needs the Docker SSH server: just test-integration"]
+async fn an_rsa_identity_logs_in_with_the_rsa_feature() {
+    let mut cfg = config();
+    cfg.identity_file = var("PASSALONG_IT_SSH_RSA_IDENTITY").into();
+    let params = SshParams::from_config(&cfg).unwrap();
+    let root = unique_root();
+    let fs = SftpFs::open(&params, &root).await.unwrap();
+    fs.create_dir_all(&p("rsa")).await.unwrap();
+    assert!(fs.stat(&p("rsa")).await.unwrap().is_some());
+}
+
+#[tokio::test]
+#[ignore = "needs the Docker SSH server: just test-integration"]
+async fn list_after_works_over_sftp() {
+    let params = SshParams::from_config(&config()).unwrap();
+    let fs = SftpFs::open(&params, &unique_root()).await.unwrap();
+    let clock = Arc::new(ManualClock::at("2026-09-13T08:00:00Z"));
+    let store = FsStore::new(fs, clock.clone(), Box::new(StdRandom::new()));
+    let first = store
+        .put(
+            NewItem::text("it"),
+            Box::new(Cursor::new(b"first".to_vec())),
+        )
+        .await
+        .unwrap()
+        .meta;
+    clock.advance(1);
+    let second = store
+        .put(
+            NewItem::text("it"),
+            Box::new(Cursor::new(b"second".to_vec())),
+        )
+        .await
+        .unwrap()
+        .meta;
+    assert_eq!(
+        store.list_after(Some(&first.id)).await.unwrap(),
+        vec![second]
+    );
+    assert_eq!(store.list_after(None).await.unwrap().len(), 2);
 }

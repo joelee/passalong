@@ -4,45 +4,55 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context as _;
-use passalong_core::clipboard::{Clipboard, ClipboardError};
+use passalong_core::clipboard::{Clipboard, ClipboardError, decode_png};
+use passalong_core::download::{self, check_integrity, write_verified};
 use passalong_core::fs::BoxRead;
 use passalong_core::model::{ContentHasher, ItemKind, ItemMeta, sanitise_file_name};
 use passalong_core::store::Store;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-/// Suffix of the temporary file an item is written to before it is
-/// verified and renamed into place.
-const PART_SUFFIX: &str = ".passalong-part";
-const CHUNK_SIZE: usize = 64 * 1024;
+use crate::resolve::Lookup;
+use tokio::io::AsyncReadExt;
+
+#[cfg(test)]
+use passalong_core::download::PART_SUFFIX;
 
 /// Opens the clipboard on demand, so only a load to the clipboard needs one.
 pub type OpenClipboard<'a> = dyn FnMut() -> Result<Box<dyn Clipboard>, ClipboardError> + 'a;
 
-/// Loads the item `input` identifies. Without `dest`, text goes to the
-/// clipboard; with `dest`, the item is written to that file, or into that
-/// directory under its own name, and the written path is printed. Content
-/// is checked against the item's SHA-256 before anything is replaced.
+/// Loads the item `lookup` identifies. Without `dest`, text and clipboard
+/// images go to the clipboard and files are downloaded into `download_dir`, created if
+/// missing, under a numbered name if theirs is taken (the exact name with
+/// `force`). With `dest`, the item is written to that file, or into that
+/// directory under its own name. The written path is printed. Content is
+/// checked against the item's SHA-256 before anything is replaced.
 pub async fn run(
     store: &dyn Store,
-    input: &str,
+    lookup: Lookup<'_, '_>,
     dest: Option<&Path>,
     force: bool,
+    download_dir: &Path,
     open_clipboard: &mut OpenClipboard<'_>,
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
-    let id = store.resolve(input).await?;
+    let id = lookup.resolve(store).await?;
     let (meta, content) = store.get(&id).await?;
-    match dest {
-        None => {
-            if meta.kind != ItemKind::Text {
-                anyhow::bail!("destination required for file items");
-            }
+    let target = match dest {
+        None if meta.kind == ItemKind::Text => {
             let bytes = read_verified(content, &meta).await?;
             let text =
                 String::from_utf8(bytes).with_context(|| format!("item {id} is not UTF-8 text"))?;
             open_clipboard()?.write_text(&text)?;
             tracing::info!(id = %id, size = meta.size, "item copied to the clipboard");
+            return Ok(());
         }
+        None if meta.is_clipboard_image() => {
+            let image = decode_png(&read_verified(content, &meta).await?)
+                .with_context(|| format!("item {id} is not a usable image"))?;
+            open_clipboard()?.write_image(&image)?;
+            tracing::info!(id = %id, size = meta.size, "image copied to the clipboard");
+            return Ok(());
+        }
+        None => download_target(download_dir, &meta, force).await?,
         Some(dest) => {
             let target = target_path(dest, &meta)?;
             if !force && tokio::fs::try_exists(&target).await.unwrap_or(false) {
@@ -51,12 +61,28 @@ pub async fn run(
                     target.display()
                 );
             }
-            write_verified(content, &meta, &target).await?;
-            tracing::info!(id = %id, size = meta.size, path = %target.display(), "item written");
-            writeln!(out, "{}", target.display())?;
+            target
         }
-    }
+    };
+    write_verified(content, &meta, &target).await?;
+    tracing::info!(id = %id, size = meta.size, path = %target.display(), "item written");
+    writeln!(out, "{}", target.display())?;
     Ok(())
+}
+
+/// Where a download goes: the item's name in `dir`, or its first free
+/// numbered variant unless `force`.
+async fn download_target(dir: &Path, meta: &ItemMeta, force: bool) -> anyhow::Result<PathBuf> {
+    let name = sanitise_file_name(meta.name.as_deref().unwrap_or_default())
+        .context("give a destination for this item instead")?;
+    tokio::fs::create_dir_all(dir)
+        .await
+        .with_context(|| format!("cannot create the download directory {}", dir.display()))?;
+    Ok(if force {
+        dir.join(name)
+    } else {
+        download::free_target(dir, &name).await?
+    })
 }
 
 /// A directory destination gets the item's sanitised name, or `<id>.txt`
@@ -73,21 +99,6 @@ fn target_path(dest: &Path, meta: &ItemMeta) -> anyhow::Result<PathBuf> {
     Ok(dest.join(name))
 }
 
-fn verify(meta: &ItemMeta, hasher: ContentHasher) -> anyhow::Result<()> {
-    let digest = hasher.finalize();
-    let actual = digest.sha256_hex();
-    if actual != meta.sha256 || digest.size() != meta.size {
-        anyhow::bail!(
-            "integrity check failed for {}: expected sha256 {} ({} bytes), got {actual} ({} bytes)",
-            meta.id,
-            meta.sha256,
-            meta.size,
-            digest.size()
-        );
-    }
-    Ok(())
-}
-
 async fn read_verified(mut content: BoxRead, meta: &ItemMeta) -> anyhow::Result<Vec<u8>> {
     let mut bytes = Vec::new();
     content
@@ -96,49 +107,8 @@ async fn read_verified(mut content: BoxRead, meta: &ItemMeta) -> anyhow::Result<
         .context("reading the item")?;
     let mut hasher = ContentHasher::new();
     hasher.update(&bytes);
-    verify(meta, hasher)?;
+    check_integrity(meta, hasher)?;
     Ok(bytes)
-}
-
-/// Streams into `<target>.passalong-part`, verifies, then renames over the
-/// target. The part file is removed on any failure.
-async fn write_verified(content: BoxRead, meta: &ItemMeta, target: &Path) -> anyhow::Result<()> {
-    let mut part = target.as_os_str().to_owned();
-    part.push(PART_SUFFIX);
-    let part = PathBuf::from(part);
-    let result = match stream_to(content, meta, &part).await {
-        Ok(()) => tokio::fs::rename(&part, target)
-            .await
-            .with_context(|| format!("cannot write {}", target.display())),
-        Err(err) => Err(err),
-    };
-    if result.is_err() {
-        let _ = tokio::fs::remove_file(&part).await;
-    }
-    result
-}
-
-async fn stream_to(mut content: BoxRead, meta: &ItemMeta, part: &Path) -> anyhow::Result<()> {
-    let mut file = tokio::fs::File::create(part)
-        .await
-        .with_context(|| format!("cannot create {}", part.display()))?;
-    let mut hasher = ContentHasher::new();
-    let mut buf = vec![0_u8; CHUNK_SIZE];
-    loop {
-        let n = content.read(&mut buf).await.context("reading the item")?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-        file.write_all(&buf[..n])
-            .await
-            .with_context(|| format!("cannot write {}", part.display()))?;
-    }
-    file.flush()
-        .await
-        .with_context(|| format!("cannot write {}", part.display()))?;
-    drop(file);
-    verify(meta, hasher)
 }
 
 #[cfg(test)]
@@ -176,8 +146,22 @@ mod tests {
                 Ok(Box::new(clip.clone()))
             };
             let mut out = Vec::new();
-            run(&self.ts.store, id, dest, force, &mut open, &mut out).await?;
+            let downloads = self.downloads();
+            run(
+                &self.ts.store,
+                Lookup::plain(id),
+                dest,
+                force,
+                &downloads,
+                &mut open,
+                &mut out,
+            )
+            .await?;
             Ok(String::from_utf8(out).unwrap())
+        }
+        /// The download directory; it does not exist until a download.
+        fn downloads(&self) -> PathBuf {
+            self.out_dir.path().join("Downloads")
         }
         fn out(&self, name: &str) -> PathBuf {
             self.out_dir.path().join(name)
@@ -204,12 +188,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn files_need_a_destination() {
+    async fn files_without_a_destination_go_to_the_download_directory() {
         let env = Env::new();
-        let meta = env.put(NewItem::file("a.bin", "box"), b"bin").await;
-        let err = env.load(meta.id.as_str(), None, false).await.unwrap_err();
-        assert_eq!(err.to_string(), "destination required for file items");
+        assert!(!env.downloads().exists());
+        let meta = env.put(NewItem::file("report.pdf", "box"), b"%PDF").await;
+        let printed = env.load(meta.id.as_str(), None, false).await.unwrap();
+        let target = env.downloads().join("report.pdf");
+        assert_eq!(printed, format!("{}\n", target.display()));
+        assert_eq!(std::fs::read(&target).unwrap(), b"%PDF");
         assert!(env.clip.writes().is_empty());
+    }
+
+    #[tokio::test]
+    async fn downloads_are_numbered_instead_of_overwritten_unless_forced() {
+        let env = Env::new();
+        let first = env.put(NewItem::file("report.pdf", "box"), b"one").await;
+        let second = env.put(NewItem::file("report.pdf", "box"), b"two").await;
+        env.load(first.id.as_str(), None, false).await.unwrap();
+        let printed = env.load(second.id.as_str(), None, false).await.unwrap();
+        let numbered = env.downloads().join("report (1).pdf");
+        assert_eq!(printed, format!("{}\n", numbered.display()));
+        assert_eq!(std::fs::read(&numbered).unwrap(), b"two");
+        let printed = env.load(second.id.as_str(), None, true).await.unwrap();
+        let plain = env.downloads().join("report.pdf");
+        assert_eq!(printed, format!("{}\n", plain.display()));
+        assert_eq!(std::fs::read(&plain).unwrap(), b"two");
     }
 
     #[tokio::test]
@@ -359,9 +362,10 @@ mod tests {
         };
         let err = run(
             &env.ts.store,
-            meta.id.as_str(),
+            Lookup::plain(meta.id.as_str()),
             None,
             false,
+            &env.downloads(),
             &mut open,
             &mut Vec::new(),
         )
@@ -376,5 +380,54 @@ mod tests {
             .await
             .unwrap_err();
         assert!(format!("{err:#}").contains("missing-dir"), "{err:#}");
+    }
+
+    fn test_image() -> passalong_core::clipboard::RgbaImage {
+        passalong_core::clipboard::RgbaImage::new(1, 2, vec![1, 2, 3, 255, 5, 6, 7, 255]).unwrap()
+    }
+
+    #[tokio::test]
+    async fn clipboard_images_go_back_to_the_clipboard() {
+        use crate::commands::support::T;
+        let env = Env::new();
+        let png = passalong_core::clipboard::encode_png(&test_image()).unwrap();
+        let meta = env
+            .put(NewItem::clipboard_image("box", T.parse().unwrap()), &png)
+            .await;
+        let printed = env.load(meta.id.as_str(), None, false).await.unwrap();
+        assert_eq!(printed, "");
+        assert_eq!(env.clip.image_writes(), [test_image()]);
+        assert!(!env.downloads().exists());
+    }
+
+    #[tokio::test]
+    async fn clipboard_images_with_a_destination_are_written_as_png() {
+        use crate::commands::support::T;
+        let env = Env::new();
+        let png = passalong_core::clipboard::encode_png(&test_image()).unwrap();
+        let meta = env
+            .put(NewItem::clipboard_image("box", T.parse().unwrap()), &png)
+            .await;
+        let printed = env
+            .load(meta.id.as_str(), Some(env.out_dir.path()), false)
+            .await
+            .unwrap();
+        let target = env.out("clipboard-20260912-095311.png");
+        assert_eq!(printed, format!("{}\n", target.display()));
+        assert_eq!(std::fs::read(&target).unwrap(), png);
+        assert!(env.clip.image_writes().is_empty());
+    }
+
+    #[tokio::test]
+    async fn png_files_sent_as_files_are_downloaded() {
+        let env = Env::new();
+        let png = passalong_core::clipboard::encode_png(&test_image()).unwrap();
+        let meta = env.put(NewItem::file("photo.png", "box"), &png).await;
+        env.load(meta.id.as_str(), None, false).await.unwrap();
+        assert_eq!(
+            std::fs::read(env.downloads().join("photo.png")).unwrap(),
+            png
+        );
+        assert!(env.clip.image_writes().is_empty());
     }
 }

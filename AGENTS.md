@@ -74,10 +74,15 @@ Update when behavior, commands, config, architecture, or user workflow changes:
 10. Report changed files, tests run, coverage result, docs updated, and backlog updates.
 
 ## Release workflow
-1. Use SemVer `vMAJOR.MINOR.PATCH`.
-2. If no version is provided, increment PATCH from `Cargo.toml`; if absent, start at `v0.1.0`.
-3. Update `package.version` in `Cargo.toml` without the `v` prefix; in workspaces, update all released crates consistently.
-4. Run all checks and ensure coverage >= 80%.
-5. Rename `CHANGELOG.md` `Unreleased` section to `vX.Y.Z - <UTC timestamp>` and create a fresh `Unreleased` section above it.
-6. Create `docs/release/vX.Y.Z.md` with summary, changes, tests, coverage, config changes, and upgrade notes.
-7. Suggest commit message: `release: vX.Y.Z - <top feature>`.
+1. Use SemVer `vMAJOR.MINOR.PATCH`. If no version is given, increment PATCH. All workspace crates and their internal `=` requirements share the version; the plan's documentation step bumps it.
+2. Agent completes the plan: all checks pass, coverage >= 80%, branch CI passes. Agent hands off with the evidence.
+3. User reviews and approves the work.
+4. Agent finalises the release in one commit, `release: vX.Y.Z - <top feature>`:
+   - `CHANGELOG.md`: rename `Unreleased` to `vX.Y.Z - <UTC timestamp of this commit>` and add a fresh `Unreleased` above it.
+   - `docs/release/vX.Y.Z.md`: remove the draft line; name the date, plan, and PR, not a commit hash.
+   - `README.md` and other docs: remove pre-release wording such as "being prepared".
+   - Run `scripts/check-release-tag.sh vX.Y.Z`, and suggest the PR title and description.
+5. User verifies, pushes the branch, and opens a PR to `main`. `main` accepts only PRs whose Linux, macOS, and Xvfb checks pass.
+6. Agent debugs PR CI failures on the branch. User gets the PR approved and merged.
+7. User pulls `main`, tags the merge commit, and pushes the tag. The Release workflow checks the tag and release records and builds binaries. After the user approves the pending `release` deployment, it publishes to crates.io and then creates the GitHub release from `docs/release/vX.Y.Z.md`. Do not create the release by hand. A published crate version can only be yanked, never replaced.
+8. User checks the release page and crates.io. Agent helps debug a failed release run.

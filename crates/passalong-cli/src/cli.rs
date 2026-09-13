@@ -52,13 +52,22 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Copy an item to DEST, or to the clipboard when DEST is omitted.
+    /// Copy an item to DEST. Without DEST, text goes to the clipboard and
+    /// files to the download directory.
     Load {
         /// The item's id, or at least 4 characters of it.
         id: String,
         /// File or directory to write the item to.
         dest: Option<PathBuf>,
         /// Overwrite the target file if it exists.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Print an item's content to standard output.
+    Cat {
+        /// The item's id, or at least 4 characters of it.
+        id: String,
+        /// Print a binary item even when standard output is a terminal.
         #[arg(long)]
         force: bool,
     },
@@ -86,7 +95,11 @@ pub enum Command {
     Init(InitArgs),
     /// Keeps text on the Linux clipboard after `load` exits (internal).
     #[command(name = "__hold-clipboard", hide = true)]
-    HoldClipboard,
+    HoldClipboard {
+        /// Hold an image, read as PNG from standard input, instead of text.
+        #[arg(long)]
+        image: bool,
+    },
     /// Delete items from the store.
     Delete {
         /// The items: full ids, or at least 4 characters of each.
@@ -103,11 +116,12 @@ impl Command {
             Self::File { .. } => "file",
             Self::List { .. } => "list",
             Self::Load { .. } => "load",
+            Self::Cat { .. } => "cat",
             Self::Serve(_) => "serve",
             Self::Delete { .. } => "delete",
             Self::Prune { .. } => "prune",
             Self::Init(_) => "init",
-            Self::HoldClipboard => "hold-clipboard",
+            Self::HoldClipboard { .. } => "hold-clipboard",
         }
     }
 }
@@ -187,7 +201,7 @@ mod tests {
     fn version_flag_prints_name_and_version() {
         let err = Cli::try_parse_from(["passalong", "--version"]).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::DisplayVersion);
-        assert_eq!(err.to_string(), "passalong 0.1.1\n");
+        assert_eq!(err.to_string(), "passalong 0.1.2\n");
     }
 
     #[test]
@@ -260,8 +274,18 @@ mod tests {
             .render_help()
             .to_string();
         assert!(!help.contains("daemon-child"), "{help}");
-        assert_eq!(parse(&["__hold-clipboard"]).command, Command::HoldClipboard);
-        assert_eq!(Command::HoldClipboard.name(), "hold-clipboard");
+        assert_eq!(
+            parse(&["__hold-clipboard"]).command,
+            Command::HoldClipboard { image: false }
+        );
+        assert_eq!(
+            parse(&["__hold-clipboard", "--image"]).command,
+            Command::HoldClipboard { image: true }
+        );
+        assert_eq!(
+            Command::HoldClipboard { image: false }.name(),
+            "hold-clipboard"
+        );
         let top = Cli::command().render_help().to_string();
         assert!(!top.contains("hold-clipboard"), "{top}");
         let init = parse(&[
@@ -331,6 +355,14 @@ mod tests {
             Cli::try_parse_from(["passalong", "delete"]).is_err(),
             "delete needs at least one id"
         );
+        assert_eq!(
+            parse(&["cat", "2cf2", "--force"]).command,
+            Command::Cat {
+                id: "2cf2".into(),
+                force: true
+            }
+        );
+        assert!(Cli::try_parse_from(["passalong", "cat"]).is_err());
     }
 
     #[test]
@@ -367,6 +399,10 @@ mod tests {
                 dest: None,
                 force: false,
             },
+            Command::Cat {
+                id: "x".into(),
+                force: false,
+            },
             Command::Serve(ServeArgs::default()),
             Command::Delete { ids: vec![] },
             Command::Init(InitArgs::default()),
@@ -387,6 +423,7 @@ mod tests {
                 "file",
                 "list",
                 "load",
+                "cat",
                 "serve",
                 "delete",
                 "init",

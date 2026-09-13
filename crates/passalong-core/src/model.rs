@@ -20,6 +20,8 @@ use sha2::{Digest, Sha256};
 
 /// MIME type recorded for clipboard text.
 pub const TEXT_MIME: &str = "text/plain; charset=utf-8";
+/// MIME type of clipboard images, which are stored as PNG.
+pub const IMAGE_MIME: &str = "image/png";
 /// Maximum length of a text preview in characters, ellipsis included.
 pub const PREVIEW_CHARS: usize = 80;
 
@@ -283,6 +285,14 @@ pub enum ItemKind {
     File,
 }
 
+/// Where an item came from, when that changes how it is loaded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ItemOrigin {
+    /// A clipboard image: a PNG file that `load` puts back on the clipboard.
+    Clipboard,
+}
+
 /// Contents of an item's `meta.json`: schema version 1.
 ///
 /// Fields serialise in declaration order. Readers ignore unknown fields so
@@ -312,11 +322,21 @@ pub struct ItemMeta {
     /// For text, a one-line preview of at most [`PREVIEW_CHARS`] characters.
     #[serde(default)]
     pub preview: Option<String>,
+    /// [`ItemOrigin::Clipboard`] for clipboard images; absent otherwise, and
+    /// then not written, so older clients see an ordinary file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<ItemOrigin>,
 }
 
 impl ItemMeta {
     /// The schema version written by this release.
     pub const SCHEMA_VERSION: u32 = 1;
+
+    /// Whether this is a clipboard image, which `load` puts back on the
+    /// clipboard instead of downloading.
+    pub fn is_clipboard_image(&self) -> bool {
+        self.origin == Some(ItemOrigin::Clipboard) && self.mime == IMAGE_MIME
+    }
 }
 
 /// The caller-supplied part of an item's metadata, before its content has
@@ -331,6 +351,8 @@ pub struct NewItem {
     pub mime: String,
     /// Sending device.
     pub device: String,
+    /// Where the item came from; see [`ItemOrigin`].
+    pub origin: Option<ItemOrigin>,
 }
 
 impl NewItem {
@@ -341,6 +363,7 @@ impl NewItem {
             name: None,
             mime: TEXT_MIME.to_owned(),
             device: device.into(),
+            origin: None,
         }
     }
 
@@ -352,6 +375,19 @@ impl NewItem {
             mime: mime_for_file_name(&name),
             name: Some(name),
             device: device.into(),
+            origin: None,
+        }
+    }
+
+    /// A clipboard image stored as a PNG file named after its creation
+    /// time, such as `clipboard-20260913-080405.png`.
+    pub fn clipboard_image(device: impl Into<String>, created_at: DateTime<Utc>) -> Self {
+        Self {
+            kind: ItemKind::File,
+            name: Some(created_at.format("clipboard-%Y%m%d-%H%M%S.png").to_string()),
+            mime: IMAGE_MIME.to_owned(),
+            device: device.into(),
+            origin: Some(ItemOrigin::Clipboard),
         }
     }
 
@@ -379,6 +415,7 @@ impl NewItem {
             sha256: digest.sha256_hex(),
             device: self.device,
             preview,
+            origin: self.origin,
         })
     }
 }
@@ -716,5 +753,67 @@ mod tests {
                 "{bad:?}: {err:?}"
             );
         }
+    }
+
+    #[test]
+    fn clipboard_images_are_png_files_marked_with_their_origin() {
+        let at: DateTime<Utc> = "2026-09-13T08:04:05Z".parse().unwrap();
+        let item = NewItem::clipboard_image("laptop", at);
+        assert_eq!(item.kind, ItemKind::File);
+        assert_eq!(item.mime, "image/png");
+        assert_eq!(item.name.as_deref(), Some("clipboard-20260913-080405.png"));
+        assert_eq!(item.origin, Some(ItemOrigin::Clipboard));
+        let mut hasher = ContentHasher::new();
+        hasher.update(b"png bytes");
+        let meta = item.finish(at, &hasher.finalize(), None).unwrap();
+        assert!(meta.is_clipboard_image());
+        let json: serde_json::Value = serde_json::to_value(&meta).unwrap();
+        assert_eq!(json["kind"], "file");
+        assert_eq!(json["mime"], "image/png");
+        assert_eq!(json["origin"], "clipboard");
+        assert_eq!(json["schema"], 1);
+
+        let file = file_meta();
+        assert!(!file.is_clipboard_image());
+        let json = serde_json::to_value(&file).unwrap();
+        assert!(
+            json.get("origin").is_none(),
+            "absent origins are not written"
+        );
+    }
+
+    /// The fields v0.1.1 reads from `meta.json`; unknown fields are ignored.
+    #[derive(Debug, serde::Deserialize)]
+    #[allow(dead_code)]
+    struct MetaV011 {
+        schema: u32,
+        id: String,
+        kind: String,
+        name: Option<String>,
+        mime: String,
+        size: u64,
+        sha256: String,
+        created_at: String,
+        device: String,
+        #[serde(default)]
+        preview: Option<String>,
+    }
+
+    #[test]
+    fn image_items_stay_readable_by_v0_1_1_and_old_items_by_this_release() {
+        let at: DateTime<Utc> = "2026-09-13T08:04:05Z".parse().unwrap();
+        let mut hasher = ContentHasher::new();
+        hasher.update(b"png bytes");
+        let meta = NewItem::clipboard_image("laptop", at)
+            .finish(at, &hasher.finalize(), None)
+            .unwrap();
+        let old: MetaV011 = serde_json::from_str(&serde_json::to_string(&meta).unwrap()).unwrap();
+        assert_eq!(old.kind, "file");
+        assert_eq!(old.name.as_deref(), Some("clipboard-20260913-080405.png"));
+
+        let v011 = serde_json::to_string(&file_meta()).unwrap();
+        assert!(!v011.contains("origin"));
+        let parsed: ItemMeta = serde_json::from_str(&v011).unwrap();
+        assert_eq!(parsed.origin, None);
     }
 }

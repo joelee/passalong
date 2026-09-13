@@ -7,6 +7,9 @@
 # device_name = "laptop"
 # error | warning | info | verbose | debug
 log_level = "info"
+# Where `load` puts files when no destination is given (created if missing).
+# Pull mode writes files here only if the directory exists.
+download_dir = "~/Downloads"
 
 [server]
 # Storage backend: "ssh" or "local".
@@ -35,3 +38,9 @@ clipboard_poll_interval_ms = 750
 file_stable_wait_ms = 1000
 # What to do with a dropped file after it is sent: "move" (into drop_folder/sent/) or "delete".
 after_send = "move"
+# Also send clipboard images (read only when the clipboard holds no text).
+clipboard_images = true
+# Also apply items sent by other devices: text and images to the clipboard,
+# files into client.download_dir if it exists. Off unless enabled here.
+pull = false
+pull_interval_ms = 5000

@@ -95,7 +95,8 @@ Each item directory holds its content and a `meta.json`:
   "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
   "created_at": "2026-09-12T09:53:11Z",
   "device": "box",
-  "preview": null
+  "preview": null,
+  "origin": "clipboard"
 }
 ```
 
@@ -111,6 +112,7 @@ Each item directory holds its content and a `meta.json`:
 | `created_at` | Creation time, equal to the id's timestamp |
 | `device` | `client.device_name` of the sender |
 | `preview` | For text, the first 80 characters with whitespace collapsed; `null` for files |
+| `origin` | Optional. `clipboard` for a clipboard image, stored as a PNG file named `clipboard-YYYYMMDD-HHMMSS.png`; absent otherwise. Clients older than v0.1.2 ignore it and see an ordinary PNG file |
 
 Readers ignore fields they do not know, so items written by newer clients
 stay readable. A change that older readers cannot handle must increase
@@ -144,6 +146,11 @@ Storing an item works like this:
 An item directory therefore appears only when it is complete, and an
 interrupted upload leaves nothing under `items/`.
 
+`Store::list_after(id)` lists only the items newer than `id`, newest
+first, reading `meta.json` for those items alone. Ids start with their
+creation time, so comparing ids is enough; pull mode uses it to poll a
+large store cheaply.
+
 Deleting an item renames `items/<id>` to `tmp/deleted-<id>-<random>` and
 then removes it, so the item disappears from every listing in one step.
 If the removal fails, only a staging leftover remains. Staging directories
@@ -167,10 +174,23 @@ that lists the candidates.
 
 - **Clipboard watcher.** Reads the clipboard every poll interval and queues
   text whose SHA-256 differs from the last text seen. Blank text is ignored.
+  When the clipboard holds no text and `serve.clipboard_images` is on, it
+  reads the image instead and queues it when its pixels differ from the last
+  image seen; the uploader stores it as a PNG clipboard image. Clipboard
+  access runs on a blocking thread, off the async runtime.
 - **Drop watcher.** Scans the drop folder whenever the operating system
   reports a change, and at least every 5 seconds in case events are missed.
   A file is queued once two scans at least `file_stable_wait_ms` apart show
   the same size and modification time.
+- **Pull loop** (only with `serve.pull = true`). At start-up, before
+  `serve` reports ready, it records the newest stored item. Every pull
+  interval it asks the store for newer items with `Store::list_after`,
+  ignores this device's own items, and handles the rest oldest first: files
+  are downloaded, verified, into `client.download_dir` when it exists, and
+  the newest text or clipboard image is handed to the clipboard task. The
+  clipboard task writes it and marks it as seen, so it is not sent back.
+  The recorded position advances item by item, so a store error retries
+  from where it stopped without downloading anything twice.
 - **Uploader.** Sends queued jobs one at a time. Before uploading text it
   checks whether that content key is already stored, which is how text that
   `load` just put on the clipboard is not sent back. After a file is sent,

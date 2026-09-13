@@ -9,6 +9,7 @@
 pub mod clipboard;
 pub mod clock;
 pub mod config;
+pub mod download;
 pub mod fs;
 pub mod model;
 pub mod random;
@@ -26,6 +27,6 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 mod tests {
     #[test]
     fn version_is_the_workspace_version() {
-        assert_eq!(super::VERSION, "0.1.1");
+        assert_eq!(super::VERSION, "0.1.2");
     }
 }

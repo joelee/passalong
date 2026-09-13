@@ -1,7 +1,9 @@
 //! The desktop clipboard through `arboard`: macOS, and Linux under X11 or a
 //! Wayland compositor that supports the `wlr-data-control` protocol.
 
-use crate::clipboard::{Clipboard, ClipboardError};
+use std::borrow::Cow;
+
+use crate::clipboard::{Clipboard, ClipboardError, RgbaImage};
 
 /// How long a Linux write waits for a clipboard manager to take over the
 /// content. On Linux the content lives in the writing process, so without a
@@ -38,6 +40,17 @@ impl ArboardClipboard {
     pub fn hold_text(&mut self, text: &str) -> Result<(), ClipboardError> {
         hold(&mut self.inner, text).map_err(|err| ClipboardError::Other(err.to_string()))
     }
+
+    /// Puts `image` on the clipboard and, like [`Self::hold_text`], keeps
+    /// serving it on Linux until another program replaces it.
+    ///
+    /// # Errors
+    ///
+    /// [`ClipboardError::Other`] when the clipboard refuses the image.
+    pub fn hold_image(&mut self, image: &RgbaImage) -> Result<(), ClipboardError> {
+        hold_image(&mut self.inner, image_data(image))
+            .map_err(|err| ClipboardError::Other(err.to_string()))
+    }
 }
 
 impl std::fmt::Debug for ArboardClipboard {
@@ -58,6 +71,72 @@ impl Clipboard for ArboardClipboard {
     fn write_text(&mut self, text: &str) -> Result<(), ClipboardError> {
         set_text(&mut self.inner, text).map_err(|err| ClipboardError::Other(err.to_string()))
     }
+
+    fn read_image(&mut self) -> Result<Option<RgbaImage>, ClipboardError> {
+        match self.inner.get_image() {
+            Ok(data) => {
+                let width = u32::try_from(data.width)
+                    .map_err(|_| ClipboardError::Other("image too wide".to_owned()))?;
+                let height = u32::try_from(data.height)
+                    .map_err(|_| ClipboardError::Other("image too tall".to_owned()))?;
+                RgbaImage::new(width, height, data.bytes.into_owned())
+                    .map(Some)
+                    .map_err(|err| ClipboardError::Other(err.to_string()))
+            }
+            Err(::arboard::Error::ContentNotAvailable) => Ok(None),
+            Err(err) => Err(ClipboardError::Other(err.to_string())),
+        }
+    }
+
+    fn write_image(&mut self, image: &RgbaImage) -> Result<(), ClipboardError> {
+        set_image(&mut self.inner, image_data(image))
+            .map_err(|err| ClipboardError::Other(err.to_string()))
+    }
+}
+
+fn image_data(image: &RgbaImage) -> ::arboard::ImageData<'_> {
+    ::arboard::ImageData {
+        width: image.width() as usize,
+        height: image.height() as usize,
+        bytes: Cow::Borrowed(image.rgba()),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn set_image(
+    inner: &mut ::arboard::Clipboard,
+    image: ::arboard::ImageData<'_>,
+) -> Result<(), ::arboard::Error> {
+    use ::arboard::SetExtLinux;
+    inner
+        .set()
+        .wait_until(std::time::Instant::now() + LINUX_HANDOVER)
+        .image(image)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn set_image(
+    inner: &mut ::arboard::Clipboard,
+    image: ::arboard::ImageData<'_>,
+) -> Result<(), ::arboard::Error> {
+    inner.set_image(image)
+}
+
+#[cfg(target_os = "linux")]
+fn hold_image(
+    inner: &mut ::arboard::Clipboard,
+    image: ::arboard::ImageData<'_>,
+) -> Result<(), ::arboard::Error> {
+    use ::arboard::SetExtLinux;
+    inner.set().wait().image(image)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn hold_image(
+    inner: &mut ::arboard::Clipboard,
+    image: ::arboard::ImageData<'_>,
+) -> Result<(), ::arboard::Error> {
+    inner.set_image(image)
 }
 
 #[cfg(target_os = "linux")]

@@ -95,7 +95,10 @@ fields described in [architecture](architecture.md#metajson).
 
 ## `passalong clipboard`
 
-Sends the clipboard's text and prints the new item's id.
+Sends the clipboard's text and prints the new item's id. When the
+clipboard holds no text but an image, such as a screenshot, it sends the
+image instead, stored as a PNG file named `clipboard-YYYYMMDD-HHMMSS.png`
+and listed with kind `image`.
 
 ```text
 $ passalong clipboard
@@ -105,8 +108,8 @@ $ echo "from a script" | passalong clipboard --stdin
 ```
 
 `--stdin` reads the text from standard input instead, which also works
-without a desktop session. Empty or whitespace-only text is refused with
-`error: clipboard is empty`. Sending text that is already stored prints the
+without a desktop session. A clipboard with neither text nor an image, or
+only whitespace, is refused with `error: clipboard is empty`. Sending text that is already stored prints the
 existing item's id and stores nothing new.
 
 ## `passalong file <PATH>`
@@ -124,7 +127,7 @@ full id when it contains a `-`.
 
 | Form | Result |
 |---|---|
-| `passalong load 2cf2` | Text items go to the clipboard. File items are refused with `destination required for file items`. |
+| `passalong load 2cf2` | Text items go to the clipboard. File items are downloaded into `client.download_dir` (`~/Downloads` by default), which is created if missing. |
 | `passalong load 2cf2 ~/Downloads` | Into an existing directory, under the item's file name, or `<id>.txt` for text. |
 | `passalong load 2cf2 ./copy.pdf` | To exactly that file. |
 
@@ -136,7 +139,53 @@ anything. File names stored on the server are reduced to their last
 component, so a name like `../../etc/passwd` is written as `passwd` inside
 the destination directory.
 
-A prefix that matches several items is refused, and the error lists them.
+A download into `client.download_dir` never replaces a file: if the name is
+taken, `load` writes `report (1).pdf`, then `report (2).pdf`, and so on, and
+prints the name it used. `--force` overwrites the original name instead.
+
+When a prefix matches several items and you are at a terminal, `load`,
+`cat`, and `delete` list up to 9 of them, newest first, and ask which one
+you mean:
+
+```text
+`68c3a1b2-` matches 3 items:
+  1  68c3a1b2-9f1c02d4e5a6  text  meeting notes for Friday    laptop  2 min ago
+  2  68c3a1b2-2cf2a8b17c3d  file  report.pdf                  laptop  2 min ago
+  3  68c3a1b2-0b7e44c21a90  text  https://example.com/a-link  phone   2 min ago
+Choose 1-3, or press Enter to cancel:
+```
+
+Pressing Enter, or three answers that are not a listed number, cancels
+without changing anything; `delete` asks about every ambiguous id before it
+deletes any item. With more than 9 matches, type more characters of the id.
+Without a terminal, as in scripts, the command fails with exit code 1 and
+the error lists every match.
+
+## `passalong cat <ID>`
+
+Prints an item's content to standard output exactly as stored, with
+nothing added, so it can be piped or redirected:
+
+```sh
+passalong cat 2cf2 | wc -l
+passalong cat 8f3a > report.pdf
+```
+
+The content is checked against the item's SHA-256 as it streams. A
+mismatch is reported with `item <ID> failed verification` and exit code 1
+after the output has been written, as `curl` does, so treat that output
+as damaged.
+
+On a terminal, items that are not text are refused, because binary data
+can garble the terminal:
+
+```text
+error: item 8f3a9c0d-... is binary (application/pdf); redirect the output or use --force
+```
+
+| Option | Meaning |
+|---|---|
+| `--force` | Print a binary item to the terminal anyway |
 
 ## `passalong delete <ID>...`
 
@@ -207,6 +256,28 @@ or a drop folder that cannot be created or watched. Without a desktop
 clipboard, for example over SSH or in a container, it keeps watching the
 drop folder and logs `clipboard unavailable`.
 
+### Pull mode
+
+With `pull = true` in `[serve]`, `serve` also applies items that other
+devices send, which turns passalong into two-way sync:
+
+- The newest text or clipboard image sent since the last check goes onto
+  this device's clipboard. Older ones in the same check are skipped.
+- Every file, including PNG files sent with `passalong file`, is downloaded
+  into `client.download_dir`, but only if that directory exists. It is
+  never created, and an existing name is kept: the download is numbered, as
+  in `report (1).pdf`. Files that arrive while the directory is missing are
+  skipped for good.
+- Items sent by this device (same `client.device_name`) and items that
+  existed before `serve` started are ignored. Pulled content is never sent
+  back.
+
+`serve` checks every `pull_interval_ms`, 5 seconds by default. A server
+that cannot be reached is retried at the next check without skipping
+anything. Keep the devices' clocks in sync (NTP): items are ordered by
+their creation time, so an item from a device whose clock runs behind can
+look older than the last one pulled and be missed.
+
 ### Running `serve` in the background
 
 Only one `serve` runs at a time: a second one exits with
@@ -230,10 +301,18 @@ choice:
 
 ## Clipboard support
 
-Clipboard text works on macOS and on Linux under X11 or a Wayland compositor
-that supports the `wlr-data-control` protocol, such as Hyprland or Sway.
+Clipboard text and images work on macOS and on Linux under X11 or a
+Wayland compositor that supports the `wlr-data-control` protocol, such as
+Hyprland or Sway.
+
+Images are exchanged as RGBA pixels and stored as PNG. `load` puts a
+clipboard image back on the clipboard; with a destination it writes the
+PNG file, and `cat` prints the PNG bytes. PNG files sent with
+`passalong file` stay files and are downloaded like any other. Images
+larger than 64 megapixels are refused. Clients older than v0.1.2 see
+clipboard images as ordinary PNG files.
 
 On Linux the clipboard's content belongs to the program that set it, so
-`passalong load` hands the text to a small background process that keeps
-it available until something else is copied, as `wl-copy` and `xclip` do.
-`load` itself returns immediately.
+`passalong load` hands the text or image to a small background process
+that keeps it available until something else is copied, as `wl-copy` and
+`xclip` do. `load` itself returns immediately.

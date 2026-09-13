@@ -36,6 +36,7 @@ Unknown keys are rejected, and every error names the offending key or line.
 |---|---|---|---|
 | `device_name` | string | host name | Name recorded on every item this device sends |
 | `log_level` | string | `info` | `error`, `warning`, `info`, `verbose`, or `debug` (see Logging) |
+| `download_dir` | path | `~/Downloads` | Where `load` puts file items when no destination is given, created if missing; pull mode writes here only if it exists. Must be absolute after `~` expansion |
 
 ### `[server]`
 
@@ -50,8 +51,8 @@ Unknown keys are rejected, and every error names the offending key or line.
 | `host` | string | required | Server host name or IP address |
 | `port` | integer | `22` | 1 to 65535 |
 | `user` | string | required | Login user |
-| `host_key` | string | required | The server's public host key, pinned: the `ssh-ed25519 AAAA...` part of `ssh-keyscan -t ed25519 <host>` |
-| `identity_file` | path | required | Private key used to log in; `~` is expanded |
+| `host_key` | string | required | The server's public host key, pinned: the `ssh-ed25519 AAAA...` part of `ssh-keyscan -t ed25519 <host>`. An `ssh-rsa` key needs a build with the `rsa` feature |
+| `identity_file` | path | required | Private key used to log in; `~` is expanded. Ed25519 and ECDSA keys work in every build; RSA keys need a build with the `rsa` feature |
 | `remote_path` | string | required | Storage directory on the server, absolute or relative to the login home; not `~`-expanded |
 | `connect_timeout_secs` | integer | `10` | 1 to 3600 |
 
@@ -71,6 +72,9 @@ The key passphrase is never read from this file; see Environment variables.
 | `clipboard_poll_interval_ms` | integer | `750` | 1 to 3600000 |
 | `file_stable_wait_ms` | integer | `1000` | 0 to 3600000; how long a dropped file must stay unchanged before it is sent |
 | `after_send` | string | `move` | `move` puts sent files in `<drop_folder>/sent/`; `delete` removes them |
+| `clipboard_images` | boolean | `true` | Also send clipboard images; an image is read only when the clipboard holds no text |
+| `pull` | boolean | `false` | Also apply items sent by other devices: text and images to the clipboard, files into `client.download_dir` when it exists. `client.download_dir` must then not be `drop_folder` or inside it |
+| `pull_interval_ms` | integer | `5000` | 1000 to 3600000; how often pull mode checks for new items |
 
 ## Environment variables
 

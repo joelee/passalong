@@ -102,7 +102,7 @@ fn help_and_version() {
         .arg("--version")
         .assert()
         .success()
-        .stdout("passalong 0.1.1\n");
+        .stdout("passalong 0.1.2\n");
 }
 
 #[test]
@@ -327,6 +327,47 @@ fn file_list_load_round_trip_is_byte_identical() {
         .arg(&dest)
         .assert()
         .success();
+}
+
+#[tokio::test]
+async fn cat_prints_text_and_file_items_exactly() {
+    let sb = Sandbox::new();
+    let metas = sb.seed(&["first line\nsecond line"]).await;
+    sb.with_config()
+        .args(["cat", metas[0].id.as_str()])
+        .assert()
+        .success()
+        .stdout("first line\nsecond line");
+    let source = sb.path("work/data.bin");
+    let data: Vec<u8> = (0..300_000_u32).map(|i| (i % 253) as u8).collect();
+    std::fs::write(&source, &data).unwrap();
+    let out = sb.with_config().arg("file").arg(&source).assert().success();
+    let id = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    let printed = sb
+        .with_config()
+        .args(["cat", id.trim()])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    assert_eq!(printed, data);
+}
+
+#[test]
+fn load_without_a_destination_downloads_files_into_downloads() {
+    let sb = Sandbox::new();
+    let source = sb.path("work/notes.pdf");
+    std::fs::write(&source, b"%PDF-1.7").unwrap();
+    let out = sb.with_config().arg("file").arg(&source).assert().success();
+    let id = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    let target = sb.path("home/Downloads/notes.pdf");
+    sb.with_config()
+        .args(["load", id.trim()])
+        .assert()
+        .success()
+        .stdout(format!("{}\n", target.display()));
+    assert_eq!(std::fs::read(&target).unwrap(), b"%PDF-1.7");
 }
 
 #[test]
@@ -639,6 +680,63 @@ fn serve_daemon_starts_reports_refuses_a_second_copy_and_stops() {
 
 #[cfg(unix)]
 #[test]
+fn serve_daemon_pulls_files_sent_by_another_device() {
+    use std::time::{Duration, Instant};
+    let sb = Sandbox::new();
+    std::fs::create_dir_all(sb.path("home/dl")).unwrap();
+    let config = sb.path("cfg/pull.toml");
+    std::fs::write(
+        &config,
+        format!(
+            "[client]\ndevice_name = \"laptop\"\ndownload_dir = \"{}\"\n\n[server]\nkind = \"local\"\n\n[server.local]\npath = \"{}\"\n\n[serve]\ndrop_folder = \"{}\"\npull = true\npull_interval_ms = 1000\n",
+            sb.path("home/dl").display(),
+            sb.path("store").display(),
+            sb.path("drop").display()
+        ),
+    )
+    .unwrap();
+    let started = sb
+        .cmd()
+        .arg("--config")
+        .arg(&config)
+        .args(["serve", "--daemon"])
+        .timeout(Duration::from_secs(20))
+        .assert()
+        .success();
+    let out = String::from_utf8(started.get_output().stdout.clone()).unwrap();
+    let pid: u32 = out["serve started (pid ".len()..]
+        .split(',')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let _guard = DaemonGuard(Some(pid));
+
+    // Another device sharing the store (the sandbox config is "test-box").
+    let source = sb.path("work/from-phone.txt");
+    std::fs::write(&source, b"sent by the phone").unwrap();
+    sb.with_config().arg("file").arg(&source).assert().success();
+    let target = sb.path("home/dl/from-phone.txt");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !target.exists() {
+        assert!(
+            Instant::now() < deadline,
+            "the daemon never pulled the file"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert_eq!(std::fs::read(&target).unwrap(), b"sent by the phone");
+    sb.cmd()
+        .arg("--config")
+        .arg(&config)
+        .args(["serve", "--stop"])
+        .timeout(Duration::from_secs(20))
+        .assert()
+        .success();
+}
+
+#[cfg(unix)]
+#[test]
 fn serve_daemon_reports_start_up_failures() {
     let sb = Sandbox::new();
     let bad = sb.path("cfg/bad.toml");
@@ -699,5 +797,49 @@ async fn desktop_loaded_text_survives_load_exiting() {
         clipboard.read_text().unwrap().as_deref(),
         Some("held after load exits")
     );
+    clipboard.write_text("released").unwrap();
+}
+
+/// Like `desktop_loaded_text_survives_load_exiting`, for a clipboard image.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+#[ignore = "needs a desktop session with a clipboard"]
+async fn desktop_loaded_image_survives_load_exiting() {
+    use passalong_core::clipboard::{ArboardClipboard, Clipboard, RgbaImage, encode_png};
+    let sb = Sandbox::new();
+    let rgba: Vec<u8> = (0..4 * 4 * 4)
+        .map(|i| {
+            if i % 4 == 3 {
+                255
+            } else {
+                (i * 23 % 256) as u8
+            }
+        })
+        .collect();
+    let image = RgbaImage::new(4, 4, rgba).unwrap();
+    let store = FsStore::new(
+        LocalFs::new(sb.path("store")),
+        Arc::new(ManualClock::at("2026-09-12T09:53:11Z")),
+        Box::new(StdRandom::new()),
+    );
+    let png = encode_png(&image).unwrap();
+    let meta = store
+        .put(
+            NewItem::clipboard_image("seed", "2026-09-12T09:53:11Z".parse().unwrap()),
+            Box::new(Cursor::new(png)),
+        )
+        .await
+        .unwrap()
+        .meta;
+    let mut cmd = sb.with_config();
+    for var in ["DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"] {
+        if let Ok(value) = std::env::var(var) {
+            cmd.env(var, value);
+        }
+    }
+    cmd.args(["load", meta.id.as_str()]).assert().success();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let mut clipboard = ArboardClipboard::new().unwrap();
+    assert_eq!(clipboard.read_image().unwrap(), Some(image));
     clipboard.write_text("released").unwrap();
 }

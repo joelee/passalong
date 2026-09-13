@@ -179,12 +179,73 @@ pub fn numbered_name(name: &str, n: u32) -> String {
     }
 }
 
+/// Claims the first free name among `dir/name`, `dir/name (1)`, …
+/// `dir/name (999)` by creating it, empty, with an exclusive create, so no
+/// other writer can pick the same file. Write into it with
+/// [`write_reserved`], which removes the reservation if the write fails.
+///
+/// # Errors
+///
+/// [`DownloadError::NoFreeName`] when every candidate is taken, or
+/// [`DownloadError::Create`] when a candidate cannot be created.
+pub async fn reserve_target(dir: &Path, name: &str) -> Result<PathBuf, DownloadError> {
+    for n in 0..=MAX_NUMBERED_NAMES {
+        let candidate = if n == 0 {
+            dir.join(name)
+        } else {
+            dir.join(numbered_name(name, n))
+        };
+        let created = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+            .await;
+        match created {
+            Ok(_) => return Ok(candidate),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(source) => {
+                return Err(DownloadError::Create {
+                    path: candidate,
+                    source,
+                });
+            }
+        }
+    }
+    Err(DownloadError::NoFreeName {
+        dir: dir.to_path_buf(),
+        name: name.to_owned(),
+        max: MAX_NUMBERED_NAMES,
+    })
+}
+
+/// [`write_verified`] into a target claimed with [`reserve_target`]. On
+/// failure the reservation is removed as well, so nothing is left behind.
+///
+/// # Errors
+///
+/// As [`write_verified`].
+pub async fn write_reserved(
+    content: BoxRead,
+    meta: &ItemMeta,
+    reserved: &Path,
+) -> Result<(), DownloadError> {
+    let result = write_verified(content, meta, reserved).await;
+    if result.is_err() {
+        let _ = tokio::fs::remove_file(reserved).await;
+    }
+    result
+}
+
 /// The first of `dir/name`, `dir/name (1)`, … `dir/name (999)` that does
 /// not exist yet. A path whose existence cannot be checked counts as taken.
 ///
 /// # Errors
 ///
 /// [`DownloadError::NoFreeName`] when every candidate is taken.
+#[deprecated(
+    since = "0.1.3",
+    note = "another writer can take the name before it is written; use reserve_target"
+)]
 pub async fn free_target(dir: &Path, name: &str) -> Result<PathBuf, DownloadError> {
     let plain = dir.join(name);
     if !taken(&plain).await {
@@ -229,13 +290,13 @@ mod tests {
     async fn free_names_skip_existing_files() {
         let dir = TempDir::new().unwrap();
         assert_eq!(
-            free_target(dir.path(), "a.txt").await.unwrap(),
+            reserve_target(dir.path(), "a.txt").await.unwrap(),
             dir.path().join("a.txt")
         );
         std::fs::write(dir.path().join("a.txt"), b"x").unwrap();
         std::fs::write(dir.path().join("a (1).txt"), b"x").unwrap();
         assert_eq!(
-            free_target(dir.path(), "a.txt").await.unwrap(),
+            reserve_target(dir.path(), "a.txt").await.unwrap(),
             dir.path().join("a (2).txt")
         );
     }
@@ -247,7 +308,7 @@ mod tests {
         for n in 1..=MAX_NUMBERED_NAMES {
             std::fs::write(dir.path().join(numbered_name("n", n)), b"x").unwrap();
         }
-        let err = free_target(dir.path(), "n").await.unwrap_err();
+        let err = reserve_target(dir.path(), "n").await.unwrap_err();
         assert!(
             err.to_string().contains("999 numbered names are taken"),
             "{err}"
@@ -294,5 +355,58 @@ mod tests {
             .map(|e| e.unwrap().file_name().into_string().unwrap())
             .collect();
         assert_eq!(names, ["f.bin"], "no part file is left behind");
+    }
+
+    #[tokio::test]
+    async fn reservations_never_share_a_name() {
+        let dir = TempDir::new().unwrap();
+        let first = reserve_target(dir.path(), "a.txt").await.unwrap();
+        let second = reserve_target(dir.path(), "a.txt").await.unwrap();
+        assert_eq!(first, dir.path().join("a.txt"));
+        assert_eq!(second, dir.path().join("a (1).txt"));
+        assert!(first.exists() && second.exists(), "both names are held");
+    }
+
+    #[tokio::test]
+    async fn simultaneous_downloads_of_the_same_name_keep_both_files() {
+        let (_one, meta_one, content_one) = stored(b"first download").await;
+        let (_two, meta_two, content_two) = stored(b"second download").await;
+        let out = TempDir::new().unwrap();
+        let download = |content, meta: ItemMeta| {
+            let dir = out.path().to_path_buf();
+            async move {
+                let target = reserve_target(&dir, "f.bin").await.unwrap();
+                write_reserved(content, &meta, &target).await.unwrap();
+                target
+            }
+        };
+        let (a, b) = tokio::join!(
+            download(content_one, meta_one),
+            download(content_two, meta_two)
+        );
+        assert_ne!(a, b);
+        let mut contents = vec![std::fs::read(&a).unwrap(), std::fs::read(&b).unwrap()];
+        contents.sort();
+        assert_eq!(
+            contents,
+            [b"first download".to_vec(), b"second download".to_vec()]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_write_into_a_reservation_leaves_nothing_behind() {
+        let (_store, mut meta, content) = stored(b"payload").await;
+        let mut hasher = ContentHasher::new();
+        hasher.update(b"other");
+        meta.sha256 = hasher.finalize().sha256_hex();
+        let out = TempDir::new().unwrap();
+        let target = reserve_target(out.path(), "f.bin").await.unwrap();
+        let err = write_reserved(content, &meta, &target).await.unwrap_err();
+        assert!(err.to_string().contains("integrity check failed"), "{err}");
+        assert_eq!(
+            std::fs::read_dir(out.path()).unwrap().count(),
+            0,
+            "no reservation and no part file"
+        );
     }
 }

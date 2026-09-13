@@ -38,9 +38,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00004-v0.1.3"
 execution_started_at: "2026-09-13T11:21:15Z"
-execution_updated_at: "2026-09-13T11:24:33Z"
+execution_updated_at: "2026-09-13T11:27:20Z"
 execution_completed_at: null
-current_step: "PLAN-00004-STEP-03"
+current_step: "PLAN-00004-STEP-04"
 ---
 
 # Delivery Plan 00004: V0 1 3 Review Fixes And Pull Ids
@@ -488,7 +488,7 @@ run at STEP-02 and STEP-06.
 |---|---|---|---|---|---|
 | PLAN-00004-STEP-01 | completed | 2026-09-13T11:21:15Z | 2026-09-13T11:21:36Z | Commit `build: complete PLAN-00004-STEP-01 - Verify the issue #4 fix`; `just check` green, 92.19% lines | AC-01. Evidence-only step: the fix is c44d14d on the baseline (absolute tag-pinned plan links in docs/release/v0.1.0, v0.1.1, v0.1.2; check-release-tag.sh rejects relative links; AGENTS.md and the developer guide state the rule). The PR merging this branch should say Fixes #4 |
 | PLAN-00004-STEP-02 | completed | 2026-09-13T11:21:36Z | 2026-09-13T11:24:33Z | Commit `build: complete PLAN-00004-STEP-02 - Store::get_meta and targeted candidate metadata`; `just check` green, 92.09% lines | AC-02, AC-03. resolve_item no longer calls Store::list; a candidate deleted or damaged since listing shows a ? row, and other store errors are returned. Architecture documents get_meta |
-| PLAN-00004-STEP-03 | not-started | — | — | — | — |
+| PLAN-00004-STEP-03 | completed | 2026-09-13T11:24:33Z | 2026-09-13T11:27:20Z | Commit `build: complete PLAN-00004-STEP-03 - Atomic download names`; `just check` green, 91.91% lines | AC-04, AC-05. The load regression test passed before the change too (the old code never created the target early) and guards that a reservation is removed after a failed write. CHANGELOG Fixed entries added for STEP-02 and STEP-03 |
 | PLAN-00004-STEP-04 | not-started | — | — | — | — |
 | PLAN-00004-STEP-05 | not-started | — | — | — | — |
 | PLAN-00004-STEP-06 | not-started | — | — | — | — |
@@ -505,11 +505,14 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T11:21:36Z | PLAN-00004-STEP-01 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00004-STEP-01 - Verify the issue #4 fix` | Begin PLAN-00004-STEP-02 |
 | 2026-09-13T11:21:36Z | PLAN-00004-STEP-02 | Started | — | Red phase |
 | 2026-09-13T11:24:33Z | PLAN-00004-STEP-02 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00004-STEP-02 - Store::get_meta and targeted candidate metadata` | Begin PLAN-00004-STEP-03 |
+| 2026-09-13T11:24:33Z | PLAN-00004-STEP-03 | Started | — | Red phase |
+| 2026-09-13T11:27:20Z | PLAN-00004-STEP-03 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00004-STEP-03 - Atomic download names` | Begin PLAN-00004-STEP-04 |
 
 ### Deviations and blockers
 
 | Timestamp (UTC) | Step | Deviation or blocker | Impact | Decision required from |
 |---|---|---|---|---|
+| 2026-09-13T11:27:20Z | PLAN-00004-STEP-03 | `download::free_target` stays as a deprecated function instead of being removed, because passalong-core 0.1.2 is published with it; nothing in the workspace calls it. Pull mode now fetches the item before reserving its name, so a store error cannot leave an empty reservation. STEP-02's CHANGELOG entry was added in this step. | None | None (routine) |
 
 None.
 
@@ -533,12 +536,20 @@ None.
 | 2026-09-13T11:24:33Z | PLAN-00004-STEP-02 | `cargo test -p passalong --bin passalong resolve` | Pass | test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 0.01s |
 | 2026-09-13T11:24:33Z | PLAN-00004-STEP-02 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
 | 2026-09-13T11:24:33Z | PLAN-00004-STEP-02 | `just check` | Exit 0 | Lines 92.09% (9023 lines, 714 missed); fs_store.rs 96.76%; resolve.rs 95.55% |
+| 2026-09-13T11:24:33Z | PLAN-00004-STEP-03 | Red: `cargo test -p passalong-core --all-features --lib download` with the reservation tests | Exit 101 (expected) | 9 x E0425: reserve_target and write_reserved not found |
+| 2026-09-13T11:27:20Z | PLAN-00004-STEP-03 | `cargo test -p passalong-core --all-features --lib` | Exit 0 | reservations_never_share_a_name (a.txt, a (1).txt, both held); simultaneous_downloads_of_the_same_name_keep_both_files (tokio::join, both contents intact); a_failed_write_into_a_reservation_leaves_nothing_behind; numbering tests now use reserve_target; pull tests pass |
+| 2026-09-13T11:27:20Z | PLAN-00004-STEP-03 | `cargo test -p passalong` | Exit 0 | existing download, --force, and explicit-DEST tests pass; a_damaged_download_leaves_nothing_in_the_download_directory |
+| 2026-09-13T11:27:20Z | PLAN-00004-STEP-03 | `cargo test -p passalong-core --all-features --lib download` | Pass | test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 163 filtered out; finished in 0.02s |
+| 2026-09-13T11:27:20Z | PLAN-00004-STEP-03 | `cargo test -p passalong --bin passalong load` | Pass | test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 78 filtered out; finished in 0.02s |
+| 2026-09-13T11:27:20Z | PLAN-00004-STEP-03 | `cargo test -p passalong-core --all-features --lib pull` | Pass | test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 164 filtered out; finished in 0.01s |
+| 2026-09-13T11:27:20Z | PLAN-00004-STEP-03 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
+| 2026-09-13T11:27:20Z | PLAN-00004-STEP-03 | `just check` | Exit 0 | Lines 91.91% (9140 lines, 739 missed); download.rs 88.45%; load.rs 98.76%; pull.rs 87.41% |
 
 ### Completion summary
 
 - **Implementation status:** `not-started`
-- **Completed requirements:** REQ-01 to REQ-03
-- **Incomplete requirements:** REQ-04 to REQ-09
+- **Completed requirements:** REQ-01 to REQ-04
+- **Incomplete requirements:** REQ-05 to REQ-09
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

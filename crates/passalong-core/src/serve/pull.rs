@@ -143,15 +143,16 @@ impl Puller {
                 return Ok(());
             }
         };
-        let target = match download::free_target(&self.download_dir, &name).await {
+        // Fetch before reserving, so a store error leaves no empty file.
+        let (_, content) = store.get(&meta.id).await?;
+        let target = match download::reserve_target(&self.download_dir, &name).await {
             Ok(target) => target,
             Err(err) => {
                 tracing::warn!(id = %meta.id, error = %err, "cannot name the pulled file; skipped");
                 return Ok(());
             }
         };
-        let (_, content) = store.get(&meta.id).await?;
-        match download::write_verified(content, meta, &target).await {
+        match download::write_reserved(content, meta, &target).await {
             Ok(()) => tracing::info!(id = %meta.id, path = %target.display(), "pulled file"),
             Err(DownloadError::Read(err)) => return Err(read_failed(meta, &err)),
             Err(err) => {

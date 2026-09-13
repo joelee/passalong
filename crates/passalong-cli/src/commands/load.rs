@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context as _;
 use passalong_core::clipboard::{Clipboard, ClipboardError, decode_png};
-use passalong_core::download::{self, check_integrity, write_verified};
+use passalong_core::download::{self, check_integrity, write_reserved, write_verified};
 use passalong_core::fs::BoxRead;
 use passalong_core::model::{ContentHasher, ItemKind, ItemMeta, sanitise_file_name};
 use passalong_core::store::Store;
@@ -36,7 +36,9 @@ pub async fn run(
 ) -> anyhow::Result<()> {
     let id = lookup.resolve(store).await?;
     let (meta, content) = store.get(&id).await?;
-    let target = match dest {
+    // A download writes into a name it reserved; any other target is
+    // written as given and left alone if the write fails.
+    let (target, reserved) = match dest {
         None if meta.kind == ItemKind::Text => {
             let bytes = read_verified(content, &meta).await?;
             let text =
@@ -61,27 +63,36 @@ pub async fn run(
                     target.display()
                 );
             }
-            target
+            (target, false)
         }
     };
-    write_verified(content, &meta, &target).await?;
+    if reserved {
+        write_reserved(content, &meta, &target).await?;
+    } else {
+        write_verified(content, &meta, &target).await?;
+    }
     tracing::info!(id = %id, size = meta.size, path = %target.display(), "item written");
     writeln!(out, "{}", target.display())?;
     Ok(())
 }
 
-/// Where a download goes: the item's name in `dir`, or its first free
-/// numbered variant unless `force`.
-async fn download_target(dir: &Path, meta: &ItemMeta, force: bool) -> anyhow::Result<PathBuf> {
+/// Where a download goes: the item's name in `dir` with `force`, or the
+/// first free numbered variant, reserved so no other download can take it.
+/// Returns the path and whether it was reserved.
+async fn download_target(
+    dir: &Path,
+    meta: &ItemMeta,
+    force: bool,
+) -> anyhow::Result<(PathBuf, bool)> {
     let name = sanitise_file_name(meta.name.as_deref().unwrap_or_default())
         .context("give a destination for this item instead")?;
     tokio::fs::create_dir_all(dir)
         .await
         .with_context(|| format!("cannot create the download directory {}", dir.display()))?;
     Ok(if force {
-        dir.join(name)
+        (dir.join(name), false)
     } else {
-        download::free_target(dir, &name).await?
+        (download::reserve_target(dir, &name).await?, true)
     })
 }
 
@@ -429,5 +440,26 @@ mod tests {
             png
         );
         assert!(env.clip.image_writes().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_damaged_download_leaves_nothing_in_the_download_directory() {
+        let env = Env::new();
+        let meta = env.put(NewItem::file("a.bin", "box"), b"original").await;
+        let content = env
+            .ts
+            .dir
+            .path()
+            .join("items")
+            .join(meta.id.as_str())
+            .join("content");
+        std::fs::write(&content, b"tampered").unwrap();
+        let err = env.load(meta.id.as_str(), None, false).await.unwrap_err();
+        assert!(
+            format!("{err:#}").contains("integrity check failed"),
+            "{err:#}"
+        );
+        let left: Vec<_> = std::fs::read_dir(env.downloads()).unwrap().collect();
+        assert!(left.is_empty(), "{left:?}");
     }
 }

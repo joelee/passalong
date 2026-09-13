@@ -189,7 +189,9 @@ that lists the candidates.
   interval it asks the store for newer items with `Store::list_after`,
   ignores this device's own items, and handles the rest oldest first: files
   are downloaded, verified, into `client.download_dir` when it exists, and
-  the newest text or clipboard image is handed to the clipboard task. The
+  the newest text or clipboard image is handed to the clipboard task. Like
+  `load`, each download first claims its file name with an exclusive
+  create, so two downloads can never write the same file. The
   clipboard task writes it and marks it as seen, so it is not sent back.
   The recorded position advances item by item, so a store error retries
   from where it stopped without downloading anything twice.

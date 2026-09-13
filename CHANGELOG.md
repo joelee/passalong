@@ -8,6 +8,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Choosing between items that match an ambiguous id reads only the metadata
+  of the items shown, not the whole store, which on an SSH server meant one
+  request per stored item (Code Review 00001, REV-00001-MED-01; PLAN-00004
+  STEP-02).
+- Downloads by `load` and pull mode claim their file name with an exclusive
+  create before writing, so two downloads of the same name at the same
+  moment can no longer pick the same file (Code Review 00001,
+  REV-00001-LOW-01; PLAN-00004 STEP-03).
 - The release notes link to their delivery plans with absolute URLs pinned
   to the release tag, because GitHub release pages cannot resolve relative
   links. `scripts/check-release-tag.sh` now rejects relative links in

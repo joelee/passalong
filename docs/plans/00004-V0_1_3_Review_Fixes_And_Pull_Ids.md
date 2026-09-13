@@ -38,9 +38,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00004-v0.1.3"
 execution_started_at: "2026-09-13T11:21:15Z"
-execution_updated_at: "2026-09-13T11:31:27Z"
+execution_updated_at: "2026-09-13T11:34:29Z"
 execution_completed_at: null
-current_step: "PLAN-00004-STEP-05"
+current_step: "PLAN-00004-STEP-06"
 ---
 
 # Delivery Plan 00004: V0 1 3 Review Fixes And Pull Ids
@@ -490,7 +490,7 @@ run at STEP-02 and STEP-06.
 | PLAN-00004-STEP-02 | completed | 2026-09-13T11:21:36Z | 2026-09-13T11:24:33Z | Commit `build: complete PLAN-00004-STEP-02 - Store::get_meta and targeted candidate metadata`; `just check` green, 92.09% lines | AC-02, AC-03. resolve_item no longer calls Store::list; a candidate deleted or damaged since listing shows a ? row, and other store errors are returned. Architecture documents get_meta |
 | PLAN-00004-STEP-03 | completed | 2026-09-13T11:24:33Z | 2026-09-13T11:27:20Z | Commit `build: complete PLAN-00004-STEP-03 - Atomic download names`; `just check` green, 91.91% lines | AC-04, AC-05. The load regression test passed before the change too (the old code never created the target early) and guards that a reservation is removed after a failed write. CHANGELOG Fixed entries added for STEP-02 and STEP-03 |
 | PLAN-00004-STEP-04 | completed | 2026-09-13T11:27:20Z | 2026-09-13T11:31:27Z | Commit `build: complete PLAN-00004-STEP-04 - Pull mode tracks seen ids`; `just check` green, 92.01% lines | AC-06, AC-07. Puller keeps a HashSet of seen ids (all stored ids at start); each poll lists ids once, forgets ids no longer stored, reads get_meta only for unseen ids, and marks each item seen once handled, so a store error leaves the rest unseen. Usage drops the clock-sync caveat; architecture describes list_ids and seen ids; CHANGELOG Fixed entry |
-| PLAN-00004-STEP-05 | not-started | — | — | — | — |
+| PLAN-00004-STEP-05 | completed | 2026-09-13T11:31:27Z | 2026-09-13T11:34:29Z | Commit `build: complete PLAN-00004-STEP-05 - Documentation and v0.1.3 release preparation`; `just check` green, 92.00% lines | AC-08, AC-09. docs/release/v0.1.3.md drafted with absolute links only (plan link pinned to v0.1.3; issue #4 and docs/plans links absolute); CHANGELOG Unreleased has Added (get_meta, list_ids), Deprecated (newest_id, free_target), and Fixed (pull clock skew, targeted reads, atomic names, release-note links); backlog drops pull clock skew, targeted metadata reads, atomic download names. Architecture and usage were updated in STEP-02 to STEP-04 |
 | PLAN-00004-STEP-06 | not-started | — | — | — | — |
 
 Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
@@ -509,6 +509,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T11:27:20Z | PLAN-00004-STEP-03 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00004-STEP-03 - Atomic download names` | Begin PLAN-00004-STEP-04 |
 | 2026-09-13T11:27:20Z | PLAN-00004-STEP-04 | Started | — | Red phase |
 | 2026-09-13T11:31:27Z | PLAN-00004-STEP-04 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00004-STEP-04 - Pull mode tracks seen ids` | Begin PLAN-00004-STEP-05 |
+| 2026-09-13T11:31:27Z | PLAN-00004-STEP-05 | Started | — | Red phase |
+| 2026-09-13T11:34:29Z | PLAN-00004-STEP-05 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00004-STEP-05 - Documentation and v0.1.3 release preparation` | Begin PLAN-00004-STEP-06 |
 
 ### Deviations and blockers
 
@@ -555,12 +557,20 @@ None.
 | 2026-09-13T11:31:27Z | PLAN-00004-STEP-04 | `cargo test -p passalong --test cli_local_backend serve_daemon_pulls` | Pass | test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 25 filtered out; finished in 1.13s |
 | 2026-09-13T11:31:27Z | PLAN-00004-STEP-04 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
 | 2026-09-13T11:31:27Z | PLAN-00004-STEP-04 | `just check` | Exit 0 | Lines 92.01% (9253 lines, 739 missed); pull.rs 89.16%; fs_store.rs 97.37% |
+| 2026-09-13T11:31:27Z | PLAN-00004-STEP-05 | Before: version and records | 0.1.2 (expected) | workspace at 0.1.2; no docs/release/v0.1.3.md; backlog still listed the three items delivered by STEP-02 to STEP-04 |
+| 2026-09-13T11:34:29Z | PLAN-00004-STEP-05 | `cargo run -q -p passalong -- --version` | Exit 0 | passalong 0.1.3; Cargo.lock updated for the three workspace crates only |
+| 2026-09-13T11:34:29Z | PLAN-00004-STEP-05 | `just coverage-full` (before the bump, for the release notes) | Exit 0 | 94.36 % lines; 14 Docker tests passed; desktop tests filtered (they run under Xvfb in CI) |
+| 2026-09-13T11:34:29Z | PLAN-00004-STEP-05 | `just publish-dry-run --allow-dirty` | Exit 0 | 3 crates packaged and verified at 0.1.3 |
+| 2026-09-13T11:34:29Z | PLAN-00004-STEP-05 | `cargo run -q -p passalong -- --version` | Pass | passalong 0.1.3 |
+| 2026-09-13T11:34:29Z | PLAN-00004-STEP-05 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/check_release_links.sh` | Pass | no relative links in docs/release: verified |
+| 2026-09-13T11:34:29Z | PLAN-00004-STEP-05 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
+| 2026-09-13T11:34:29Z | PLAN-00004-STEP-05 | `just check` | Exit 0 | Lines 92.00% (9253 lines, 740 missed) |
 
 ### Completion summary
 
 - **Implementation status:** `not-started`
-- **Completed requirements:** REQ-01 to REQ-05
-- **Incomplete requirements:** REQ-06 to REQ-09
+- **Completed requirements:** REQ-01 to REQ-07
+- **Incomplete requirements:** REQ-08, REQ-09
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

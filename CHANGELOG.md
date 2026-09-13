@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Added
+
+- `Store::get_meta` and `Store::list_ids` in `passalong-core`, both with
+  default implementations, so existing `Store` implementations keep
+  compiling (PLAN-00004 STEP-02 and STEP-04).
+
+### Deprecated
+
+- `Store::newest_id`, which pull mode no longer uses; use `list_ids`
+  (PLAN-00004 STEP-04).
+- `download::free_target`, whose name could be taken by another writer
+  before it was written; use `reserve_target` (PLAN-00004 STEP-03).
+
 ### Fixed
 
 - Pull mode applies every new item from another device once, even when that

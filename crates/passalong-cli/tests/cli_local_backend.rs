@@ -102,7 +102,7 @@ fn help_and_version() {
         .arg("--version")
         .assert()
         .success()
-        .stdout("passalong 0.1.2\n");
+        .stdout("passalong 0.1.3\n");
 }
 
 #[test]

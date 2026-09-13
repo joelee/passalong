@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## v0.1.2 - 2026-09-13T09:04:23Z
+
 ### Added
 
 - `passalong cat <ID>` prints an item to standard output exactly as stored,

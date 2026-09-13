@@ -140,7 +140,23 @@ A download into `client.download_dir` never replaces a file: if the name is
 taken, `load` writes `report (1).pdf`, then `report (2).pdf`, and so on, and
 prints the name it used. `--force` overwrites the original name instead.
 
-A prefix that matches several items is refused, and the error lists them.
+When a prefix matches several items and you are at a terminal, `load`,
+`cat`, and `delete` list up to 9 of them, newest first, and ask which one
+you mean:
+
+```text
+`68c3a1b2-` matches 3 items:
+  1  68c3a1b2-9f1c02d4e5a6  text  meeting notes for Friday    laptop  2 min ago
+  2  68c3a1b2-2cf2a8b17c3d  file  report.pdf                  laptop  2 min ago
+  3  68c3a1b2-0b7e44c21a90  text  https://example.com/a-link  phone   2 min ago
+Choose 1-3, or press Enter to cancel:
+```
+
+Pressing Enter, or three answers that are not a listed number, cancels
+without changing anything; `delete` asks about every ambiguous id before it
+deletes any item. With more than 9 matches, type more characters of the id.
+Without a terminal, as in scripts, the command fails with exit code 1 and
+the error lists every match.
 
 ## `passalong cat <ID>`
 

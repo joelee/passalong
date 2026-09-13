@@ -7,20 +7,22 @@ use passalong_core::model::{ContentHasher, ItemKind, ItemMeta};
 use passalong_core::store::Store;
 use tokio::io::AsyncReadExt;
 
+use crate::resolve::Lookup;
+
 const CHUNK_SIZE: usize = 64 * 1024;
 
-/// Streams the item `input` identifies to `out` exactly as stored, hashing
+/// Streams the item `lookup` identifies to `out` exactly as stored, hashing
 /// it on the way, and checks the SHA-256 and size after the last byte. With
 /// `stdout_is_terminal`, items that are not text are refused unless `force`.
 /// A reader that goes away, such as `head`, ends the output quietly.
 pub async fn run(
     store: &dyn Store,
-    input: &str,
+    lookup: Lookup<'_, '_>,
     force: bool,
     stdout_is_terminal: bool,
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
-    let id = store.resolve(input).await?;
+    let id = lookup.resolve(store).await?;
     let (meta, mut content) = store.get(&id).await?;
     if stdout_is_terminal && !force && !is_text(&meta) {
         anyhow::bail!(
@@ -82,7 +84,7 @@ mod tests {
         terminal: bool,
     ) -> (anyhow::Result<()>, Vec<u8>) {
         let mut out = Vec::new();
-        let result = run(&ts.store, id, force, terminal, &mut out).await;
+        let result = run(&ts.store, Lookup::plain(id), force, terminal, &mut out).await;
         (result, out)
     }
 
@@ -167,9 +169,15 @@ mod tests {
     async fn a_closed_pipe_ends_the_output_quietly() {
         let ts = TestStore::new();
         let meta = put(&ts, NewItem::text("box"), b"lots of text").await;
-        run(&ts.store, meta.id.as_str(), false, false, &mut ClosedPipe)
-            .await
-            .unwrap();
+        run(
+            &ts.store,
+            Lookup::plain(meta.id.as_str()),
+            false,
+            false,
+            &mut ClosedPipe,
+        )
+        .await
+        .unwrap();
     }
 
     #[tokio::test]

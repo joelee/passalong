@@ -78,7 +78,7 @@ pub fn kind_name(kind: ItemKind) -> &'static str {
 }
 
 /// The file name for files, the preview for text, or `-`.
-fn display_name(meta: &ItemMeta) -> String {
+pub fn display_name(meta: &ItemMeta) -> String {
     match (&meta.name, &meta.preview) {
         (Some(text), _) | (None, Some(text)) => truncate(text, NAME_WIDTH),
         (None, None) => "-".to_owned(),

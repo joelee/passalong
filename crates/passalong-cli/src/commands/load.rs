@@ -9,6 +9,8 @@ use passalong_core::download::{self, check_integrity, write_verified};
 use passalong_core::fs::BoxRead;
 use passalong_core::model::{ContentHasher, ItemKind, ItemMeta, sanitise_file_name};
 use passalong_core::store::Store;
+
+use crate::resolve::Lookup;
 use tokio::io::AsyncReadExt;
 
 #[cfg(test)]
@@ -17,7 +19,7 @@ use passalong_core::download::PART_SUFFIX;
 /// Opens the clipboard on demand, so only a load to the clipboard needs one.
 pub type OpenClipboard<'a> = dyn FnMut() -> Result<Box<dyn Clipboard>, ClipboardError> + 'a;
 
-/// Loads the item `input` identifies. Without `dest`, text goes to the
+/// Loads the item `lookup` identifies. Without `dest`, text goes to the
 /// clipboard and files are downloaded into `download_dir`, created if
 /// missing, under a numbered name if theirs is taken (the exact name with
 /// `force`). With `dest`, the item is written to that file, or into that
@@ -25,14 +27,14 @@ pub type OpenClipboard<'a> = dyn FnMut() -> Result<Box<dyn Clipboard>, Clipboard
 /// checked against the item's SHA-256 before anything is replaced.
 pub async fn run(
     store: &dyn Store,
-    input: &str,
+    lookup: Lookup<'_, '_>,
     dest: Option<&Path>,
     force: bool,
     download_dir: &Path,
     open_clipboard: &mut OpenClipboard<'_>,
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
-    let id = store.resolve(input).await?;
+    let id = lookup.resolve(store).await?;
     let (meta, content) = store.get(&id).await?;
     let target = match dest {
         None if meta.kind == ItemKind::Text => {
@@ -140,7 +142,7 @@ mod tests {
             let downloads = self.downloads();
             run(
                 &self.ts.store,
-                id,
+                Lookup::plain(id),
                 dest,
                 force,
                 &downloads,
@@ -353,7 +355,7 @@ mod tests {
         };
         let err = run(
             &env.ts.store,
-            meta.id.as_str(),
+            Lookup::plain(meta.id.as_str()),
             None,
             false,
             &env.downloads(),

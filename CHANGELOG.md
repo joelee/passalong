@@ -29,6 +29,9 @@ All notable changes to this project are documented here. The format follows
 - `passalong cat <ID>` prints an item to standard output exactly as stored,
   verifying its SHA-256; binary items are refused on a terminal unless
   `--force` is given (PLAN-00003 STEP-03).
+- When an id prefix matches several items, `load`, `cat`, and `delete` list
+  the matches on a terminal and ask which one you mean; scripts still get an
+  error listing them (PLAN-00003 STEP-05).
 
 ### Changed
 

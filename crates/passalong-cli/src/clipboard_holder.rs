@@ -133,7 +133,7 @@ mod tests {
         };
         crate::commands::load::run(
             &ts.store,
-            meta.id.as_str(),
+            crate::resolve::Lookup::plain(meta.id.as_str()),
             None,
             false,
             // Text goes to the clipboard; the download directory is not used.

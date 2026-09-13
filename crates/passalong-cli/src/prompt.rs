@@ -6,7 +6,8 @@ use std::io::{self, BufRead, IsTerminal, Write};
 
 /// Asks the user questions on the terminal.
 pub trait Prompt {
-    /// Whether a person can answer, that is, standard input is a terminal.
+    /// Whether a person can answer and see the question, that is, standard
+    /// input and standard error are terminals.
     fn is_interactive(&self) -> bool;
 
     /// Asks a yes/no question; only `y` or `yes` count as yes.
@@ -28,7 +29,7 @@ pub struct TerminalPrompt;
 
 impl Prompt for TerminalPrompt {
     fn is_interactive(&self) -> bool {
-        io::stdin().is_terminal()
+        io::stdin().is_terminal() && io::stderr().is_terminal()
     }
 
     fn confirm(&mut self, question: &str) -> io::Result<bool> {

@@ -18,6 +18,7 @@ use crate::cli::{Cli, Command, InitArgs};
 use crate::commands;
 use crate::commands::clipboard::TextSource;
 use crate::prompt::TerminalPrompt;
+use crate::resolve::{Chooser, Lookup};
 
 /// Runs one invocation and maps the outcome to the process exit code:
 /// 0 on success, 1 on any runtime error. Usage errors never get here; clap
@@ -116,11 +117,27 @@ async fn dispatch(
         Command::Cat { id, force } => {
             let store = backends.open(config).await?;
             let terminal = io::stdout().is_terminal();
-            commands::cat::run(store.as_ref(), &id, force, terminal, out).await
+            let (mut prompt, mut stderr) = (TerminalPrompt, io::stderr());
+            let mut chooser = Chooser {
+                prompt: &mut prompt,
+                err: &mut stderr,
+                now: Utc::now(),
+            };
+            let lookup = Lookup {
+                input: &id,
+                chooser: Some(&mut chooser),
+            };
+            commands::cat::run(store.as_ref(), lookup, force, terminal, out).await
         }
         Command::Delete { ids } => {
             let store = backends.open(config).await?;
-            commands::delete::run(store.as_ref(), &ids, out).await
+            let (mut prompt, mut stderr) = (TerminalPrompt, io::stderr());
+            let mut chooser = Chooser {
+                prompt: &mut prompt,
+                err: &mut stderr,
+                now: Utc::now(),
+            };
+            commands::delete::run(store.as_ref(), &ids, Some(&mut chooser), out).await
         }
         Command::Prune {
             older_than,
@@ -150,9 +167,19 @@ async fn dispatch(
             let store = backends.open(config).await?;
             let mut open_clipboard =
                 || -> Result<Box<dyn Clipboard>, ClipboardError> { clipboard_for_load() };
+            let (mut prompt, mut stderr) = (TerminalPrompt, io::stderr());
+            let mut chooser = Chooser {
+                prompt: &mut prompt,
+                err: &mut stderr,
+                now: Utc::now(),
+            };
+            let lookup = Lookup {
+                input: &id,
+                chooser: Some(&mut chooser),
+            };
             commands::load::run(
                 store.as_ref(),
-                &id,
+                lookup,
                 dest.as_deref(),
                 force,
                 &config.client.download_dir,

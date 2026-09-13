@@ -33,14 +33,14 @@ confidence: medium                # high | medium | low
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; Delivery Planner initializes them.
-implementation_status: in-progress # not-started | in-progress | blocked | completed | abandoned
+implementation_status: completed # not-started | in-progress | blocked | completed | abandoned
 builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00004-v0.1.3"
 execution_started_at: "2026-09-13T11:21:15Z"
-execution_updated_at: "2026-09-13T11:34:29Z"
-execution_completed_at: null
-current_step: "PLAN-00004-STEP-06"
+execution_updated_at: "2026-09-13T11:53:56Z"
+execution_completed_at: "2026-09-13T11:53:56Z"
+current_step: null
 ---
 
 # Delivery Plan 00004: V0 1 3 Review Fixes And Pull Ids
@@ -491,7 +491,7 @@ run at STEP-02 and STEP-06.
 | PLAN-00004-STEP-03 | completed | 2026-09-13T11:24:33Z | 2026-09-13T11:27:20Z | Commit `build: complete PLAN-00004-STEP-03 - Atomic download names`; `just check` green, 91.91% lines | AC-04, AC-05. The load regression test passed before the change too (the old code never created the target early) and guards that a reservation is removed after a failed write. CHANGELOG Fixed entries added for STEP-02 and STEP-03 |
 | PLAN-00004-STEP-04 | completed | 2026-09-13T11:27:20Z | 2026-09-13T11:31:27Z | Commit `build: complete PLAN-00004-STEP-04 - Pull mode tracks seen ids`; `just check` green, 92.01% lines | AC-06, AC-07. Puller keeps a HashSet of seen ids (all stored ids at start); each poll lists ids once, forgets ids no longer stored, reads get_meta only for unseen ids, and marks each item seen once handled, so a store error leaves the rest unseen. Usage drops the clock-sync caveat; architecture describes list_ids and seen ids; CHANGELOG Fixed entry |
 | PLAN-00004-STEP-05 | completed | 2026-09-13T11:31:27Z | 2026-09-13T11:34:29Z | Commit `build: complete PLAN-00004-STEP-05 - Documentation and v0.1.3 release preparation`; `just check` green, 92.00% lines | AC-08, AC-09. docs/release/v0.1.3.md drafted with absolute links only (plan link pinned to v0.1.3; issue #4 and docs/plans links absolute); CHANGELOG Unreleased has Added (get_meta, list_ids), Deprecated (newest_id, free_target), and Fixed (pull clock skew, targeted reads, atomic names, release-note links); backlog drops pull clock skew, targeted metadata reads, atomic download names. Architecture and usage were updated in STEP-02 to STEP-04 |
-| PLAN-00004-STEP-06 | not-started | — | — | — | — |
+| PLAN-00004-STEP-06 | completed | 2026-09-13T11:34:29Z | 2026-09-13T11:53:56Z | Commit `build: complete PLAN-00004-STEP-06 - Final quality gate`; `just check` green, 91.83% lines | AC-10 by local just ci and GitHub CI (coverage 91.82 % without Docker, 94.18 % with; release notes updated to these figures); AC-11 by the scope review. This commit changes only the plan and the release notes' coverage figures, and its own CI run is checked after the push |
 
 Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 `skipped`. A skipped step requires explicit user approval recorded in Evidence.
@@ -511,6 +511,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T11:31:27Z | PLAN-00004-STEP-04 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00004-STEP-04 - Pull mode tracks seen ids` | Begin PLAN-00004-STEP-05 |
 | 2026-09-13T11:31:27Z | PLAN-00004-STEP-05 | Started | — | Red phase |
 | 2026-09-13T11:34:29Z | PLAN-00004-STEP-05 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00004-STEP-05 - Documentation and v0.1.3 release preparation` | Begin PLAN-00004-STEP-06 |
+| 2026-09-13T11:34:29Z | PLAN-00004-STEP-06 | Started | — | Evidence first |
+| 2026-09-13T11:53:56Z | PLAN-00004-STEP-06 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00004-STEP-06 - Final quality gate` | Builder hand-off |
 
 ### Deviations and blockers
 
@@ -518,6 +520,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 |---|---|---|---|---|
 | 2026-09-13T11:27:20Z | PLAN-00004-STEP-03 | `download::free_target` stays as a deprecated function instead of being removed, because passalong-core 0.1.2 is published with it; nothing in the workspace calls it. Pull mode now fetches the item before reserving its name, so a store error cannot leave an empty reservation. STEP-02's CHANGELOG entry was added in this step. | None | None (routine) |
 | 2026-09-13T11:31:27Z | PLAN-00004-STEP-04 | `Store::newest_id` is deprecated rather than removed (published API); pull mode no longer calls it. An unseen item that cannot be read because it was deleted or is corrupt is logged and marked seen, like list's handling of corrupt items, so it is not retried every poll. | None | None (routine) |
+| 2026-09-13T11:53:56Z | PLAN-00004-STEP-06 | D-02's mechanism changed after approval, by the user's decision (option A, 2026-09-13): instead of creating the final name empty and renaming the verified part over it, `download::download_into` writes and verifies an exclusively created part file (<name>.<random>.passalong-part) and hard-links it to the first free name, falling back to rename where hard links are unsupported. The reservation made a download visible, empty, under its final name until it finished, which CI run 34754834734 caught. download_into replaces the unreleased reserve_target and write_reserved (commit 7ef1dbe). D-02's goals are kept: never overwrite, never two downloads on one name. | Downloads again appear only when complete | None (routine) |
 
 None.
 
@@ -565,12 +568,21 @@ None.
 | 2026-09-13T11:34:29Z | PLAN-00004-STEP-05 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/check_release_links.sh` | Pass | no relative links in docs/release: verified |
 | 2026-09-13T11:34:29Z | PLAN-00004-STEP-05 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
 | 2026-09-13T11:34:29Z | PLAN-00004-STEP-05 | `just check` | Exit 0 | Lines 92.00% (9253 lines, 740 missed) |
+| 2026-09-13T11:53:56Z | PLAN-00004-STEP-06 | `just ci` locally on e02b917 (first run) | Exit 0 | check 92.01 %; audit ok; publish dry run 3 crates; actionlint; 14 Docker SSH tests; deploy example; coverage-full 94.36 % |
+| 2026-09-13T11:53:56Z | PLAN-00004-STEP-06 | GitHub CI run 34754834734 on e02b917 | Linux fail; macOS and Xvfb pass | serve_daemon_pulls_files_sent_by_another_device read the pulled file as empty under coverage: the D-02 reservation made the final name visible, empty, before the content was written. Fixed in 7ef1dbe (option A, chosen by the user) |
+| 2026-09-13T11:53:56Z | PLAN-00004-STEP-06 | `just ci` locally on 7ef1dbe (after the fix) | Exit 0 | check 91.82 % lines; audit advisories/bans/licenses/sources ok; publish dry run verified 3 crates; actionlint no findings; 14 Docker SSH tests; deploy example host key unchanged after re-creation; coverage-full 94.18 % lines; daemon pull test passed 5 runs in a row; no passalong processes or containers left |
+| 2026-09-13T11:53:56Z | PLAN-00004-STEP-06 | GitHub CI run 34755410015 on 7ef1dbe (after the fix) | Pass | Linux (just ci with Docker SSH tests, including the daemon pull test under coverage), macOS (just check), Linux desktop clipboard (Xvfb): all success |
+| 2026-09-13T11:53:56Z | PLAN-00004-STEP-06 | Scope review: `git diff --stat origin/main..HEAD -- crates` | Pass | new crate-level files none; registry kinds local and ssh only; no GUI, Windows, Android, or backend code |
+| 2026-09-13T11:53:56Z | PLAN-00004-STEP-06 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/check_release_links.sh` | Pass | no relative links in docs/release: verified |
+| 2026-09-13T11:53:56Z | PLAN-00004-STEP-06 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
+| 2026-09-13T11:53:56Z | PLAN-00004-STEP-06 | `cargo test -p passalong --test release_tag_script` | Pass | test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s |
+| 2026-09-13T11:53:56Z | PLAN-00004-STEP-06 | `just check` | Exit 0 | Lines 91.83% (9306 lines, 760 missed) |
 
 ### Completion summary
 
 - **Implementation status:** `not-started`
-- **Completed requirements:** REQ-01 to REQ-07
-- **Incomplete requirements:** REQ-08, REQ-09
+- **Completed requirements:** REQ-01 to REQ-09
+- **Incomplete requirements:** None
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

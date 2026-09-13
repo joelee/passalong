@@ -148,8 +148,9 @@ interrupted upload leaves nothing under `items/`.
 
 `Store::list_after(id)` lists only the items newer than `id`, newest
 first, reading `meta.json` for those items alone. Ids start with their
-creation time, so comparing ids is enough; pull mode uses it to poll a
-large store cheaply. `Store::get_meta(id)` reads one item's `meta.json`
+creation time, so comparing ids is enough. `Store::list_ids` returns the
+ids alone, from one directory listing, which is how pull mode polls a large
+store cheaply. `Store::get_meta(id)` reads one item's `meta.json`
 without opening its content; the choice prompt for an ambiguous id uses it
 for the candidates it shows, at most 9, instead of listing the store.
 
@@ -185,16 +186,18 @@ that lists the candidates.
   A file is queued once two scans at least `file_stable_wait_ms` apart show
   the same size and modification time.
 - **Pull loop** (only with `serve.pull = true`). At start-up, before
-  `serve` reports ready, it records the newest stored item. Every pull
-  interval it asks the store for newer items with `Store::list_after`,
-  ignores this device's own items, and handles the rest oldest first: files
-  are downloaded, verified, into `client.download_dir` when it exists, and
-  the newest text or clipboard image is handed to the clipboard task. Like
-  `load`, each download first claims its file name with an exclusive
-  create, so two downloads can never write the same file. The
-  clipboard task writes it and marks it as seen, so it is not sent back.
-  The recorded position advances item by item, so a store error retries
-  from where it stopped without downloading anything twice.
+  `serve` reports ready, it records the ids of every stored item with
+  `Store::list_ids`, one directory listing. Every pull interval it lists the
+  ids again, forgets those no longer stored, reads `meta.json` only for ids
+  it has not seen, ignores this device's own items, and handles the rest
+  oldest id first: files are downloaded, verified, into
+  `client.download_dir` when it exists, and the newest text or clipboard
+  image is handed to the clipboard task. Like `load`, each download first
+  claims its file name with an exclusive create, so two downloads can never
+  write the same file. The clipboard task writes pulled content and marks
+  it as seen, so it is not sent back. Each item is marked as handled once
+  done, so a store error retries only what is left, and an item from a
+  device whose clock runs behind is still applied.
 - **Uploader.** Sends queued jobs one at a time. Before uploading text it
   checks whether that content key is already stored, which is how text that
   `load` just put on the clipboard is not sent back. After a file is sent,

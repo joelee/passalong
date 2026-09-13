@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Pull mode applies every new item from another device once, even when that
+  device's clock runs behind: it remembers the item ids it has handled
+  instead of comparing creation times (PLAN-00004 STEP-04).
 - Choosing between items that match an ambiguous id reads only the metadata
   of the items shown, not the whole store, which on an SSH server meant one
   request per stored item (Code Review 00001, REV-00001-MED-01; PLAN-00004

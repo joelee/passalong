@@ -44,8 +44,24 @@ pub trait Store: Send + Sync {
     /// cheap on a large store.
     async fn list_after(&self, after: Option<&ItemId>) -> Result<Vec<ItemMeta>, StoreError>;
 
+    /// Every item's id, newest first, without reading any metadata. The
+    /// default lists every item; backends override it with something
+    /// cheaper.
+    async fn list_ids(&self) -> Result<Vec<ItemId>, StoreError> {
+        Ok(self
+            .list_after(None)
+            .await?
+            .into_iter()
+            .map(|meta| meta.id)
+            .collect())
+    }
+
     /// The newest item's id, or `None` for an empty store. The default
     /// lists every item; backends override it with something cheaper.
+    #[deprecated(
+        since = "0.1.3",
+        note = "pull mode no longer uses it; use list_ids and take the first"
+    )]
     async fn newest_id(&self) -> Result<Option<ItemId>, StoreError> {
         Ok(self
             .list_after(None)

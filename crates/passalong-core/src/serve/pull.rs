@@ -1,5 +1,6 @@
 //! Pull mode: applying items that other devices send.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -21,11 +22,13 @@ pub enum ClipboardWrite {
     Image(RgbaImage),
 }
 
-/// Applies new items from other devices, remembering how far it got.
+/// Applies new items from other devices, remembering which item ids it has
+/// already handled. Ids decide nothing about order across devices, so an
+/// item from a device whose clock runs behind is still applied.
 pub struct Puller {
     device: String,
     download_dir: PathBuf,
-    position: Option<ItemId>,
+    seen: HashSet<ItemId>,
     clipboard: Option<mpsc::Sender<ClipboardWrite>>,
     warned_no_dir: bool,
     warned_no_clipboard: bool,
@@ -38,7 +41,7 @@ impl Puller {
     ///
     /// # Errors
     ///
-    /// The store's error when its newest item cannot be found.
+    /// The store's error when its items cannot be listed.
     pub async fn start(
         store: &dyn Store,
         device: String,
@@ -48,24 +51,45 @@ impl Puller {
         Ok(Self {
             device,
             download_dir,
-            position: store.newest_id().await?,
+            seen: store.list_ids().await?.into_iter().collect(),
             clipboard,
             warned_no_dir: false,
             warned_no_clipboard: false,
         })
     }
 
-    /// Handles every item newer than the last one handled, oldest first:
-    /// files from other devices are downloaded, and the newest text or
-    /// clipboard image among the new items goes to the clipboard. Local
-    /// problems are logged and the item is skipped.
+    /// Handles every item not seen before, oldest id first: files from
+    /// other devices are downloaded, and the newest text or clipboard image
+    /// among them goes to the clipboard. One directory listing finds the
+    /// new ids; only their metadata is read. Ids that left the store are
+    /// forgotten. Local problems are logged and the item is skipped.
     ///
     /// # Errors
     ///
-    /// A store error. The position then stays at the last item handled, so
-    /// the next poll continues from there without repeating anything.
+    /// A store error. Items not yet handled stay unseen, so the next poll
+    /// picks them up without repeating anything already done.
     pub async fn poll(&mut self, store: &dyn Store) -> Result<(), StoreError> {
-        let new = store.list_after(self.position.as_ref()).await?;
+        let ids = store.list_ids().await?;
+        let present: HashSet<&ItemId> = ids.iter().collect();
+        self.seen.retain(|id| present.contains(id));
+        let unseen: Vec<ItemId> = ids
+            .iter()
+            .filter(|id| !self.seen.contains(*id))
+            .cloned()
+            .collect();
+        let mut new = Vec::new();
+        for id in &unseen {
+            match store.get_meta(id).await {
+                Ok(meta) => new.push(meta),
+                // Deleted or damaged since it was listed: nothing to apply.
+                Err(err @ (StoreError::NotFound(_) | StoreError::Corrupt { .. })) => {
+                    tracing::warn!(id = %id, error = %err, "skipping an unreadable item");
+                    self.seen.insert(id.clone());
+                }
+                Err(err) => return Err(err),
+            }
+        }
+        // `new` is newest first, like the listing.
         let newest_for_clipboard = new
             .iter()
             .find(|meta| self.is_foreign(meta) && for_clipboard(meta))
@@ -78,9 +102,15 @@ impl Puller {
                     self.apply(store, meta).await?;
                 }
             }
-            self.position = Some(meta.id.clone());
+            self.seen.insert(meta.id.clone());
         }
         Ok(())
+    }
+
+    /// How many ids are remembered.
+    #[cfg(test)]
+    pub(crate) fn seen_len(&self) -> usize {
+        self.seen.len()
     }
 
     fn is_foreign(&self, meta: &ItemMeta) -> bool {
@@ -405,5 +435,71 @@ mod tests {
         rig.put(NewItem::file("a.txt", "phone"), b"a").await;
         puller.poll(&rig.store).await.unwrap();
         assert_eq!(rig.downloaded(), ["a.txt"]);
+    }
+
+    #[tokio::test]
+    async fn an_item_from_a_device_with_a_slow_clock_is_applied_once() {
+        let rig = Rig::new();
+        let (tx, mut rx) = mpsc::channel(8);
+        let mut puller = rig.puller(Some(tx)).await;
+        rig.clock.advance(600);
+        rig.put(NewItem::text("phone"), b"on time").await;
+        puller.poll(&rig.store).await.unwrap();
+        assert_eq!(drain(&mut rx), [ClipboardWrite::Text("on time".into())]);
+        // A device whose clock is an hour behind writes an older id.
+        let slow = FsStore::new(
+            LocalFs::new(rig.dir.path().join("store")),
+            Arc::new(ManualClock::at("2026-09-13T07:00:00Z")),
+            Box::new(StdRandom::new()),
+        );
+        slow.put(
+            NewItem::text("tablet"),
+            Box::new(std::io::Cursor::new(b"late clock".to_vec())),
+        )
+        .await
+        .unwrap();
+        puller.poll(&rig.store).await.unwrap();
+        assert_eq!(drain(&mut rx), [ClipboardWrite::Text("late clock".into())]);
+        puller.poll(&rig.store).await.unwrap();
+        assert!(drain(&mut rx).is_empty(), "applied once");
+    }
+
+    #[tokio::test]
+    async fn a_poll_reads_one_listing_and_only_the_new_metadata() {
+        let rig = Rig::new();
+        for i in 0..5 {
+            rig.put(NewItem::text("phone"), format!("old {i}").as_bytes())
+                .await;
+        }
+        let mut puller = rig.puller(None).await;
+        for i in 0..3 {
+            rig.put(NewItem::text("me"), format!("mine {i}").as_bytes())
+                .await;
+        }
+        let (dirs, reads) = (
+            rig.store.fs().calls(FsOp::ReadDir),
+            rig.store.fs().calls(FsOp::OpenRead),
+        );
+        puller.poll(&rig.store).await.unwrap();
+        assert_eq!(rig.store.fs().calls(FsOp::ReadDir) - dirs, 1, "one listing");
+        assert_eq!(
+            rig.store.fs().calls(FsOp::OpenRead) - reads,
+            3,
+            "new metadata only"
+        );
+    }
+
+    #[tokio::test]
+    async fn ids_that_leave_the_store_are_forgotten() {
+        let rig = Rig::new();
+        let old = rig.put(NewItem::text("phone"), b"old").await;
+        let mut puller = rig.puller(None).await;
+        let new = rig.put(NewItem::text("phone"), b"new").await;
+        puller.poll(&rig.store).await.unwrap();
+        assert_eq!(puller.seen_len(), 2);
+        rig.store.delete(&old.id).await.unwrap();
+        rig.store.delete(&new.id).await.unwrap();
+        puller.poll(&rig.store).await.unwrap();
+        assert_eq!(puller.seen_len(), 0);
     }
 }

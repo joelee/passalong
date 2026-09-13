@@ -214,6 +214,10 @@ impl<F: RemoteFs> Store for FsStore<F> {
         self.list_after(None).await
     }
 
+    async fn list_ids(&self) -> Result<Vec<ItemId>, StoreError> {
+        self.item_ids().await
+    }
+
     async fn newest_id(&self) -> Result<Option<ItemId>, StoreError> {
         Ok(self.item_ids().await?.into_iter().next())
     }
@@ -1000,6 +1004,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(deprecated)]
     async fn newest_id_is_the_latest_item_without_reading_metadata() {
         let fx = Fixture::new();
         let store = fx.faulty();
@@ -1081,10 +1086,38 @@ mod tests {
             store.get_meta(&metas[0].id).await.unwrap(),
             store.get(&metas[0].id).await.unwrap().0
         );
+        let listed: Vec<ItemId> = store
+            .list()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        assert_eq!(
+            store.list_ids().await.unwrap(),
+            listed,
+            "the default list_ids agrees with list"
+        );
         let unknown = ItemId::parse("00000001-000000000000").unwrap();
         assert!(matches!(
             store.get_meta(&unknown).await,
             Err(StoreError::NotFound(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn list_ids_reads_one_directory_and_no_metadata() {
+        let fx = Fixture::new();
+        let store = fx.faulty();
+        let metas = three_items(&fx, &store).await;
+        let (dirs, reads) = (
+            store.fs().calls(FsOp::ReadDir),
+            store.fs().calls(FsOp::OpenRead),
+        );
+        let ids = store.list_ids().await.unwrap();
+        let newest_first: Vec<ItemId> = metas.iter().rev().map(|m| m.id.clone()).collect();
+        assert_eq!(ids, newest_first);
+        assert_eq!(store.fs().calls(FsOp::ReadDir) - dirs, 1);
+        assert_eq!(store.fs().calls(FsOp::OpenRead) - reads, 0);
     }
 }

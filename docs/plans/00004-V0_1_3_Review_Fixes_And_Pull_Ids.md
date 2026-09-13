@@ -38,9 +38,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00004-v0.1.3"
 execution_started_at: "2026-09-13T11:21:15Z"
-execution_updated_at: "2026-09-13T11:27:20Z"
+execution_updated_at: "2026-09-13T11:31:27Z"
 execution_completed_at: null
-current_step: "PLAN-00004-STEP-04"
+current_step: "PLAN-00004-STEP-05"
 ---
 
 # Delivery Plan 00004: V0 1 3 Review Fixes And Pull Ids
@@ -489,7 +489,7 @@ run at STEP-02 and STEP-06.
 | PLAN-00004-STEP-01 | completed | 2026-09-13T11:21:15Z | 2026-09-13T11:21:36Z | Commit `build: complete PLAN-00004-STEP-01 - Verify the issue #4 fix`; `just check` green, 92.19% lines | AC-01. Evidence-only step: the fix is c44d14d on the baseline (absolute tag-pinned plan links in docs/release/v0.1.0, v0.1.1, v0.1.2; check-release-tag.sh rejects relative links; AGENTS.md and the developer guide state the rule). The PR merging this branch should say Fixes #4 |
 | PLAN-00004-STEP-02 | completed | 2026-09-13T11:21:36Z | 2026-09-13T11:24:33Z | Commit `build: complete PLAN-00004-STEP-02 - Store::get_meta and targeted candidate metadata`; `just check` green, 92.09% lines | AC-02, AC-03. resolve_item no longer calls Store::list; a candidate deleted or damaged since listing shows a ? row, and other store errors are returned. Architecture documents get_meta |
 | PLAN-00004-STEP-03 | completed | 2026-09-13T11:24:33Z | 2026-09-13T11:27:20Z | Commit `build: complete PLAN-00004-STEP-03 - Atomic download names`; `just check` green, 91.91% lines | AC-04, AC-05. The load regression test passed before the change too (the old code never created the target early) and guards that a reservation is removed after a failed write. CHANGELOG Fixed entries added for STEP-02 and STEP-03 |
-| PLAN-00004-STEP-04 | not-started | — | — | — | — |
+| PLAN-00004-STEP-04 | completed | 2026-09-13T11:27:20Z | 2026-09-13T11:31:27Z | Commit `build: complete PLAN-00004-STEP-04 - Pull mode tracks seen ids`; `just check` green, 92.01% lines | AC-06, AC-07. Puller keeps a HashSet of seen ids (all stored ids at start); each poll lists ids once, forgets ids no longer stored, reads get_meta only for unseen ids, and marks each item seen once handled, so a store error leaves the rest unseen. Usage drops the clock-sync caveat; architecture describes list_ids and seen ids; CHANGELOG Fixed entry |
 | PLAN-00004-STEP-05 | not-started | — | — | — | — |
 | PLAN-00004-STEP-06 | not-started | — | — | — | — |
 
@@ -507,12 +507,15 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T11:24:33Z | PLAN-00004-STEP-02 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00004-STEP-02 - Store::get_meta and targeted candidate metadata` | Begin PLAN-00004-STEP-03 |
 | 2026-09-13T11:24:33Z | PLAN-00004-STEP-03 | Started | — | Red phase |
 | 2026-09-13T11:27:20Z | PLAN-00004-STEP-03 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00004-STEP-03 - Atomic download names` | Begin PLAN-00004-STEP-04 |
+| 2026-09-13T11:27:20Z | PLAN-00004-STEP-04 | Started | — | Red phase |
+| 2026-09-13T11:31:27Z | PLAN-00004-STEP-04 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00004-STEP-04 - Pull mode tracks seen ids` | Begin PLAN-00004-STEP-05 |
 
 ### Deviations and blockers
 
 | Timestamp (UTC) | Step | Deviation or blocker | Impact | Decision required from |
 |---|---|---|---|---|
 | 2026-09-13T11:27:20Z | PLAN-00004-STEP-03 | `download::free_target` stays as a deprecated function instead of being removed, because passalong-core 0.1.2 is published with it; nothing in the workspace calls it. Pull mode now fetches the item before reserving its name, so a store error cannot leave an empty reservation. STEP-02's CHANGELOG entry was added in this step. | None | None (routine) |
+| 2026-09-13T11:31:27Z | PLAN-00004-STEP-04 | `Store::newest_id` is deprecated rather than removed (published API); pull mode no longer calls it. An unseen item that cannot be read because it was deleted or is corrupt is logged and marked seen, like list's handling of corrupt items, so it is not retried every poll. | None | None (routine) |
 
 None.
 
@@ -544,12 +547,20 @@ None.
 | 2026-09-13T11:27:20Z | PLAN-00004-STEP-03 | `cargo test -p passalong-core --all-features --lib pull` | Pass | test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 164 filtered out; finished in 0.01s |
 | 2026-09-13T11:27:20Z | PLAN-00004-STEP-03 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
 | 2026-09-13T11:27:20Z | PLAN-00004-STEP-03 | `just check` | Exit 0 | Lines 91.91% (9140 lines, 739 missed); download.rs 88.45%; load.rs 98.76%; pull.rs 87.41% |
+| 2026-09-13T11:27:20Z | PLAN-00004-STEP-04 | Red: `cargo test -p passalong-core --all-features --lib` with the list_ids and seen-id Puller tests | Exit 101 (expected) | 4 x E0599: no method list_ids (store and default-wrapper tests) and no method seen_len (Puller) |
+| 2026-09-13T11:31:27Z | PLAN-00004-STEP-04 | `cargo test -p passalong-core --all-features` | Exit 0 | list_ids reads one directory and no metadata; the default list_ids agrees with list; an_item_from_a_device_with_a_slow_clock_is_applied_once (id an hour older than the one already applied); a_poll_reads_one_listing_and_only_the_new_metadata (1 ReadDir, 3 OpenRead for 3 new items beside 5 old); ids_that_leave_the_store_are_forgotten; every earlier Puller and serve_local test still passes |
+| 2026-09-13T11:31:27Z | PLAN-00004-STEP-04 | `cargo test -p passalong --test cli_local_backend serve_daemon_pulls` | Exit 0 | the daemon still pulls a file sent by a second device |
+| 2026-09-13T11:31:27Z | PLAN-00004-STEP-04 | `cargo test -p passalong-core --all-features --lib pull` | Pass | test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 165 filtered out; finished in 0.01s |
+| 2026-09-13T11:31:27Z | PLAN-00004-STEP-04 | `cargo test -p passalong-core --all-features --test serve_local` | Pass | test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.61s |
+| 2026-09-13T11:31:27Z | PLAN-00004-STEP-04 | `cargo test -p passalong --test cli_local_backend serve_daemon_pulls` | Pass | test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 25 filtered out; finished in 1.13s |
+| 2026-09-13T11:31:27Z | PLAN-00004-STEP-04 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
+| 2026-09-13T11:31:27Z | PLAN-00004-STEP-04 | `just check` | Exit 0 | Lines 92.01% (9253 lines, 739 missed); pull.rs 89.16%; fs_store.rs 97.37% |
 
 ### Completion summary
 
 - **Implementation status:** `not-started`
-- **Completed requirements:** REQ-01 to REQ-04
-- **Incomplete requirements:** REQ-05 to REQ-09
+- **Completed requirements:** REQ-01 to REQ-05
+- **Incomplete requirements:** REQ-06 to REQ-09
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

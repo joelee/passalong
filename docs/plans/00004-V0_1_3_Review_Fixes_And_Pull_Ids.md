@@ -33,14 +33,14 @@ confidence: medium                # high | medium | low
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; Delivery Planner initializes them.
-implementation_status: not-started # not-started | in-progress | blocked | completed | abandoned
-builder_agent: null
-builder_model: null
-execution_branch: null
-execution_started_at: null
-execution_updated_at: null
+implementation_status: in-progress # not-started | in-progress | blocked | completed | abandoned
+builder_agent: "Claude Code"
+builder_model: "anthropic/claude-opus-5"
+execution_branch: "feature/00004-v0.1.3"
+execution_started_at: "2026-09-13T11:21:15Z"
+execution_updated_at: "2026-09-13T11:21:36Z"
 execution_completed_at: null
-current_step: null
+current_step: "PLAN-00004-STEP-02"
 ---
 
 # Delivery Plan 00004: V0 1 3 Review Fixes And Pull Ids
@@ -486,7 +486,7 @@ run at STEP-02 and STEP-06.
 
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
-| PLAN-00004-STEP-01 | not-started | — | — | — | — |
+| PLAN-00004-STEP-01 | completed | 2026-09-13T11:21:15Z | 2026-09-13T11:21:36Z | Commit `build: complete PLAN-00004-STEP-01 - Verify the issue #4 fix`; `just check` green, 92.19% lines | AC-01. Evidence-only step: the fix is c44d14d on the baseline (absolute tag-pinned plan links in docs/release/v0.1.0, v0.1.1, v0.1.2; check-release-tag.sh rejects relative links; AGENTS.md and the developer guide state the rule). The PR merging this branch should say Fixes #4 |
 | PLAN-00004-STEP-02 | not-started | — | — | — | — |
 | PLAN-00004-STEP-03 | not-started | — | — | — | — |
 | PLAN-00004-STEP-04 | not-started | — | — | — | — |
@@ -500,6 +500,9 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 
 | Timestamp (UTC) | Step | Event | Evidence or reference | Next action |
 |---|---|---|---|---|
+| 2026-09-13T11:21:15Z | PLAN-00004 | Plan approved (commit 1f3ec27); Builder starts on feature/00004-v0.1.3 | `docs(plan): approve PLAN-00004 - V0 1 3 Review Fixes And Pull Ids` | Begin PLAN-00004-STEP-01 |
+| 2026-09-13T11:21:15Z | PLAN-00004-STEP-01 | Started | — | Red phase |
+| 2026-09-13T11:21:36Z | PLAN-00004-STEP-01 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00004-STEP-01 - Verify the issue #4 fix` | Begin PLAN-00004-STEP-02 |
 
 ### Deviations and blockers
 
@@ -512,12 +515,20 @@ None.
 
 | Timestamp (UTC) | Step | Command or check | Result | Evidence |
 |---|---|---|---|---|
+| 2026-09-13T11:21:15Z | PLAN-00004-STEP-01 | Red (recorded in c44d14d, before the check existed): `cargo test -p passalong --test release_tag_script` | Exit 101 (expected) | relative_links_in_the_release_notes_fail FAILED; 8 other tag-check tests passed |
+| 2026-09-13T11:21:36Z | PLAN-00004-STEP-01 | `cargo test -p passalong --test release_tag_script` | Exit 0 | 9 passed, including relative_links_in_the_release_notes_fail (relative link rejected and named; absolute and #anchor links pass) |
+| 2026-09-13T11:21:36Z | PLAN-00004-STEP-01 | `cargo test -p passalong --test release_tag_script` | Pass | test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s |
+| 2026-09-13T11:21:36Z | PLAN-00004-STEP-01 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/check_release_links.sh` | Pass | no relative links in docs/release: verified |
+| 2026-09-13T11:21:36Z | PLAN-00004-STEP-01 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/check_plan_urls.sh` | Pass | 3 tag-pinned plan URLs answer 200: verified |
+| 2026-09-13T11:21:36Z | PLAN-00004-STEP-01 | `scripts/check-release-tag.sh v0.1.2` | Pass | tag v0.1.2 matches the workspace version and the release records are final |
+| 2026-09-13T11:21:36Z | PLAN-00004-STEP-01 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
+| 2026-09-13T11:21:36Z | PLAN-00004-STEP-01 | `just check` | Exit 0 | Lines 92.19% (8927 lines, 697 missed) |
 
 ### Completion summary
 
 - **Implementation status:** `not-started`
-- **Completed requirements:** None
-- **Incomplete requirements:** All
+- **Completed requirements:** REQ-01
+- **Incomplete requirements:** REQ-02 to REQ-09
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

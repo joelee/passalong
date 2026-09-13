@@ -375,20 +375,13 @@ fn write_clipboard(
     }
 }
 
-/// Reads the clipboard's text and, when it holds no text and `images` is
-/// on, its image.
+/// Reads the clipboard's text, or its image when the text is missing or
+/// only refers to it; see [`crate::clipboard::read_payload`].
 fn read_clipboard(
     clipboard: &mut dyn Clipboard,
     images: bool,
 ) -> Result<(Option<String>, Option<RgbaImage>), ClipboardError> {
-    let text = clipboard.read_text()?;
-    let has_text = text.as_deref().is_some_and(|text| !text.trim().is_empty());
-    let image = if images && !has_text {
-        clipboard.read_image()?
-    } else {
-        None
-    };
-    Ok((text, image))
+    crate::clipboard::read_payload(clipboard, images)
 }
 
 async fn drop_loop(

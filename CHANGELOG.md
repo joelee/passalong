@@ -21,6 +21,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Copying an image in a browser sends the image, not the link the browser
+  puts beside it: text that is only a link or an `<img>` tag no longer hides
+  the image, and UTF-16 text read by mistake (`text/x-moz-url`) is never
+  stored as text (PLAN-00004, post-gate fix).
 - Pull mode applies every new item from another device once, even when that
   device's clock runs behind: it remembers the item ids it has handled
   instead of comparing creation times (PLAN-00004 STEP-04).

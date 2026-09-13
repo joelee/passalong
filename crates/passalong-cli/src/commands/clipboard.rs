@@ -4,7 +4,7 @@ use std::io::{Cursor, Read, Write};
 
 use anyhow::Context as _;
 use chrono::{DateTime, Utc};
-use passalong_core::clipboard::{Clipboard, encode_png};
+use passalong_core::clipboard::{Clipboard, encode_png, read_payload};
 use passalong_core::model::NewItem;
 use passalong_core::store::Store;
 
@@ -16,7 +16,8 @@ pub enum TextSource<'a> {
     Reader(&'a mut dyn Read),
 }
 
-/// Stores the clipboard's text, or its image when it holds no text, as a
+/// Stores the clipboard's text, or its image when it holds no text or only
+/// a link to the image (see `read_payload`), as a
 /// new item and prints its id. An image is stored as a PNG named after
 /// `now`. Sending content that is already stored prints the existing
 /// item's id.
@@ -28,16 +29,13 @@ pub async fn run(
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
     let (item, bytes) = match source {
-        TextSource::Clipboard(clipboard) => {
-            let text = clipboard.read_text()?.unwrap_or_default();
-            if !text.trim().is_empty() {
+        TextSource::Clipboard(clipboard) => match read_payload(clipboard, true)? {
+            (_, Some(image)) => (NewItem::clipboard_image(device, now), encode_png(&image)?),
+            (Some(text), None) if !text.trim().is_empty() => {
                 (NewItem::text(device), text.into_bytes())
-            } else if let Some(image) = clipboard.read_image()? {
-                (NewItem::clipboard_image(device, now), encode_png(&image)?)
-            } else {
-                anyhow::bail!("clipboard is empty");
             }
-        }
+            _ => anyhow::bail!("clipboard is empty"),
+        },
         TextSource::Reader(reader) => {
             let mut text = String::new();
             reader
@@ -282,5 +280,24 @@ mod tests {
         let items = ts.store.list().await.unwrap();
         assert_eq!(items[0].kind, ItemKind::Text);
         assert!(!items[0].is_clipboard_image());
+    }
+
+    #[tokio::test]
+    async fn sends_the_image_behind_a_copied_image_link() {
+        let ts = TestStore::new();
+        let mut clip = MockClipboard::with_text("https://cdn.example.com/a.webp")
+            .with_image_reads([Some(sample_image())]);
+        run(
+            &ts.store,
+            TextSource::Clipboard(&mut clip),
+            "box",
+            now(),
+            &mut Vec::new(),
+        )
+        .await
+        .unwrap();
+        let items = ts.store.list().await.unwrap();
+        assert_eq!(items.len(), 1);
+        assert!(items[0].is_clipboard_image(), "{:?}", items[0]);
     }
 }

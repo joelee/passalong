@@ -387,3 +387,26 @@ async fn serve_without_pull_leaves_other_devices_items_alone() {
     assert_eq!(std::fs::read_dir(&downloads).unwrap().count(), 0);
     stop_and_join(stop, task).await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn serve_sends_the_image_behind_a_copied_image_link() {
+    let dir = TempDir::new().unwrap();
+    let (store, drop) = (dir.path().join("store"), dir.path().join("drop"));
+    let clipboard = MockClipboard::with_text("https://cdn.example.com/a.webp")
+        .with_image_reads(std::iter::repeat_n(Some(test_image()), 100));
+    let (stop, stopped) = watch::channel(false);
+    let task = tokio::spawn(serve::run(
+        options(&drop),
+        Some(Box::new(clipboard)),
+        local_opener(store.clone()),
+        stopped,
+    ));
+    wait_for("the image", async || {
+        items(&store).await.iter().any(ItemMeta::is_clipboard_image)
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let listed = items(&store).await;
+    assert_eq!(listed.len(), 1, "the link is not sent as text");
+    stop_and_join(stop, task).await;
+}

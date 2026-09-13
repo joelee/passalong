@@ -1,9 +1,10 @@
 name: Release
 
-# Runs when a version tag such as v0.1.1 is pushed. It checks the tag
-# against Cargo.toml, builds binaries, creates the GitHub release from
-# docs/release/<tag>.md, attaches the binaries, and finally publishes the
-# crates to crates.io, which cannot be undone, only yanked.
+# Runs when a version tag such as v0.1.2 is pushed. It checks the tag and
+# the release records, builds binaries, and waits for a maintainer to
+# approve the `release` environment. It then publishes the crates to
+# crates.io, which cannot be undone, only yanked, and finally creates the
+# GitHub release from docs/release/<tag>.md with the binaries attached.
 on:
   push:
     tags: ["v*"]
@@ -66,9 +67,26 @@ jobs:
           name: ${{ matrix.target }}
           path: passalong-*.tar.gz*
 
+  crates:
+    name: Publish to crates.io
+    needs: binaries
+    runs-on: ubuntu-latest
+    # Waits for a maintainer to approve the `release` environment, which
+    # also holds the crates.io token. Nothing public happens before that.
+    environment: release
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo publish --workspace --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
   release:
     name: Create the GitHub release and attach binaries
-    needs: binaries
+    needs: crates
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -88,17 +106,3 @@ jobs:
             fi
           fi
           gh release upload "$GITHUB_REF_NAME" dist/* --clobber
-
-  crates:
-    name: Publish to crates.io
-    needs: release
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.98.1
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo publish --workspace --locked
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

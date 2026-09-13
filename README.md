@@ -149,6 +149,8 @@ See [docs/developer-guide.md](docs/developer-guide.md).
 | [docs/developer-guide.md](docs/developer-guide.md) | Toolchain, `just` recipes, testing |
 | [docs/backlog.md](docs/backlog.md) | Planned future work |
 | [CHANGELOG.md](CHANGELOG.md) | Release notes |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to propose a change |
+| [SECURITY.md](SECURITY.md) | Reporting vulnerabilities privately |
 
 ## License
 

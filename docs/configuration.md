@@ -36,6 +36,7 @@ Unknown keys are rejected, and every error names the offending key or line.
 |---|---|---|---|
 | `device_name` | string | host name | Name recorded on every item this device sends |
 | `log_level` | string | `info` | `error`, `warning`, `info`, `verbose`, or `debug` (see Logging) |
+| `download_dir` | path | `~/Downloads` | Where `load` puts file items when no destination is given, created if missing; pull mode writes here only if it exists. Must be absolute after `~` expansion |
 
 ### `[server]`
 
@@ -71,6 +72,9 @@ The key passphrase is never read from this file; see Environment variables.
 | `clipboard_poll_interval_ms` | integer | `750` | 1 to 3600000 |
 | `file_stable_wait_ms` | integer | `1000` | 0 to 3600000; how long a dropped file must stay unchanged before it is sent |
 | `after_send` | string | `move` | `move` puts sent files in `<drop_folder>/sent/`; `delete` removes them |
+| `clipboard_images` | boolean | `true` | Also send clipboard images; an image is read only when the clipboard holds no text |
+| `pull` | boolean | `false` | Also apply items sent by other devices: text and images to the clipboard, files into `client.download_dir` when it exists. `client.download_dir` must then not be `drop_folder` or inside it |
+| `pull_interval_ms` | integer | `5000` | 1000 to 3600000; how often pull mode checks for new items |
 
 ## Environment variables
 

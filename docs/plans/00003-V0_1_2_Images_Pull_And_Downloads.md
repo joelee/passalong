@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00003-v0.1.2"
 execution_started_at: "2026-09-12T23:55:51Z"
-execution_updated_at: "2026-09-13T00:02:03Z"
+execution_updated_at: "2026-09-13T00:04:58Z"
 execution_completed_at: null
-current_step: "PLAN-00003-STEP-02"
+current_step: "PLAN-00003-STEP-03"
 ---
 
 # Delivery Plan 00003: V0 1 2 Images Pull And Downloads
@@ -906,7 +906,7 @@ run at STEP-01, STEP-09, STEP-10, and STEP-14.
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
 | PLAN-00003-STEP-01 | completed | 2026-09-12T23:56:44Z | 2026-09-13T00:02:03Z | Commit `build: complete PLAN-00003-STEP-01 - RSA support per D-06`; `just check` green, 92.44% lines | AC-16: default build has no rsa crate; deny.toml has no advisory ignore and audits default features; RSA identity file and ssh-rsa host key fail with the feature message; RSA Docker login passes with --features rsa |
-| PLAN-00003-STEP-02 | not-started | — | — | — | — |
+| PLAN-00003-STEP-02 | completed | 2026-09-13T00:02:03Z | 2026-09-13T00:04:58Z | Commit `build: complete PLAN-00003-STEP-02 - New settings`; `just check` green, 92.53% lines | AC-04. Keys documented in docs/configuration.md and config.sample.toml; init output unchanged. STEP-01 audit evidence row corrected (the finisher had recorded a dependency-tree line) |
 | PLAN-00003-STEP-03 | not-started | — | — | — | — |
 | PLAN-00003-STEP-04 | not-started | — | — | — | — |
 | PLAN-00003-STEP-05 | not-started | — | — | — | — |
@@ -930,12 +930,15 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-12T23:55:51Z | PLAN-00003 | Plan approved (commit 23bbab9); Builder starts on the user's branch feature/00003-v0.1.2 | `docs(plan): approve PLAN-00003 - V0 1 2 Images Pull And Downloads` | Begin PLAN-00003-STEP-01 |
 | 2026-09-12T23:56:44Z | PLAN-00003-STEP-01 | Started | — | Red phase |
 | 2026-09-13T00:02:03Z | PLAN-00003-STEP-01 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-01 - RSA support per D-06` | Begin PLAN-00003-STEP-02 |
+| 2026-09-13T00:02:03Z | PLAN-00003-STEP-02 | Started | — | Red phase |
+| 2026-09-13T00:04:58Z | PLAN-00003-STEP-02 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00003-STEP-02 - New settings` | Begin PLAN-00003-STEP-03 |
 
 ### Deviations and blockers
 
 | Timestamp (UTC) | Step | Deviation or blocker | Impact | Decision required from |
 |---|---|---|---|---|
 | 2026-09-13T00:02:03Z | PLAN-00003-STEP-01 | The Docker test server now trusts every public key in `tests/docker/keys/authorized/` (`PUBLIC_KEY_DIR`) instead of one `PUBLIC_KEY_FILE`, so `_with-sshd` can authorise the generated RSA key beside the Ed25519 key. `cargo deny` sets `all-features = false`: the audit covers default features, which is what ships. | None | None (routine) |
+| 2026-09-13T00:04:58Z | PLAN-00003-STEP-02 | The default `client.download_dir` (`~/Downloads`) is validated before `[serve]`, so with HOME unset the first reported key is now `client.download_dir` instead of `serve.drop_folder`; `tilde_without_home_names_the_key` and the serve options test (which parses without HOME) were updated accordingly. As before, a config without HOME must give absolute paths. | Error names a different key when HOME is unset | None (routine) |
 
 None.
 
@@ -948,16 +951,21 @@ None.
 | 2026-09-13T00:02:03Z | PLAN-00003-STEP-01 | `cargo test -p passalong-ssh --lib --features rsa` | Exit 0 | 21 passed, including rsa_host_keys_parse_with_the_rsa_feature |
 | 2026-09-13T00:02:03Z | PLAN-00003-STEP-01 | `just test-integration` (Docker, all features) | Exit 0 | 12 ignored SSH tests passed, including an_rsa_identity_logs_in_with_the_rsa_feature (3072-bit key trusted through PUBLIC_KEY_DIR) |
 | 2026-09-13T00:02:03Z | PLAN-00003-STEP-01 | `just lint` | Exit 0 | clippy -D warnings for the workspace with all features and for passalong-ssh with default features |
-| 2026-09-13T00:02:03Z | PLAN-00003-STEP-01 | `just audit` | Pass | └── passalong-core v0.1.1 (*) |
+| 2026-09-13T00:02:03Z | PLAN-00003-STEP-01 | `just audit` | Pass | advisories ok, bans ok, licenses ok, sources ok (default features; no advisory ignore) |
 | 2026-09-13T00:02:03Z | PLAN-00003-STEP-01 | `bash -c '! cargo tree -p passalong -i rsa -e normal >/dev/null 2>&1 && echo "no rsa crate in the default build: verified"'` | Pass | no rsa crate in the default build: verified |
 | 2026-09-13T00:02:03Z | PLAN-00003-STEP-01 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
 | 2026-09-13T00:02:03Z | PLAN-00003-STEP-01 | `just check` | Exit 0 | Lines 92.44% (7039 lines, 532 missed); host_key.rs 95.15%; connect.rs 57.84% |
+| 2026-09-13T00:02:03Z | PLAN-00003-STEP-02 | Red: `cargo test -p passalong-core --lib config` with the new settings tests | Exit 101 (expected) | 10 x E0609: no field download_dir on ClientConfig; no fields clipboard_images, pull, pull_interval_ms on ServeConfig |
+| 2026-09-13T00:04:58Z | PLAN-00003-STEP-02 | `cargo test -p passalong-core --lib` | Exit 0 | Defaults (download_dir $HOME/Downloads, clipboard_images true, pull false, pull_interval_ms 5000), explicit values with ~ expansion, range and relative-path errors naming their key, download_dir inside drop_folder refused only with pull = true (sibling /drop2 accepted) |
+| 2026-09-13T00:04:58Z | PLAN-00003-STEP-02 | `cargo test -p passalong-core --lib config` | Pass | test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 0.00s |
+| 2026-09-13T00:04:58Z | PLAN-00003-STEP-02 | `/tmp/claude-1000/-home-joel-Projects-GitHub-passalong/cb409cac-8fd2-4e7d-be1b-e82764887e17/scratchpad/doccheck2.sh` | Pass | documentation consistent: config keys, variables, flags, recipes, links, release documents, CHANGELOG |
+| 2026-09-13T00:04:58Z | PLAN-00003-STEP-02 | `just check` | Exit 0 | Lines 92.53% (7106 lines, 531 missed); config.rs 97.96% |
 
 ### Completion summary
 
 - **Implementation status:** `not-started`
-- **Completed requirements:** REQ-15
-- **Incomplete requirements:** REQ-01 to REQ-14, REQ-16 to REQ-20
+- **Completed requirements:** REQ-03, REQ-15; REQ-12 (settings)
+- **Incomplete requirements:** REQ-01, REQ-02, REQ-04 to REQ-11, REQ-13, REQ-14, REQ-16 to REQ-20
 - **Outstanding blockers:** None
 - **Review request:** Not ready
 <!-- BUILDER_WORK_LOG_END -->

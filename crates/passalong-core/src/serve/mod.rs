@@ -311,7 +311,7 @@ mod tests {
 
     #[test]
     fn options_come_from_the_config() {
-        let text = "[client]\ndevice_name = \"lap\"\n[server]\nkind = \"local\"\n[server.local]\npath = \"/s\"\n[serve]\ndrop_folder = \"/drop\"\nclipboard_poll_interval_ms = 300\nfile_stable_wait_ms = 0\nafter_send = \"delete\"\n";
+        let text = "[client]\ndevice_name = \"lap\"\ndownload_dir = \"/dl\"\n[server]\nkind = \"local\"\n[server.local]\npath = \"/s\"\n[serve]\ndrop_folder = \"/drop\"\nclipboard_poll_interval_ms = 300\nfile_stable_wait_ms = 0\nafter_send = \"delete\"\n";
         let config =
             crate::config::parse(text, std::path::Path::new("/c.toml"), &MapEnv::new()).unwrap();
         assert_eq!(

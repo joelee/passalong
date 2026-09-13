@@ -161,7 +161,9 @@ The steps, and who does each, are in the "Release workflow" section of
 2. After the work is approved, one `release: vX.Y.Z - <top feature>` commit
    moves the `CHANGELOG.md` `Unreleased` entries under
    `## vX.Y.Z - <UTC time>`, removes the draft line from the release notes,
-   and removes pre-release wording from the README. This command must then
+   makes their links absolute URLs pinned to the tag, because the GitHub
+   release page cannot resolve relative links, and removes pre-release
+   wording from the README. This command must then
    pass:
 
    ```sh

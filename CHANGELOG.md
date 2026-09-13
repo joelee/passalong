@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- The release notes link to their delivery plans with absolute URLs pinned
+  to the release tag, because GitHub release pages cannot resolve relative
+  links. `scripts/check-release-tag.sh` now rejects relative links in
+  release notes.
+
 ## v0.1.2 - 2026-09-13T09:04:23Z
 
 ### Added

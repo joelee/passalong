@@ -79,7 +79,7 @@ Update when behavior, commands, config, architecture, or user workflow changes:
 3. User reviews and approves the work.
 4. Agent finalises the release in one commit, `release: vX.Y.Z - <top feature>`:
    - `CHANGELOG.md`: rename `Unreleased` to `vX.Y.Z - <UTC timestamp of this commit>` and add a fresh `Unreleased` above it.
-   - `docs/release/vX.Y.Z.md`: remove the draft line; name the date, plan, and PR, not a commit hash.
+   - `docs/release/vX.Y.Z.md`: remove the draft line; name the date, plan, and PR, not a commit hash. Use absolute links pinned to the tag (`https://github.com/joelee/passalong/blob/vX.Y.Z/...`), because the GitHub release page cannot resolve relative ones.
    - `README.md` and other docs: remove pre-release wording such as "being prepared".
    - Run `scripts/check-release-tag.sh vX.Y.Z`, and suggest the PR title and description.
 5. User verifies, pushes the branch, and opens a PR to `main`. `main` accepts only PRs whose Linux, macOS, and Xvfb checks pass.

@@ -1,10 +1,10 @@
 name: Release
 
 # Runs when a version tag such as v0.1.2 is pushed. It checks the tag and
-# the release records and builds binaries. It then publishes the crates to
-# crates.io, which cannot be undone, only yanked, and only once that
-# succeeds creates the GitHub release from docs/release/<tag>.md with the
-# binaries attached.
+# the release records and builds binaries. Once a maintainer approves the
+# `release` environment, it publishes the crates to crates.io, which cannot
+# be undone, only yanked, and only once that succeeds creates the GitHub
+# release from docs/release/<tag>.md with the binaries attached.
 on:
   push:
     tags: ["v*"]
@@ -71,6 +71,10 @@ jobs:
     name: Publish to crates.io
     needs: binaries
     runs-on: ubuntu-latest
+    # The `release` environment holds the crates.io token and accepts only
+    # v* tags; its required reviewer must approve before anything is
+    # published.
+    environment: release
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@master

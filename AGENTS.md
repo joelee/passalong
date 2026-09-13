@@ -84,5 +84,5 @@ Update when behavior, commands, config, architecture, or user workflow changes:
    - Run `scripts/check-release-tag.sh vX.Y.Z`, and suggest the PR title and description.
 5. User verifies, pushes the branch, and opens a PR to `main`. `main` accepts only PRs whose Linux, macOS, and Xvfb checks pass.
 6. Agent debugs PR CI failures on the branch. User gets the PR approved and merged.
-7. User pulls `main`, tags the merge commit, and pushes the tag. The Release workflow checks the tag and release records, builds binaries, publishes to crates.io, and then creates the GitHub release from `docs/release/vX.Y.Z.md`. Do not create the release by hand. A published crate version can only be yanked, never replaced.
+7. User pulls `main`, tags the merge commit, and pushes the tag. The Release workflow checks the tag and release records and builds binaries. After the user approves the pending `release` deployment, it publishes to crates.io and then creates the GitHub release from `docs/release/vX.Y.Z.md`. Do not create the release by hand. A published crate version can only be yanked, never replaced.
 8. User checks the release page and crates.io. Agent helps debug a failed release run.

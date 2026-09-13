@@ -46,8 +46,9 @@ All notable changes to this project are documented here. The format follows
   describes the release as being prepared. `AGENTS.md` describes the
   release workflow step by step, and the README no longer states the release
   status.
-- The release workflow creates the GitHub release only after publishing to
-  crates.io succeeds, so a failed publish leaves no release. `CODEOWNERS`,
+- The release workflow publishes to crates.io only after a maintainer
+  approves the `release` environment, which holds the crates.io token, and
+  creates the GitHub release only after publishing succeeds. `CODEOWNERS`,
   `SECURITY.md`, and `CONTRIBUTING.md` prepare the project for other
   contributors.
 

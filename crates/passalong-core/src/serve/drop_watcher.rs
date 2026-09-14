@@ -5,7 +5,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+use notify::event::{AccessKind, AccessMode};
+use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 
@@ -189,9 +190,10 @@ pub fn unique_target(dir: &Path, name: &str) -> PathBuf {
         .unwrap_or(first)
 }
 
-/// Watches `folder` (not its subfolders) and signals `changed` on every
-/// event. Events are only hints to scan again; a full channel already means
-/// a scan is due, so extra events are dropped.
+/// Watches `folder` (not its subfolders) and signals `changed` when an event
+/// may mean its files changed (see [`is_change`]). Events are only hints to
+/// scan again; a full channel already means a scan is due, so extra events
+/// are dropped.
 ///
 /// # Errors
 ///
@@ -202,12 +204,25 @@ pub fn watch_folder(
     changed: mpsc::Sender<()>,
 ) -> notify::Result<RecommendedWatcher> {
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-        if event.is_ok() {
+        if event.is_ok_and(|event| is_change(&event.kind)) {
             let _ = changed.try_send(());
         }
     })?;
     watcher.watch(folder, RecursiveMode::NonRecursive)?;
     Ok(watcher)
+}
+
+/// Whether a watcher event may mean the folder's files changed. Opening,
+/// reading, and closing without writing are not changes, and `scan` itself
+/// opens the folder: reacting to those made every scan trigger the next one
+/// and kept `serve` busy while idle. Closing a file after writing is a
+/// change, since the file may now be complete.
+fn is_change(kind: &EventKind) -> bool {
+    match kind {
+        EventKind::Access(AccessKind::Close(AccessMode::Write)) => true,
+        EventKind::Access(_) => false,
+        _ => true,
+    }
 }
 
 #[cfg(test)]
@@ -409,6 +424,84 @@ mod tests {
             unique_target(sent, "archive.tar.gz"),
             sent.join("archive.tar (1).gz")
         );
+    }
+
+    /// Waits up to `wait` for a notification from the watcher; false when
+    /// none came.
+    async fn notified(rx: &mut mpsc::Receiver<()>, wait: Duration) -> bool {
+        matches!(tokio::time::timeout(wait, rx.recv()).await, Ok(Some(())))
+    }
+
+    /// Discards notifications that arrive within `wait`.
+    async fn drain(rx: &mut mpsc::Receiver<()>, wait: Duration) {
+        while notified(rx, wait).await {}
+    }
+
+    #[tokio::test]
+    async fn scanning_the_folder_does_not_trigger_the_watcher() {
+        // Opening the folder to list it, and reading a file, are not
+        // changes: reacting to them made every scan trigger the next.
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("a.txt"), b"abc").unwrap();
+        let (tx, mut rx) = mpsc::channel(16);
+        let _watcher = watch_folder(dir.path(), tx).unwrap();
+        drain(&mut rx, ms(200)).await;
+        scan(dir.path()).await.unwrap();
+        std::fs::read(dir.path().join("a.txt")).unwrap();
+        assert!(
+            !notified(&mut rx, ms(500)).await,
+            "a scan or a read notified the watcher"
+        );
+    }
+
+    #[tokio::test]
+    async fn creating_writing_renaming_and_removing_files_trigger_the_watcher() {
+        /// Asserts a notification arrives for `step`, then discards the rest.
+        async fn expect(rx: &mut mpsc::Receiver<()>, step: &str) {
+            // FSEvents on macOS can take a moment; inotify is immediate.
+            assert!(notified(rx, ms(5_000)).await, "{step} did not notify");
+            drain(rx, ms(200)).await;
+        }
+        let dir = TempDir::new().unwrap();
+        let (tx, mut rx) = mpsc::channel(16);
+        let _watcher = watch_folder(dir.path(), tx).unwrap();
+        drain(&mut rx, ms(200)).await;
+        let (a, b) = (dir.path().join("a.txt"), dir.path().join("b.txt"));
+        std::fs::write(&a, b"").unwrap();
+        expect(&mut rx, "create").await;
+        {
+            use std::io::Write as _;
+            let mut file = std::fs::OpenOptions::new().append(true).open(&a).unwrap();
+            file.write_all(b"more").unwrap();
+        }
+        expect(&mut rx, "write").await;
+        std::fs::rename(&a, &b).unwrap();
+        expect(&mut rx, "rename").await;
+        std::fs::remove_file(&b).unwrap();
+        expect(&mut rx, "remove").await;
+    }
+
+    #[test]
+    fn only_events_that_may_change_files_count() {
+        use notify::event::{CreateKind, ModifyKind, RemoveKind, RenameMode};
+        for kind in [
+            EventKind::Create(CreateKind::File),
+            EventKind::Modify(ModifyKind::Any),
+            EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
+            EventKind::Remove(RemoveKind::File),
+            EventKind::Access(AccessKind::Close(AccessMode::Write)),
+            EventKind::Other,
+        ] {
+            assert!(is_change(&kind), "{kind:?}");
+        }
+        for kind in [
+            EventKind::Access(AccessKind::Open(AccessMode::Any)),
+            EventKind::Access(AccessKind::Close(AccessMode::Read)),
+            EventKind::Access(AccessKind::Read),
+            EventKind::Access(AccessKind::Any),
+        ] {
+            assert!(!is_change(&kind), "{kind:?}");
+        }
     }
 
     #[tokio::test]

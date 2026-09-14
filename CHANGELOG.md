@@ -35,6 +35,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- An idle `serve` no longer keeps more than a CPU core busy: the drop
+  folder watcher ignored nothing, so the folder being opened by each scan
+  triggered the next scan. It now reacts only to files being created,
+  written, renamed, or removed (PLAN-00006 STEP-01).
 - `passalong cat` prints only the item: its "item printed" record is now at
   `verbose` level, so it no longer follows the content on the terminal
   (PLAN-00005 STEP-03).

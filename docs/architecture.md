@@ -196,6 +196,9 @@ that lists the candidates.
   access runs on a blocking thread, off the async runtime.
 - **Drop watcher.** Scans the drop folder whenever the operating system
   reports a change, and at least every 5 seconds in case events are missed.
+  Only events that may change files count: creating, writing, renaming, or
+  removing them. Opening and reading do not, because every scan opens the
+  folder and would otherwise trigger the next scan.
   A file is queued once two scans at least `file_stable_wait_ms` apart show
   the same size and modification time.
 - **Pull loop** (only with `serve.pull = true`). At start-up, before

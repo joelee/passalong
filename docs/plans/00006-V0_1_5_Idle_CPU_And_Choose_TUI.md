@@ -32,14 +32,14 @@ confidence: medium                # high | medium | low
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; Delivery Planner initializes them.
-implementation_status: not-started # not-started | in-progress | blocked | completed | abandoned
-builder_agent: null
-builder_model: null
-execution_branch: null
-execution_started_at: null
-execution_updated_at: null
+implementation_status: in-progress # not-started | in-progress | blocked | completed | abandoned
+builder_agent: "Claude Code"
+builder_model: "anthropic/claude-opus-5"
+execution_branch: "feature/00006-v0.1.5"
+execution_started_at: "2026-09-14T08:16:47Z"
+execution_updated_at: "2026-09-14T08:22:28Z"
 execution_completed_at: null
-current_step: null
+current_step: "PLAN-00006-STEP-02"
 ---
 
 # Delivery Plan 00006: V0 1 5 Idle CPU And Choose TUI
@@ -624,7 +624,7 @@ STEP-04 and STEP-08.
 
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
-| PLAN-00006-STEP-01 | not-started | — | — | — | — |
+| PLAN-00006-STEP-01 | completed | 2026-09-14T08:16:47Z | 2026-09-14T08:22:28Z | Commit `build: complete PLAN-00006-STEP-01 - Drop watcher ignores its own scans`; `just check` green, 92.48% lines; idle 136.45 % to 0.00 % CPU | AC-01. Cause confirmed: notify 8.2 inotify reports OPEN and CLOSE_NOWRITE as Access events, and every scan opened the folder. watch_folder now forwards only events for which is_change is true (all but Access, plus Access(Close(Write))). Architecture drop watcher bullet and CHANGELOG Fixed entry updated |
 | PLAN-00006-STEP-02 | not-started | — | — | — | — |
 | PLAN-00006-STEP-03 | not-started | — | — | — | — |
 | PLAN-00006-STEP-04 | not-started | — | — | — | — |
@@ -640,6 +640,9 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 
 | Timestamp (UTC) | Step | Event | Evidence or reference | Next action |
 |---|---|---|---|---|
+| 2026-09-14T08:16:47Z | PLAN-00006 | Plan approved (commit 693aa90); Builder starts on feature/00006-v0.1.5 | `docs(plan): approve PLAN-00006 - V0 1 5 Idle CPU And Choose TUI` | Begin PLAN-00006-STEP-01 |
+| 2026-09-14T08:16:47Z | PLAN-00006-STEP-01 | Started | — | Red phase |
+| 2026-09-14T08:22:28Z | PLAN-00006-STEP-01 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00006-STEP-01 - Drop watcher ignores its own scans` | Begin PLAN-00006-STEP-02 |
 
 ### Deviations and blockers
 
@@ -652,6 +655,11 @@ None.
 
 | Timestamp (UTC) | Step | Command or check | Result | Evidence |
 |---|---|---|---|---|
+| 2026-09-14T08:22:28Z | PLAN-00006-STEP-01 | Idle baseline (D-09): sandboxed release serve on b30cec4, no display, local store, empty drop folder, 30 s run, last 20 s measured | Recorded | cpu 136.45 %, threads 37, 7,901,150 context switches in 20 s (395,057/s) |
+| 2026-09-14T08:22:28Z | PLAN-00006-STEP-01 | Red: `cargo test -p passalong-core --all-features --lib drop_watcher` | Exit 101 (expected) | scanning_the_folder_does_not_trigger_the_watcher FAILED: a scan or a read notified the watcher; the create/write/rename/remove test passed |
+| 2026-09-14T08:22:28Z | PLAN-00006-STEP-01 | `cargo test -p passalong-core --all-features --lib drop_watcher` | Pass | 12 passed: scan and read do not notify; create, write, rename, remove each notify; only_events_that_may_change_files_count (Access other than close-after-write ignored) |
+| 2026-09-14T08:22:28Z | PLAN-00006-STEP-01 | Idle after the fix (D-09, same method) | Recorded | cpu 0.00 %, threads 35, 41 context switches in 20 s (2/s); the sandbox has no clipboard, so clipboard polling is measured in STEP-02 |
+| 2026-09-14T08:22:28Z | PLAN-00006-STEP-01 | `just check` | Exit 0 | Lines 92.48% (first run failed clippy type_complexity on the test; rewritten as sequential steps) |
 
 ### Completion summary
 

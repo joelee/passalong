@@ -20,7 +20,7 @@ jobs:
     name: Check the tag and the packages
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - run: scripts/check-release-tag.sh "$GITHUB_REF_NAME"
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -48,7 +48,7 @@ jobs:
             target: aarch64-apple-darwin
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.98.1
@@ -81,7 +81,7 @@ jobs:
     # published.
     environment: release
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.98.1
@@ -100,7 +100,7 @@ jobs:
     needs: crates
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           path: dist

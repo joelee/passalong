@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## v0.1.6 - 2026-09-14T21:14:49Z
+
 ### Added
 
 - Homebrew: the `joelee/oss/passalong` formula builds the crates.io

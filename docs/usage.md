@@ -74,7 +74,7 @@ whether `serve` is running:
 config         ok    /home/me/.config/passalong/config.toml
 server         ok    ssh passalong@192.168.1.10:22, /srv/passalong
 storage read   ok    12 items
-storage write  ok    wrote and removed a probe in tmp/
+storage write  ok    wrote and removed a 128-byte probe in 184 ms (696 B/s)
 serve          ok    running (pid 4242)
 ```
 
@@ -82,9 +82,11 @@ serve          ok    running (pid 4242)
 - `server`: passalong connects. For `ssh`, the server must present the
   pinned host key and accept the login.
 - `storage read`: the storage directory can be listed.
-- `storage write`: a small probe file is written under the store's `tmp/`
-  folder and removed again. Listings and other devices never see it, so it
-  does not reach pull mode.
+- `storage write`: a 128-byte probe file is written under the store's
+  `tmp/` folder and removed again. Listings and other devices never see
+  it, so it does not reach pull mode. The line reports how long that took
+  and the rate it makes; with so few bytes the time is mostly network round
+  trips rather than bandwidth.
 - `serve`: whether `serve` is running on this machine, as `serve --status`
   reports it. It is informational: `off` is not a failure, and the line is
   shown even when a check failed.
@@ -127,6 +129,16 @@ cut to 40 characters. `CREATED` is in local time. An empty store prints
 
 `--json` prints the items' full metadata as a JSON array instead, using the
 fields described in [architecture](architecture.md#metajson).
+
+With the ssh backend, `list` prints the list cache that `serve` keeps (see
+[configuration](configuration.md#serve-files)) when it was checked within
+twice `serve.list_cache_check_secs`, 2 minutes by default, and makes no
+connection. Otherwise it reads the server and writes the cache. `--nocache`
+always reads the server and rewrites the cache. The output is the same
+either way; `--log-level verbose` says which was used. `file`, `clipboard`,
+`delete`, and `prune` add their own changes to the cache, and `load`,
+`cat`, and `get` refresh it after their output. A cache problem never fails
+a command.
 
 ## `passalong clipboard`
 
@@ -264,9 +276,14 @@ act on it. It needs a terminal.
 | `c` | Print the item, as `passalong cat <ID>` does |
 | `g` | Show its metadata, as `passalong get <ID>` does, in a dialog over the list; Up, Down, Page Up, Page Down, Home, and End scroll it, and Esc, `q`, `g`, or Enter close it |
 | `d` | Delete it after `y`, then show the list read again from the store |
-| `r` | Reload the list |
+| `r` | Reload the list: from the list cache when it is fresh, otherwise from the server |
+| `R` | Read the list from the server and rewrite the list cache |
 | `?` | Show the passalong version, what it is, and these keys; any key closes it |
 | `q`, Esc, Ctrl-C | Quit without doing anything |
+
+With the ssh backend, the list opens from a fresh list cache, as `list`
+does, and the bottom line says how old it is, such as `cached 30 s ago`.
+The connection is still made first, for the actions.
 
 Loading and printing close the list first, so what they print stays in the
 terminal. With `--quiet`, nothing is printed after the list closes. While

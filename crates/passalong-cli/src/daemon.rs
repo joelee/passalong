@@ -8,6 +8,7 @@ use std::fs::{File, OpenOptions, TryLockError};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
+use passalong_core::cache::CACHE_FILE;
 use passalong_core::config::EnvProvider;
 
 /// The platform, which decides the file locations.
@@ -37,6 +38,8 @@ pub struct StatePaths {
     pub pid: PathBuf,
     /// Log file for `serve --daemon`.
     pub log: PathBuf,
+    /// The item list `serve` keeps for `list` and `choose`.
+    pub cache: PathBuf,
 }
 
 fn non_empty(env: &dyn EnvProvider, key: &str) -> Option<String> {
@@ -44,16 +47,20 @@ fn non_empty(env: &dyn EnvProvider, key: &str) -> Option<String> {
 }
 
 impl StatePaths {
-    /// Linux: `${XDG_STATE_HOME:-~/.local/state}/passalong/serve.{pid,log}`.
-    /// macOS: `~/Library/Application Support/passalong/serve.pid` and
-    /// `~/Library/Logs/passalong/serve.log`. `None` without a home.
+    /// Linux: `${XDG_STATE_HOME:-~/.local/state}/passalong/` holds
+    /// `serve.pid`, `serve.log`, and `list-cache.json`. macOS:
+    /// `~/Library/Application Support/passalong/` holds `serve.pid` and
+    /// `list-cache.json`, and the log is `~/Library/Logs/passalong/serve.log`.
+    /// `None` without a home.
     pub fn resolve(env: &dyn EnvProvider, os: Os) -> Option<Self> {
         match os {
             Os::MacOs => {
                 let home = PathBuf::from(non_empty(env, "HOME")?);
+                let dir = home.join("Library/Application Support/passalong");
                 Some(Self {
-                    pid: home.join("Library/Application Support/passalong/serve.pid"),
+                    pid: dir.join("serve.pid"),
                     log: home.join("Library/Logs/passalong/serve.log"),
+                    cache: dir.join(CACHE_FILE),
                 })
             }
             Os::Linux => {
@@ -68,6 +75,7 @@ impl StatePaths {
                 Some(Self {
                     pid: dir.join("serve.pid"),
                     log: dir.join("serve.log"),
+                    cache: dir.join(CACHE_FILE),
                 })
             }
         }
@@ -238,7 +246,8 @@ mod tests {
             StatePaths::resolve(&xdg, Os::Linux),
             Some(StatePaths {
                 pid: "/state/passalong/serve.pid".into(),
-                log: "/state/passalong/serve.log".into()
+                log: "/state/passalong/serve.log".into(),
+                cache: "/state/passalong/list-cache.json".into(),
             })
         );
         let home = MapEnv::new()
@@ -261,6 +270,7 @@ mod tests {
             Some(StatePaths {
                 pid: "/Users/u/Library/Application Support/passalong/serve.pid".into(),
                 log: "/Users/u/Library/Logs/passalong/serve.log".into(),
+                cache: "/Users/u/Library/Application Support/passalong/list-cache.json".into(),
             })
         );
         assert_eq!(StatePaths::resolve(&MapEnv::new(), Os::MacOs), None);

@@ -14,11 +14,13 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use chrono::{FixedOffset, Utc};
-use passalong_core::model::ItemId;
-use passalong_core::store::Store;
+use passalong_core::clock::Clock;
+use passalong_core::model::{ItemId, ItemMeta};
+use passalong_core::store::{Store, StoreError};
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::commands::load::OpenClipboard;
+use crate::list_cache::CacheFile;
 use crate::output::render_meta;
 use crate::resolve::Lookup;
 pub use state::Action;
@@ -55,6 +57,35 @@ pub struct ActionTargets<'a, 'b> {
     pub offset: FixedOffset,
 }
 
+/// Reads the item list for the picker: from the store, through the list
+/// cache when the store has one.
+pub struct Lister<'a> {
+    /// The store, also used for metadata, deleting, and the chosen action.
+    pub store: &'a dyn Store,
+    /// The list cache, when the store has one.
+    pub cache: Option<&'a CacheFile>,
+    /// The time, for the cache's age.
+    pub clock: &'a dyn Clock,
+}
+
+impl Lister<'_> {
+    /// The items of a usable cache, and its age in seconds.
+    fn cached(&self) -> Option<(Vec<ItemMeta>, i64)> {
+        let now = self.clock.now();
+        let cache = self.cache?.usable(now)?;
+        Some((cache.items, (now - cache.checked_at).num_seconds().max(0)))
+    }
+
+    /// Reads the store, and writes the cache when there is one. With
+    /// `reuse`, metadata already cached is kept; see [`CacheFile::read`].
+    async fn read(&self, reuse: bool) -> Result<Vec<ItemMeta>, StoreError> {
+        match self.cache {
+            Some(cache) => cache.read(self.store, self.clock.now(), reuse).await,
+            None => self.store.list().await,
+        }
+    }
+}
+
 /// Shows the full-screen list on the terminal, then carries out the chosen
 /// action, if any, once the terminal is restored.
 ///
@@ -62,40 +93,50 @@ pub struct ActionTargets<'a, 'b> {
 ///
 /// When the terminal cannot be set up, or the store or the action fails.
 pub async fn run(
-    store: &dyn Store,
+    lister: &Lister<'_>,
     targets: ActionTargets<'_, '_>,
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
     let chosen = {
         let mut screen = TerminalScreen::open()?;
-        run_picker(store, &mut screen, targets.offset).await?
+        run_picker(lister, &mut screen, targets.offset).await?
         // The screen is dropped here, which restores the terminal.
     };
     match chosen {
-        Some(chosen) => perform(store, &chosen, targets, out).await,
+        Some(chosen) => perform(lister.store, &chosen, targets, out).await,
         None => Ok(()),
     }
 }
 
-/// Lists the store and handles keys until an item is chosen or the user
-/// quits. Showing metadata (with times at `offset`), deleting, and
-/// reloading happen here, and the list stays open. While the store is being
-/// read or changed, the status line says so, since keys wait until it is
-/// done.
+/// Shows the list and handles keys until an item is chosen or the user
+/// quits. The list comes from a usable cache, whose age the status line
+/// shows, or else from the store. Showing metadata (with times at
+/// `offset`), deleting, and reloading happen here, and the list stays open.
+/// While the store is being read or changed, the status line says so, since
+/// keys wait until it is done.
 ///
 /// # Errors
 ///
 /// When listing the store fails at the start, or the screen fails.
 pub async fn run_picker(
-    store: &dyn Store,
+    lister: &Lister<'_>,
     screen: &mut dyn Screen,
     offset: FixedOffset,
 ) -> anyhow::Result<Option<Chosen>> {
+    let store = lister.store;
     let mut picker = Picker::new(Vec::new());
-    picker.set_status("Loading...");
-    screen.draw(&picker)?;
-    picker.replace(store.list().await?);
-    picker.clear_status();
+    match lister.cached() {
+        Some((items, age)) => {
+            picker.replace(items);
+            picker.set_status(format!("cached {age} s ago"));
+        }
+        None => {
+            picker.set_status("Loading...");
+            screen.draw(&picker)?;
+            picker.replace(lister.read(true).await?);
+            picker.clear_status();
+        }
+    }
     loop {
         screen.draw(&picker)?;
         match picker.handle(screen.next_key()?) {
@@ -117,15 +158,27 @@ pub async fn run_picker(
                 screen.draw(&picker)?;
                 match store.delete(&id).await {
                     Ok(_) => {
-                        if reload(store, screen, &mut picker).await?.is_some() {
+                        if reload(lister, screen, &mut picker, true).await?.is_some() {
                             picker.set_status(format!("deleted {id}"));
                         }
                     }
                     Err(err) => picker.set_status(format!("cannot delete {id}: {err}")),
                 }
             }
-            Outcome::Reload => {
-                if let Some(n) = reload(store, screen, &mut picker).await? {
+            Outcome::Reload => match lister.cached() {
+                Some((items, age)) => {
+                    let n = items.len();
+                    picker.replace(items);
+                    picker.set_status(format!("reloaded: {n} items, cached {age} s ago"));
+                }
+                None => {
+                    if let Some(n) = reload(lister, screen, &mut picker, true).await? {
+                        picker.set_status(format!("reloaded: {n} items"));
+                    }
+                }
+            },
+            Outcome::ReloadServer => {
+                if let Some(n) = reload(lister, screen, &mut picker, false).await? {
                     picker.set_status(format!("reloaded: {n} items"));
                 }
             }
@@ -133,17 +186,18 @@ pub async fn run_picker(
     }
 }
 
-/// Lists the store again, showing `Reloading...` meanwhile. Returns how
-/// many items there are, or `None` when listing failed, which the status
-/// line then reports.
+/// Reads the store again, showing `Reloading...` meanwhile; `reuse` as in
+/// [`Lister::read`]. Returns how many items there are, or `None` when
+/// reading failed, which the status line then reports.
 async fn reload(
-    store: &dyn Store,
+    lister: &Lister<'_>,
     screen: &mut dyn Screen,
     picker: &mut Picker,
+    reuse: bool,
 ) -> io::Result<Option<usize>> {
     picker.set_status("Reloading...");
     screen.draw(picker)?;
-    Ok(match store.list().await {
+    Ok(match lister.read(reuse).await {
         Ok(items) => {
             let n = items.len();
             picker.replace(items);
@@ -266,13 +320,17 @@ pub(crate) async fn sample(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::support::{TestStore, bytes};
+    use crate::commands::support::{T, TestStore, bytes};
+    use chrono::TimeDelta;
+    use passalong_core::cache::ListCache;
     use passalong_core::clipboard::{Clipboard, ClipboardError};
     use passalong_core::model::NewItem;
-    use passalong_core::testing::MockClipboard;
+    use passalong_core::testing::{ManualClock, MockClipboard};
     use state::Mode;
     use std::collections::VecDeque;
     use std::path::PathBuf;
+    use std::time::Duration;
+    use tempfile::TempDir;
 
     /// What one frame showed.
     #[derive(Debug, Clone)]
@@ -342,11 +400,106 @@ mod tests {
         ts.dir.path().join("items").join(id.as_str())
     }
 
+    /// Runs the picker on `ts` without a list cache.
+    async fn pick(ts: &TestStore, screen: &mut FakeScreen) -> Option<Chosen> {
+        let clock = ManualClock::at(T);
+        let lister = Lister {
+            store: &ts.store,
+            cache: None,
+            clock: &clock,
+        };
+        run_picker(&lister, screen, utc()).await.unwrap()
+    }
+
+    /// A list cache in `dir/state` of the store `s`, usable for 2 minutes,
+    /// saved with `items` and checked `age` seconds before [`T`].
+    fn saved_cache(dir: &TempDir, items: Vec<ItemMeta>, age: i64) -> (PathBuf, CacheFile) {
+        let path = dir.path().join("state/list-cache.json");
+        let checked_at = T.parse::<chrono::DateTime<Utc>>().unwrap() - TimeDelta::seconds(age);
+        ListCache::new("s".into(), checked_at, items)
+            .save(&path)
+            .unwrap();
+        let file = CacheFile::new(path.clone(), "s".into(), Duration::from_secs(120));
+        (path, file)
+    }
+
+    #[tokio::test]
+    async fn a_fresh_cache_opens_the_list_with_its_age_and_r_reloads_the_file() {
+        let (ts, items) = sample(&["newer", "older"]).await;
+        let dir = TempDir::new().unwrap();
+        // The cache misses the newest item, so the count tells the source.
+        let (_, cache) = saved_cache(&dir, items[1..].to_vec(), 30);
+        let clock = ManualClock::at(T);
+        let lister = Lister {
+            store: &ts.store,
+            cache: Some(&cache),
+            clock: &clock,
+        };
+        let mut screen = FakeScreen::new([KeyCode::Char('r'), KeyCode::Char('q')]);
+        assert_eq!(run_picker(&lister, &mut screen, utc()).await.unwrap(), None);
+        assert_eq!(
+            screen.statuses(),
+            [
+                Some("cached 30 s ago"),
+                Some("reloaded: 1 items, cached 30 s ago")
+            ]
+        );
+        assert_eq!(screen.frames[0].items, 1);
+        assert_eq!(screen.frames[1].items, 1);
+    }
+
+    #[tokio::test]
+    async fn capital_r_reads_the_server_and_saves_the_cache() {
+        let (ts, items) = sample(&["newer", "older"]).await;
+        let dir = TempDir::new().unwrap();
+        let (path, cache) = saved_cache(&dir, items[1..].to_vec(), 30);
+        let clock = ManualClock::at(T);
+        let lister = Lister {
+            store: &ts.store,
+            cache: Some(&cache),
+            clock: &clock,
+        };
+        let mut screen =
+            FakeScreen::new([KeyCode::Char('R'), KeyCode::Char('r'), KeyCode::Char('q')]);
+        assert_eq!(run_picker(&lister, &mut screen, utc()).await.unwrap(), None);
+        assert_eq!(
+            screen.statuses(),
+            [
+                Some("cached 30 s ago"),
+                Some("Reloading..."),
+                Some("reloaded: 2 items"),
+                Some("reloaded: 2 items, cached 0 s ago")
+            ]
+        );
+        let saved = ListCache::load(&path).unwrap();
+        assert_eq!(saved.items, items);
+        assert_eq!(saved.checked_at, clock.now());
+    }
+
+    #[tokio::test]
+    async fn an_old_cache_shows_loading_and_is_rewritten_from_the_server() {
+        let (ts, items) = sample(&["a"]).await;
+        let dir = TempDir::new().unwrap();
+        let (path, cache) = saved_cache(&dir, Vec::new(), 121);
+        let clock = ManualClock::at(T);
+        let lister = Lister {
+            store: &ts.store,
+            cache: Some(&cache),
+            clock: &clock,
+        };
+        let mut screen = FakeScreen::new([KeyCode::Char('q')]);
+        assert_eq!(run_picker(&lister, &mut screen, utc()).await.unwrap(), None);
+        assert_eq!(screen.statuses(), [Some("Loading..."), None]);
+        assert_eq!(screen.frames[1].items, 1);
+        let saved = ListCache::load(&path).unwrap();
+        assert_eq!((saved.items, saved.checked_at), (items, clock.now()));
+    }
+
     #[tokio::test]
     async fn loading_shows_first_then_enter_chooses_loading_the_item() {
         let (ts, items) = sample(&["newer", "older"]).await;
         let mut screen = FakeScreen::new([KeyCode::Down, KeyCode::Enter]);
-        let chosen = run_picker(&ts.store, &mut screen, utc()).await.unwrap();
+        let chosen = pick(&ts, &mut screen).await;
         assert_eq!(
             chosen,
             Some(Chosen {
@@ -363,20 +516,14 @@ mod tests {
     async fn quitting_chooses_nothing() {
         let (ts, _) = sample(&["a"]).await;
         let mut screen = FakeScreen::new([KeyCode::Char('q')]);
-        assert_eq!(
-            run_picker(&ts.store, &mut screen, utc()).await.unwrap(),
-            None
-        );
+        assert_eq!(pick(&ts, &mut screen).await, None);
     }
 
     #[tokio::test]
     async fn g_shows_the_metadata_in_the_list_and_esc_returns_to_it() {
         let (ts, items) = sample(&["hello"]).await;
         let mut screen = FakeScreen::new([KeyCode::Char('g'), KeyCode::Esc, KeyCode::Char('q')]);
-        assert_eq!(
-            run_picker(&ts.store, &mut screen, utc()).await.unwrap(),
-            None
-        );
+        assert_eq!(pick(&ts, &mut screen).await, None);
         let Mode::Details {
             title,
             lines,
@@ -400,10 +547,7 @@ mod tests {
         let (ts, items) = sample(&["a"]).await;
         let mut screen = FakeScreen::new([KeyCode::Char('g'), KeyCode::Char('q')]);
         screen.remove_before_key = Some((0, item_dir(&ts, &items[0].id)));
-        assert_eq!(
-            run_picker(&ts.store, &mut screen, utc()).await.unwrap(),
-            None
-        );
+        assert_eq!(pick(&ts, &mut screen).await, None);
         let last = screen.frames.last().unwrap();
         assert_eq!(last.mode, Mode::Browse);
         assert!(
@@ -423,10 +567,7 @@ mod tests {
         // Another device removes the other item meanwhile; reading the list
         // again shows it gone too.
         screen.remove_before_key = Some((1, item_dir(&ts, &items[1].id)));
-        assert_eq!(
-            run_picker(&ts.store, &mut screen, utc()).await.unwrap(),
-            None
-        );
+        assert_eq!(pick(&ts, &mut screen).await, None);
         assert!(ts.store.list().await.unwrap().is_empty());
         let deleted = format!("deleted {}", items[0].id);
         let deleting = format!("Deleting {}...", items[0].id);
@@ -445,10 +586,7 @@ mod tests {
     async fn r_shows_reloading_until_the_list_is_read() {
         let (ts, _) = sample(&["a"]).await;
         let mut screen = FakeScreen::new([KeyCode::Char('r'), KeyCode::Char('q')]);
-        assert_eq!(
-            run_picker(&ts.store, &mut screen, utc()).await.unwrap(),
-            None
-        );
+        assert_eq!(pick(&ts, &mut screen).await, None);
         assert_eq!(
             screen.statuses(),
             [
@@ -467,10 +605,7 @@ mod tests {
             FakeScreen::new([KeyCode::Char('d'), KeyCode::Char('y'), KeyCode::Char('q')]);
         // Gone from the store just before `y` is pressed.
         screen.remove_before_key = Some((1, item_dir(&ts, &items[0].id)));
-        assert_eq!(
-            run_picker(&ts.store, &mut screen, utc()).await.unwrap(),
-            None
-        );
+        assert_eq!(pick(&ts, &mut screen).await, None);
         let last = screen.frames.last().unwrap().status.clone().unwrap();
         assert!(
             last.starts_with(&format!("cannot delete {}", items[0].id)),

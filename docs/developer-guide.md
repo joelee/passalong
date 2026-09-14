@@ -233,6 +233,24 @@ The steps, and who does each, are in the "Release workflow" section of
    then publishes the three crates to crates.io, and only once that succeeds
    creates the GitHub release from `docs/release/vX.Y.Z.md` and attaches the
    binaries. Do not create the release by hand.
+6. The Homebrew formula, `Formula/passalong.rb` in the
+   [`joelee/homebrew-oss`](https://github.com/joelee/homebrew-oss) tap,
+   builds the published crate. Once crates.io has the version, point it at
+   the release from a clone of the tap next to this repository, then commit
+   the change on a branch of the tap and push it:
+
+   ```sh
+   scripts/update-homebrew-formula.sh vX.Y.Z [TAP_DIR]
+   ```
+
+   The script sets only the formula's `url` and `sha256`, taking the
+   checksum from crates.io, and fails when the version is not published
+   yet. `TAP_DIR` defaults to `../homebrew-oss`. The tap's macOS workflow
+   then builds, tests, and audits the formula. To check it on Linux, run
+   the same `brew` commands in the `homebrew/brew` container image, after
+   `brew update`. Homebrew 7 refuses formulae from a tap cloned from a
+   local folder unless `HOMEBREW_NO_REQUIRE_TAP_TRUST=1` is set; users of
+   the tap from GitHub run `brew trust joelee/oss` once instead.
 
 Publishing needs a crates.io API token with the `publish-new` and
 `publish-update` scopes, stored as the secret `CARGO_REGISTRY_TOKEN` of the

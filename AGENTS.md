@@ -86,3 +86,4 @@ Update when behavior, commands, config, architecture, or user workflow changes:
 6. Agent debugs PR CI failures on the branch. User gets the PR approved and merged.
 7. User pulls `main`, tags the merge commit, and pushes the tag. The Release workflow checks the tag and release records and builds binaries. After the user approves the pending `release` deployment, it publishes to crates.io and then creates the GitHub release from `docs/release/vX.Y.Z.md`. Do not create the release by hand. A published crate version can only be yanked, never replaced.
 8. User checks the release page and crates.io. Agent helps debug a failed release run.
+9. Once crates.io has the version, agent runs `scripts/update-homebrew-formula.sh vX.Y.Z` (tap at `../homebrew-oss`) and commits the formula change on a branch in the tap, never on its `main`. User pushes it and merges once the tap's macOS formula test passes.

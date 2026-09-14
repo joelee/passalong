@@ -6,6 +6,31 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## v0.1.6 - 2026-09-14T21:14:49Z
+
+### Added
+
+- Homebrew: the `joelee/oss/passalong` formula builds the crates.io
+  release, and `scripts/update-homebrew-formula.sh vX.Y.Z [TAP_DIR]` points
+  it at a new one; the release workflow ends with that step (PLAN-00007
+  STEP-06, STEP-07).
+- `passalong choose` opens from a fresh list cache and says how old it
+  is; `r` reloads the cache, and the new `R` reads the server and rewrites
+  the cache (PLAN-00007 STEP-05).
+- `passalong list` prints a fresh list cache without connecting, with the
+  same output as from the server; `--nocache` reads the server and
+  rewrites the cache. `file`, `clipboard`, `delete`, and `prune` add their
+  own changes to the cache, and `load`, `cat`, and `get` refresh it after
+  their output (PLAN-00007 STEP-04).
+- `serve` keeps the list cache current for the ssh backend: at start and
+  every `serve.list_cache_check_secs`, over a connection of its own
+  (`passalong_core::cache::refresh_loop`, PLAN-00007 STEP-03).
+- `passalong_core::cache::ListCache`: a local copy of a store's item list,
+  refreshed with one id listing plus new metadata, and the `serve.list_cache`
+  and `serve.list_cache_check_secs` settings (PLAN-00007 STEP-02).
+- `passalong check` times its write probe, now 128 bytes, and reports the
+  time and the rate it makes (PLAN-00007 STEP-01).
+
 ## v0.1.5 - 2026-09-14T14:26:22Z
 
 ### Added

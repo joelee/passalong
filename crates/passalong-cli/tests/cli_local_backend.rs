@@ -7,6 +7,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use assert_cmd::Command;
+use chrono::Utc;
+use passalong_core::cache::ListCache;
 use passalong_core::fs::LocalFs;
 use passalong_core::model::{ItemMeta, NewItem};
 use passalong_core::random::StdRandom;
@@ -102,7 +104,7 @@ fn help_and_version() {
         .arg("--version")
         .assert()
         .success()
-        .stdout("passalong 0.1.5\n");
+        .stdout("passalong 0.1.6\n");
 }
 
 #[test]
@@ -418,7 +420,7 @@ async fn check_reports_each_step_and_fails_at_the_first_problem() {
             .and(predicate::str::contains("server         ok    local "))
             .and(predicate::str::contains("storage read   ok    1 item\n"))
             .and(predicate::str::contains(
-                "storage write  ok    wrote and removed a probe in tmp/\n",
+                "storage write  ok    wrote and removed a 128-byte probe in ",
             ))
             .and(predicate::str::ends_with(
                 "serve          off   not running\n",
@@ -875,6 +877,52 @@ impl Drop for DaemonGuard {
     }
 }
 
+#[tokio::test]
+async fn list_prints_a_fresh_cache_without_connecting_and_nocache_connects() {
+    let sb = Sandbox::new();
+    let seeded = sb.seed(&["one", "two"]).await;
+    // Nothing listens on port 1, so any connection attempt fails.
+    let key = sb.path("cfg/id_ed25519");
+    std::fs::write(&key, "unused").unwrap();
+    let config = sb.path("cfg/ssh.toml");
+    std::fs::write(
+        &config,
+        format!(
+            "[client]\ndevice_name = \"test-box\"\n\n[server]\nkind = \"ssh\"\n\n[server.ssh]\nhost = \"127.0.0.1\"\nport = 1\nuser = \"u\"\nhost_key = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMKy9BQGg0B6NYvYwyrJzGCOHCXKQBj7E/5jvWJSEDCi\"\nidentity_file = \"{}\"\nremote_path = \"/r\"\n",
+            key.display()
+        ),
+    )
+    .unwrap();
+    let cache = if cfg!(target_os = "macos") {
+        sb.path("home/Library/Application Support/passalong/list-cache.json")
+    } else {
+        sb.path("home/.local/state/passalong/list-cache.json")
+    };
+    ListCache::new("ssh u@127.0.0.1:1 /r".into(), Utc::now(), seeded.clone())
+        .save(&cache)
+        .unwrap();
+    let list = |args: &[&str]| {
+        let mut cmd = sb.cmd();
+        cmd.arg("--config").arg(&config).arg("list").args(args);
+        cmd
+    };
+
+    let out = list(&["--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let listed: Vec<ItemMeta> = serde_json::from_slice(&out).unwrap();
+    assert_eq!(listed.len(), 2);
+    assert_eq!(listed, ListCache::load(&cache).unwrap().items);
+    list(&[])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(seeded[0].id.as_str()));
+    list(&["--nocache"]).assert().failure();
+}
+
 #[cfg(unix)]
 #[test]
 fn serve_daemon_starts_reports_refuses_a_second_copy_and_stops() {
@@ -932,6 +980,12 @@ fn serve_daemon_starts_reports_refuses_a_second_copy_and_stops() {
         assert!(Instant::now() < deadline, "the daemon never sent the file");
         std::thread::sleep(Duration::from_millis(50));
     }
+    let cache = if cfg!(target_os = "macos") {
+        sb.path("home/Library/Application Support/passalong/list-cache.json")
+    } else {
+        sb.path("home/.local/state/passalong/list-cache.json")
+    };
+    assert!(!cache.exists(), "a local store needs no list cache");
 
     sb.with_config()
         .args(["serve", "--stop"])

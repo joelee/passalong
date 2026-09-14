@@ -2,10 +2,11 @@
 
 use std::io::Write;
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use passalong_core::config::Config;
-use passalong_core::store::{BackendRegistry, Store, StoreError, WriteProbe};
+use passalong_core::store::{BackendRegistry, PROBE_BYTES, Store, StoreError, WriteProbe};
 
 use crate::daemon::Status;
 
@@ -106,13 +107,45 @@ async fn run_checks(
         }
         Err(err) => return report.fail(&err.to_string(), &err.to_string()),
     }
+    let started = Instant::now();
     match store.probe_write().await {
-        Ok(WriteProbe::Verified) => report.line("ok", "wrote and removed a probe in tmp/")?,
+        Ok(WriteProbe::Verified) => report.line("ok", &probe_line(started.elapsed()))?,
         Ok(_) => report.line("n/a", "not supported by this backend")?,
         Err(err) => return report.fail(&err.to_string(), &err.to_string()),
     }
     tracing::debug!("every check passed");
     Ok(())
+}
+
+/// The `storage write` line: how long the probe took, and the rate that
+/// makes. With so few bytes the time is mostly network round trips.
+fn probe_line(elapsed: Duration) -> String {
+    let secs = elapsed.as_secs_f64();
+    let ms = secs * 1000.0;
+    let time = if ms < 10.0 {
+        format!("{ms:.1} ms")
+    } else {
+        format!("{ms:.0} ms")
+    };
+    // A zero duration would divide by zero; a microsecond is below any
+    // real probe.
+    let rate = PROBE_BYTES as f64 / secs.max(1e-6);
+    format!(
+        "wrote and removed a {PROBE_BYTES}-byte probe in {time} ({})",
+        human_rate(rate)
+    )
+}
+
+/// Bytes per second in B/s, KiB/s, or MiB/s.
+fn human_rate(bytes_per_sec: f64) -> String {
+    const KIB: f64 = 1024.0;
+    if bytes_per_sec < KIB {
+        format!("{bytes_per_sec:.0} B/s")
+    } else if bytes_per_sec < KIB * KIB {
+        format!("{:.1} KiB/s", bytes_per_sec / KIB)
+    } else {
+        format!("{:.1} MiB/s", bytes_per_sec / (KIB * KIB))
+    }
 }
 
 /// The server `config` names, as the `server` line shows it.
@@ -209,13 +242,39 @@ mod tests {
         let (_dir, store) = store(2).await;
         let (result, out) = check(local(), Ok(store)).await;
         result.unwrap();
-        assert_eq!(
-            out,
-            "config         ok    /etc/passalong/config.toml\n\
+        assert!(
+            out.starts_with(
+                "config         ok    /etc/passalong/config.toml\n\
              server         ok    local /srv/share\n\
              storage read   ok    2 items\n\
-             storage write  ok    wrote and removed a probe in tmp/\n\
-             serve          off   not running\n"
+             storage write  ok    wrote and removed a 128-byte probe in "
+            ),
+            "{out}"
+        );
+        assert!(
+            out.ends_with("/s)\nserve          off   not running\n"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn the_probe_line_shows_the_time_and_the_rate() {
+        use std::time::Duration;
+        assert_eq!(
+            probe_line(Duration::from_millis(184)),
+            "wrote and removed a 128-byte probe in 184 ms (696 B/s)"
+        );
+        assert_eq!(
+            probe_line(Duration::from_millis(2)),
+            "wrote and removed a 128-byte probe in 2.0 ms (62.5 KiB/s)"
+        );
+        assert_eq!(
+            probe_line(Duration::from_micros(100)),
+            "wrote and removed a 128-byte probe in 0.1 ms (1.2 MiB/s)"
+        );
+        assert!(
+            probe_line(Duration::ZERO)
+                .starts_with("wrote and removed a 128-byte probe in 0.0 ms (")
         );
     }
 

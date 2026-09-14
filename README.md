@@ -35,6 +35,8 @@ flowchart LR
   the newest items list first and identical content is stored only once.
 - Downloads are checked against the item's SHA-256 before anything is
   written.
+- With an SSH server, `serve` keeps a local copy of the item list up to
+  date, so `list` and `choose` show it without waiting for the server.
 - Storage sits behind a trait. Besides SSH there is a `local` backend for a
   mounted share, and others such as S3 can be added.
 
@@ -43,7 +45,10 @@ flowchart LR
 1. Prepare the server once, as described in [Server setup](#server-setup).
 2. Install the client. From v0.1.1, `cargo install --locked passalong`
    installs it from crates.io, and each GitHub release has Linux x86_64 and
-   macOS arm64 binaries. From a clone of this repository,
+   macOS arm64 binaries. With Homebrew, run `brew trust joelee/oss` and
+   `brew tap joelee/oss` once (Homebrew 7 needs the trust), then
+   `brew install passalong` builds the crates.io release. From a clone of
+   this repository,
    `cargo install --locked --path crates/passalong-cli` puts `passalong` in
    `~/.cargo/bin`.
 3. Run `passalong init`. It asks for the server's address and your key,
@@ -71,7 +76,7 @@ flowchart LR
 |---|---|
 | `passalong clipboard` | Send the current clipboard text (`--stdin` reads standard input instead) |
 | `passalong file <path>` | Send a file |
-| `passalong list` | List stored items, newest first (`--json` for scripts) |
+| `passalong list` | List stored items, newest first (`--json` for scripts, `--nocache` to skip the list cache) |
 | `passalong load <id> [dest]` | Copy an item to `dest`; without `dest`, text goes to the clipboard and files to `~/Downloads` |
 | `passalong cat <id>` | Print an item to standard output |
 | `passalong get <id>` | Print an item's metadata (`--json` for scripts) |

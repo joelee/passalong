@@ -79,7 +79,7 @@ async fn execute(cli: Cli, env: &dyn EnvProvider, out: &mut dyn Write) -> anyhow
     let level = resolve_level(cli.log_level, cli.quiet, env, Some(&config))?;
     // `init` fails only if logging is already set up, which cannot happen
     // in a fresh process.
-    let _ = telemetry::init(level, io::stderr);
+    let _ = telemetry::init(level, crate::logs::writer);
     tracing::debug!(path = %located.path.display(), "using config from {}", located.origin);
     let span = telemetry::op_span(cli.command.name(), &mut StdRandom::new());
     let context = commands::serve::ServeContext {
@@ -286,7 +286,7 @@ async fn check(cli: &Cli, env: &dyn EnvProvider, out: &mut dyn Write) -> anyhow:
     let loaded = load_config(cli.config.as_deref(), env);
     let config = loaded.as_ref().ok().map(|(_, config)| config);
     let level = resolve_level(cli.log_level, cli.quiet, env, config)?;
-    let _ = telemetry::init(level, io::stderr);
+    let _ = telemetry::init(level, crate::logs::writer);
     let mut backends = BackendRegistry::with_builtin();
     passalong_ssh::register(&mut backends);
     let span = telemetry::op_span("check", &mut StdRandom::new());
@@ -303,7 +303,7 @@ async fn check(cli: &Cli, env: &dyn EnvProvider, out: &mut dyn Write) -> anyhow:
 /// absolute path when given, or `service-remove`.
 fn service(cli: &Cli, env: &dyn EnvProvider, out: &mut dyn Write) -> anyhow::Result<()> {
     let level = resolve_level(cli.log_level, cli.quiet, env, None)?;
-    let _ = telemetry::init(level, io::stderr);
+    let _ = telemetry::init(level, crate::logs::writer);
     let _span = telemetry::op_span(cli.command.name(), &mut StdRandom::new()).entered();
     let home = env
         .var("HOME")
@@ -360,7 +360,7 @@ async fn init(
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
     let level = resolve_level(level_flag, quiet, env, None)?;
-    let _ = telemetry::init(level, io::stderr);
+    let _ = telemetry::init(level, crate::logs::writer);
     let target = match config_flag {
         Some(path) => path.to_path_buf(),
         None => config::default_config_path(env)

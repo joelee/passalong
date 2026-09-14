@@ -272,7 +272,8 @@ Loading and printing close the list first, so what they print stays in the
 terminal. With `--quiet`, nothing is printed after the list closes. While
 the list is being read or an item deleted, the bottom line says
 `Loading...`, `Reloading...`, or `Deleting <ID>...`, and keys wait until it
-is done.
+is done. Log lines are held while the list is open and printed when it
+closes.
 
 ## `passalong delete <ID>...`
 

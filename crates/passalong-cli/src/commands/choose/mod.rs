@@ -40,13 +40,6 @@ pub trait Screen {
 
     /// Waits for the next key press.
     fn next_key(&mut self) -> io::Result<KeyEvent>;
-
-    /// Forgets what is on the screen, so the next frame is drawn in full.
-    /// Store operations may log to standard error, which is the same
-    /// terminal, so the list is redrawn after them.
-    fn redraw_all(&mut self) -> io::Result<()> {
-        Ok(())
-    }
 }
 
 /// What the chosen action needs besides the store.
@@ -109,19 +102,16 @@ pub async fn run_picker(
             Outcome::Continue => {}
             Outcome::Quit => return Ok(None),
             Outcome::Act(action, id) => return Ok(Some(Chosen { action, id })),
-            Outcome::Details(id) => {
-                match store.get_meta(&id).await {
-                    Ok(meta) => picker.show_details(
-                        meta.id.to_string(),
-                        render_meta(&meta, offset)
-                            .lines()
-                            .map(str::to_owned)
-                            .collect(),
-                    ),
-                    Err(err) => picker.set_status(format!("cannot read {id}: {err}")),
-                }
-                screen.redraw_all()?;
-            }
+            Outcome::Details(id) => match store.get_meta(&id).await {
+                Ok(meta) => picker.show_details(
+                    meta.id.to_string(),
+                    render_meta(&meta, offset)
+                        .lines()
+                        .map(str::to_owned)
+                        .collect(),
+                ),
+                Err(err) => picker.set_status(format!("cannot read {id}: {err}")),
+            },
             Outcome::Delete(id) => {
                 picker.set_status(format!("Deleting {id}..."));
                 screen.draw(&picker)?;
@@ -133,13 +123,11 @@ pub async fn run_picker(
                     }
                     Err(err) => picker.set_status(format!("cannot delete {id}: {err}")),
                 }
-                screen.redraw_all()?;
             }
             Outcome::Reload => {
                 if let Some(n) = reload(store, screen, &mut picker).await? {
                     picker.set_status(format!("reloaded: {n} items"));
                 }
-                screen.redraw_all()?;
             }
         }
     }
@@ -204,16 +192,22 @@ pub async fn perform(
 }
 
 /// The real terminal: raw mode on the alternate screen while it exists.
-/// Dropping it, or a panic, restores the terminal.
+/// Dropping it, or a panic, restores the terminal. Log records are held
+/// meanwhile and written after the terminal is restored, since a record
+/// written under the list would scroll it and mix with what is drawn.
 struct TerminalScreen {
     terminal: ratatui::DefaultTerminal,
+    // Dropped after `Drop::drop` restores the terminal.
+    _logs: crate::logs::Hold,
 }
 
 impl TerminalScreen {
     fn open() -> io::Result<Self> {
+        let logs = crate::logs::hold();
         // `try_init` also installs a panic hook that restores the terminal.
         Ok(Self {
             terminal: ratatui::try_init()?,
+            _logs: logs,
         })
     }
 }
@@ -242,10 +236,6 @@ impl Screen for TerminalScreen {
                 _ => {}
             }
         }
-    }
-
-    fn redraw_all(&mut self) -> io::Result<()> {
-        self.terminal.clear()
     }
 }
 

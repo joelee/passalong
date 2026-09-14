@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Added
+
+- `passalong check` times its write probe, now 128 bytes, and reports the
+  time and the rate it makes (PLAN-00007 STEP-01).
+
 ## v0.1.5 - 2026-09-14T14:26:22Z
 
 ### Added

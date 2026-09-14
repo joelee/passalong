@@ -22,7 +22,7 @@ use crate::model::{
     ContentDigest, ContentHasher, ContentKey, ItemId, ItemKind, ItemMeta, NewItem, preview_of,
 };
 use crate::random::RandomSource;
-use crate::store::{PutOutcome, Store, StoreError, WriteProbe};
+use crate::store::{PROBE_BYTES, PutOutcome, Store, StoreError, WriteProbe};
 
 const ITEMS_DIR: &str = "items";
 const TMP_DIR: &str = "tmp";
@@ -358,7 +358,7 @@ impl<F: RemoteFs> Store for FsStore<F> {
         let written = async {
             let mut writer = self.fs.open_write(&file).await?;
             writer
-                .write_all(b"passalong write probe\n")
+                .write_all(&probe_content())
                 .await
                 .map_err(|err| FsError::from_io(&file, err))?;
             writer
@@ -418,6 +418,14 @@ fn utf8_prefix(bytes: &[u8]) -> &str {
         Ok(text) => text,
         Err(err) => std::str::from_utf8(&bytes[..err.valid_up_to()]).unwrap_or_default(),
     }
+}
+
+/// What [`FsStore::probe_write`] writes: [`PROBE_BYTES`] bytes that start
+/// by saying what the file is.
+fn probe_content() -> Vec<u8> {
+    let mut content = b"passalong write probe\n".to_vec();
+    content.resize(PROBE_BYTES, b'.');
+    content
 }
 
 #[cfg(test)]
@@ -1160,6 +1168,12 @@ mod tests {
         assert_eq!(fx.item_dirs(), items);
         assert_eq!(tmp_entries(&fx), tmp);
         assert_eq!(store.list().await.unwrap().len(), 3);
+    }
+
+    #[test]
+    fn the_probe_is_probe_bytes_long() {
+        assert_eq!(probe_content().len(), crate::store::PROBE_BYTES);
+        assert!(probe_content().starts_with(b"passalong write probe"));
     }
 
     #[tokio::test]

@@ -74,7 +74,7 @@ whether `serve` is running:
 config         ok    /home/me/.config/passalong/config.toml
 server         ok    ssh passalong@192.168.1.10:22, /srv/passalong
 storage read   ok    12 items
-storage write  ok    wrote and removed a probe in tmp/
+storage write  ok    wrote and removed a 128-byte probe in 184 ms (696 B/s)
 serve          ok    running (pid 4242)
 ```
 
@@ -82,9 +82,11 @@ serve          ok    running (pid 4242)
 - `server`: passalong connects. For `ssh`, the server must present the
   pinned host key and accept the login.
 - `storage read`: the storage directory can be listed.
-- `storage write`: a small probe file is written under the store's `tmp/`
-  folder and removed again. Listings and other devices never see it, so it
-  does not reach pull mode.
+- `storage write`: a 128-byte probe file is written under the store's
+  `tmp/` folder and removed again. Listings and other devices never see
+  it, so it does not reach pull mode. The line reports how long that took
+  and the rate it makes; with so few bytes the time is mostly network round
+  trips rather than bandwidth.
 - `serve`: whether `serve` is running on this machine, as `serve --status`
   reports it. It is informational: `off` is not a failure, and the line is
   shown even when a check failed.

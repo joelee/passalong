@@ -163,7 +163,8 @@ ids alone, from one directory listing, which is how pull mode polls a large
 store cheaply. `Store::get_meta(id)` reads one item's `meta.json`
 without opening its content; the choice prompt for an ambiguous id uses it
 for the candidates it shows, at most 9, instead of listing the store.
-`Store::probe_write` writes a small file in `tmp/probe-<random>/` and
+`Store::probe_write` writes a 128-byte file (`PROBE_BYTES`) in
+`tmp/probe-<random>/` and
 removes that directory, which is how `passalong check` tests write access
 without storing an item. A backend without a probe reports
 `WriteProbe::NotSupported`, the trait's default.

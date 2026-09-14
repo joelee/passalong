@@ -32,14 +32,14 @@ confidence: medium                # high | medium | low
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; Delivery Planner initializes them.
-implementation_status: not-started # not-started | in-progress | blocked | completed | abandoned
-builder_agent: null
-builder_model: null
-execution_branch: null
-execution_started_at: null
-execution_updated_at: null
+implementation_status: in-progress # not-started | in-progress | blocked | completed | abandoned
+builder_agent: "Claude Code"
+builder_model: "anthropic/claude-opus-5"
+execution_branch: "feature/00007-v0.1.6"
+execution_started_at: "2026-09-14T18:19:15Z"
+execution_updated_at: "2026-09-14T18:21:10Z"
 execution_completed_at: null
-current_step: null
+current_step: "PLAN-00007-STEP-02"
 ---
 
 # Delivery Plan 00007: V0 1 6 List Cache And Homebrew
@@ -661,7 +661,7 @@ also commits in `../homebrew-oss`. Docker tests run at STEP-04 and STEP-09.
 
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
-| PLAN-00007-STEP-01 | not-started | — | — | — | — |
+| PLAN-00007-STEP-01 | completed | 2026-09-14T18:19:15Z | 2026-09-14T18:21:10Z | Commit `build: complete PLAN-00007-STEP-01 - Timed write probe`; `just check` green, 92.70% lines | AC-08. store::PROBE_BYTES = 128 (new public constant); FsStore writes probe_content (128 bytes); check times the whole probe_write call and prints probe_line; WriteProbe unchanged. Usage (example and note on latency), architecture, CHANGELOG updated |
 | PLAN-00007-STEP-02 | not-started | — | — | — | — |
 | PLAN-00007-STEP-03 | not-started | — | — | — | — |
 | PLAN-00007-STEP-04 | not-started | — | — | — | — |
@@ -678,6 +678,9 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 
 | Timestamp (UTC) | Step | Event | Evidence or reference | Next action |
 |---|---|---|---|---|
+| 2026-09-14T18:19:15Z | PLAN-00007 | Plan approved (commit 4ea0c75); Builder starts on feature/00007-v0.1.6 | `docs(plan): approve PLAN-00007 - V0 1 6 List Cache And Homebrew` | Begin PLAN-00007-STEP-01 |
+| 2026-09-14T18:19:15Z | PLAN-00007-STEP-01 | Started | — | Red phase |
+| 2026-09-14T18:21:10Z | PLAN-00007-STEP-01 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00007-STEP-01 - Timed write probe` | Begin PLAN-00007-STEP-02 |
 
 ### Deviations and blockers
 
@@ -690,6 +693,9 @@ None.
 
 | Timestamp (UTC) | Step | Command or check | Result | Evidence |
 |---|---|---|---|---|
+| 2026-09-14T18:21:10Z | PLAN-00007-STEP-01 | Red: `cargo test -p passalong-core --all-features --lib store`; `cargo test -p passalong --no-run` | Exit 101 (expected) | core: probe_content and store::PROBE_BYTES not found; CLI: probe_line not found (4) |
+| 2026-09-14T18:21:10Z | PLAN-00007-STEP-01 | `cargo test -p passalong-core --all-features --lib store`; `cargo test -p passalong` | Pass | the_probe_is_probe_bytes_long; the_probe_line_shows_the_time_and_the_rate (184 ms 696 B/s, 2.0 ms 62.5 KiB/s, 0.1 ms 1.2 MiB/s, zero duration); check unit and binary tests match "wrote and removed a 128-byte probe in " |
+| 2026-09-14T18:21:10Z | PLAN-00007-STEP-01 | `just check` | Exit 0 | Lines 92.70% |
 
 ### Completion summary
 

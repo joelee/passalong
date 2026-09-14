@@ -418,7 +418,7 @@ async fn check_reports_each_step_and_fails_at_the_first_problem() {
             .and(predicate::str::contains("server         ok    local "))
             .and(predicate::str::contains("storage read   ok    1 item\n"))
             .and(predicate::str::contains(
-                "storage write  ok    wrote and removed a probe in tmp/\n",
+                "storage write  ok    wrote and removed a 128-byte probe in ",
             ))
             .and(predicate::str::ends_with(
                 "serve          off   not running\n",

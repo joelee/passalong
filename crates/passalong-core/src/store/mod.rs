@@ -28,6 +28,10 @@ pub struct PutOutcome {
     pub created: bool,
 }
 
+/// How many bytes a [`Store::probe_write`] implementation writes, so the
+/// time a probe takes means the same for every backend.
+pub const PROBE_BYTES: usize = 128;
+
 /// Result of [`Store::probe_write`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]

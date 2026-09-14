@@ -6,7 +6,7 @@ Future work not covered by an active plan. Completed items are removed.
 
 ### v0.1.5
 - **Android cross-compile check in CI.**
-- **`serve` idle CPU, for discussion.** Reported by @joelee: an idle
+- **Bug: `serve` burns CPU when idle.** Reported by @joelee: an idle
   `serve` uses 9.8 MB of RAM and 4.8 % CPU. Measured on 2026-09-14 with
   v0.1.4 on Linux under Wayland, it used about 134 % CPU continuously
   (38 threads), with plain text on the clipboard and an empty drop folder.
@@ -21,6 +21,11 @@ Future work not covered by an active plan. Completed items are removed.
   cost (clipboard poll every 750 ms on a blocking thread, pull every 5 s,
   the runtime's thread count) and whether a current-thread runtime suits
   `serve`.
+- **`check` reports whether `serve` is running**, with its pid, as
+  `serve --status` does.
+- **Rename `install-service` to `service-install` and add
+  `service-remove`**, which replaces `install-service --uninstall`. v0.1.4
+  is not released, so the old name needs no alias.
 - `passalong choose` - invoke a TUI to select 
 
 ### v0.2.0

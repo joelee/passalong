@@ -818,6 +818,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-13T21:28:28Z | PLAN-00005-STEP-08 | README Mermaid: branch page https://github.com/joelee/passalong/blob/feature/00005-v0.1.4/README.md; `npx @mermaid-js/mermaid-cli@11` render | Pass | GitHub serves a data-type="mermaid" render container for the diagram; mmdc renders it without errors (laptop, desktop, phone to server:/srv/passalong items/<time>-<hash>/{content,meta.json}, SSH/SFTP pinned host key) |
 | 2026-09-13T21:28:29Z | PLAN-00005-STEP-08 | Release notes figures and upgrade note | Updated | coverage 92.43 % / 94.47 % from the final just ci; macOS upgrade note corrected: a running hand-installed agent must be booted out before install-service --force, because install refuses to start while serve runs |
 | 2026-09-13T21:30:38Z | PLAN-00005-STEP-08 | GitHub CI run 34783844394 on 7c4950f | Pass | Linux (just ci with Docker SSH tests), macOS (just check, running the launchd install-service tests), Linux desktop clipboard (Xvfb): all success; no annotations on any job |
+| 2026-09-14T07:16:56Z | PLAN-00005-STEP-08 | User check on a real systemd after approval: `passalong check` and `passalong install-service`, then `systemctl --user status passalong-serve` | Pass | Reported by the user on 2026-09-14; launchd remains verified only with the recording fake and the macOS CI unit tests |
 
 ### Completion summary
 

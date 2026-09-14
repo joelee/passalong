@@ -28,6 +28,6 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 mod tests {
     #[test]
     fn version_is_the_workspace_version() {
-        assert_eq!(super::VERSION, "0.1.5");
+        assert_eq!(super::VERSION, "0.1.6");
     }
 }

@@ -248,7 +248,7 @@ mod tests {
     fn version_flag_prints_name_and_version() {
         let err = Cli::try_parse_from(["passalong", "--version"]).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::DisplayVersion);
-        assert_eq!(err.to_string(), "passalong 0.1.5\n");
+        assert_eq!(err.to_string(), "passalong 0.1.6\n");
     }
 
     #[test]

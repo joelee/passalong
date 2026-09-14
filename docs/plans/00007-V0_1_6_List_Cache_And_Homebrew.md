@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00007-v0.1.6"
 execution_started_at: "2026-09-14T18:19:15Z"
-execution_updated_at: "2026-09-14T19:08:24Z"
+execution_updated_at: "2026-09-14T19:09:25Z"
 execution_completed_at: null
-current_step: "PLAN-00007-STEP-08"
+current_step: "PLAN-00007-STEP-09"
 ---
 
 # Delivery Plan 00007: V0 1 6 List Cache And Homebrew
@@ -668,7 +668,7 @@ also commits in `../homebrew-oss`. Docker tests run at STEP-04 and STEP-09.
 | PLAN-00007-STEP-05 | completed | 2026-09-14T18:47:03Z | 2026-09-14T18:50:27Z | Commit `build: complete PLAN-00007-STEP-05 - choose opens from the cache; r and R`; run_picker tests with a Lister over a cache file and a ManualClock; state test for R; help lists R | d keeps reading the server after a delete, through the cache so it is rewritten too. |
 | PLAN-00007-STEP-06 | completed | 2026-09-14T18:50:27Z | 2026-09-14T19:08:24Z | Commit `build: complete PLAN-00007-STEP-06 - Homebrew formula in the tap`; homebrew/brew install, test, and both audits exit 0; tap commit 7930f4d on add-passalong | AC-10 completes when the user pushes add-passalong and the tap's macOS workflow passes. |
 | PLAN-00007-STEP-07 | completed | 2026-09-14T19:08:24Z | 2026-09-14T19:08:24Z | Commit `build: complete PLAN-00007-STEP-07 - Formula update script and release step`; homebrew_script tests; dry run against the tap's formula | Root AGENTS.md release workflow step 9 and the developer guide's Releasing step 6 cover the tap update. |
-| PLAN-00007-STEP-08 | not-started | — | — | — | — |
+| PLAN-00007-STEP-08 | completed | 2026-09-14T19:08:24Z | 2026-09-14T19:09:25Z | Commit `build: complete PLAN-00007-STEP-08 - Documentation and v0.1.6 release preparation`; links, just check, publish dry run, timing, consistency check | Backlog: encryption moved under v0.1.7 with its design questions; the delivered v0.1.6 items and the Android CI item dropped; a lazy choose connection and parallel metadata reads added. The release notes' Tests and Coverage sections are filled in by STEP-09. |
 | PLAN-00007-STEP-09 | not-started | — | — | — | — |
 
 Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
@@ -693,6 +693,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-14T19:08:24Z | PLAN-00007-STEP-06 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00007-STEP-06 - Homebrew formula in the tap` | Begin PLAN-00007-STEP-07 |
 | 2026-09-14T19:08:24Z | PLAN-00007-STEP-07 | Started | — | Red phase |
 | 2026-09-14T19:08:24Z | PLAN-00007-STEP-07 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00007-STEP-07 - Formula update script and release step` | Begin PLAN-00007-STEP-08 |
+| 2026-09-14T19:08:24Z | PLAN-00007-STEP-08 | Started | — | Red phase |
+| 2026-09-14T19:09:25Z | PLAN-00007-STEP-08 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00007-STEP-08 - Documentation and v0.1.6 release preparation` | Begin PLAN-00007-STEP-09 |
 
 ### Deviations and blockers
 
@@ -728,6 +730,12 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-14T19:08:24Z | PLAN-00007-STEP-07 | cargo test -p passalong --test homebrew_script | pass | 6 passed: only url and sha256 change, the mode is kept, bad versions and checksums, a missing tap or formula, and a formula without exactly one url and sha256 are rejected |
 | 2026-09-14T19:08:24Z | PLAN-00007-STEP-07 | scripts/update-homebrew-formula.sh v0.1.5 <copy of the tap's formula> | pass | uses the real crates.io checksum and leaves the formula byte-identical; v9.9.9 fails as not published |
 | 2026-09-14T19:08:24Z | PLAN-00007-STEP-07 | just check | pass | exit 0; line coverage 92.48 % |
+| 2026-09-14T19:09:25Z | PLAN-00007-STEP-08 | scripts/check-links.sh | pass | links ok: 30 Markdown files checked |
+| 2026-09-14T19:09:25Z | PLAN-00007-STEP-08 | passalong --version (release build) | pass | passalong 0.1.6 |
+| 2026-09-14T19:09:25Z | PLAN-00007-STEP-08 | just check | pass | exit 0; line coverage 92.48 %, after bumping the version literals in four tests |
+| 2026-09-14T19:09:25Z | PLAN-00007-STEP-08 | just publish-dry-run --allow-dirty | pass | passalong-core, passalong-ssh, and passalong 0.1.6 packaged and verified |
+| 2026-09-14T19:09:25Z | PLAN-00007-STEP-08 | list timing against the Docker sshd, release build, medians of 3 | pass | 10 items: list --nocache 122 ms, list from the cache 4 ms; 100 items: 140 ms and 4 ms |
+| 2026-09-14T19:09:25Z | PLAN-00007-STEP-08 | consistency check | pass | README, usage, configuration, architecture, developer guide, and release notes match the code: list_cache default true, list_cache_check_secs 60 (10 to 86400), usable for twice the interval, list-cache.json next to serve.pid, --nocache, r and R, the 128-byte probe line, Homebrew with brew trust |
 
 ### Completion summary
 

@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `passalong choose` opens from a fresh list cache and says how old it
+  is; `r` reloads the cache, and the new `R` reads the server and rewrites
+  the cache (PLAN-00007 STEP-05).
 - `passalong list` prints a fresh list cache without connecting, with the
   same output as from the server; `--nocache` reads the server and
   rewrites the cache. `file`, `clipboard`, `delete`, and `prune` add their

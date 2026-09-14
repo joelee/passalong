@@ -16,7 +16,7 @@ use crate::resolve::age;
 const HINTS: &str = "? help  Enter load  c print  g details  d delete  / filter  r reload  q quit";
 
 /// Every key the picker understands, and what it does, for the help.
-pub const KEYS: [(&str, &str); 11] = [
+pub const KEYS: [(&str, &str); 12] = [
     ("Up, Down, k, j", "Move"),
     ("Page Up, Down", "Move ten rows"),
     ("Home, End", "First or last item"),
@@ -24,8 +24,9 @@ pub const KEYS: [(&str, &str); 11] = [
     ("Enter", "Load: text to the clipboard, files to downloads"),
     ("c", "Print the item"),
     ("g", "Show its metadata in a scrollable dialog"),
-    ("d", "Delete after y, then reload the list"),
-    ("r", "Reload the list"),
+    ("d", "Delete after y, then read the list again"),
+    ("r", "Reload the list, from the list cache when fresh"),
+    ("R", "Read the list from the server"),
     ("?", "Show this help"),
     ("q, Esc, Ctrl-C", "Quit"),
 ];

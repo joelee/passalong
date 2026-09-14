@@ -8,6 +8,7 @@ use std::process::ExitCode;
 use anyhow::Context as _;
 use chrono::{FixedOffset, Local, Offset, Utc};
 use passalong_core::clipboard::{ArboardClipboard, Clipboard, ClipboardError};
+use passalong_core::clock::SystemClock;
 use passalong_core::config::{self, Config, EnvProvider, SearchRoots};
 use passalong_core::random::StdRandom;
 use passalong_core::store::{BackendRegistry, Store};
@@ -218,7 +219,12 @@ async fn dispatch(
                 stdout_is_terminal: true,
                 offset: local_offset(),
             };
-            commands::choose::run(store.as_ref(), targets, out).await
+            let lister = commands::choose::Lister {
+                store: store.as_ref(),
+                cache: cache.as_ref(),
+                clock: &SystemClock,
+            };
+            commands::choose::run(&lister, targets, out).await
         }
         Command::Get { id, json } => {
             let store = backends.open(config).await?;

@@ -276,9 +276,14 @@ act on it. It needs a terminal.
 | `c` | Print the item, as `passalong cat <ID>` does |
 | `g` | Show its metadata, as `passalong get <ID>` does, in a dialog over the list; Up, Down, Page Up, Page Down, Home, and End scroll it, and Esc, `q`, `g`, or Enter close it |
 | `d` | Delete it after `y`, then show the list read again from the store |
-| `r` | Reload the list |
+| `r` | Reload the list: from the list cache when it is fresh, otherwise from the server |
+| `R` | Read the list from the server and rewrite the list cache |
 | `?` | Show the passalong version, what it is, and these keys; any key closes it |
 | `q`, Esc, Ctrl-C | Quit without doing anything |
+
+With the ssh backend, the list opens from a fresh list cache, as `list`
+does, and the bottom line says how old it is, such as `cached 30 s ago`.
+The connection is still made first, for the actions.
 
 Loading and printing close the list first, so what they print stays in the
 terminal. With `--quiet`, nothing is printed after the list closes. While

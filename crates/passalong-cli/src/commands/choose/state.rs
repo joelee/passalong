@@ -32,8 +32,10 @@ pub enum Outcome {
     Delete(ItemId),
     /// Show the item's metadata over the list.
     Details(ItemId),
-    /// List the store again.
+    /// Show the list again: from the list cache when it is fresh.
     Reload,
+    /// Read the list from the server.
+    ReloadServer,
 }
 
 /// What keys mean at the moment.
@@ -215,6 +217,7 @@ impl Picker {
             }
             KeyCode::Char('?') => self.mode = Mode::Help,
             KeyCode::Char('r') => return Outcome::Reload,
+            KeyCode::Char('R') => return Outcome::ReloadServer,
             KeyCode::Char('q') | KeyCode::Esc => return Outcome::Quit,
             KeyCode::Enter => return self.act(Action::Load),
             KeyCode::Char('c') => return self.act(Action::Cat),
@@ -412,6 +415,7 @@ mod tests {
         let (_ts, items) = sample(&["a"]).await;
         let mut picker = Picker::new(items);
         assert_eq!(picker.handle(ch('r')), Outcome::Reload);
+        assert_eq!(picker.handle(ch('R')), Outcome::ReloadServer);
         assert_eq!(picker.handle(ch('q')), Outcome::Quit);
         assert_eq!(picker.handle(key(KeyCode::Esc)), Outcome::Quit);
         assert_eq!(

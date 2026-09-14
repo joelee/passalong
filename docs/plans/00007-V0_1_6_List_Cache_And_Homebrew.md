@@ -8,10 +8,10 @@ tags:
   - opencode
 type: delivery-plan
 plan_id: "PLAN-00007"
-plan_status: draft                 # draft | approved | cancelled
+plan_status: approved              # draft | approved | cancelled
 plan_kind: initial                 # initial | superseding
 created_at: "2026-09-14T17:12:31Z"
-approved_at: null
+approved_at: "2026-09-14T18:18:32Z"
 planner_agent: "Claude Code"
 planner_model: "anthropic/claude-opus-5"
 triggered_by: user                 # user | agent:<agent-name>
@@ -26,7 +26,7 @@ requirements_count: 13
 steps_count: 9
 acceptance_criteria_count: 15
 blocking_decisions: 0
-build_ready: false
+build_ready: true
 web_research_used: false
 confidence: medium                # high | medium | low
 
@@ -44,14 +44,14 @@ current_step: null
 
 # Delivery Plan 00007: V0 1 6 List Cache And Homebrew
 
-> [!abstract] Plan status: `draft`
+> [!abstract] Plan status: `approved`
 > Deliver `passalong` v0.1.6. `list` and `choose` read a local cache that
 > `serve` keeps current, so they no longer wait for a slow connection.
 > `check` reports how long the write probe took. passalong gets a Homebrew
 > formula in `joelee/homebrew-oss`, kept current by a script that is part
 > of each release. Encryption at rest moves to v0.1.7. The user settled
-> D-01 to D-04 on 2026-09-14 (all as recommended); no decision blocks
-> approval.
+> D-01 to D-04 on 2026-09-14 (all as recommended); approved by the user
+> at 2026-09-14T18:18:32Z; Builder-ready.
 
 ## 1. Objective and outcome
 
@@ -705,6 +705,7 @@ None.
 | Timestamp (UTC) | Plan status | Change | Reason | Requested/approved by |
 |---|---|---|---|---|
 | 2026-09-14T17:12:31Z | draft | Created with 13 requirements, 9 steps, 15 acceptance criteria, and decisions D-01 to D-11; D-01 to D-04 were answered by the user before drafting (all as recommended), so none blocks approval | User request to plan v0.1.6 from the backlog road map | User |
+| 2026-09-14T18:18:32Z | approved | Approved; `plan_status`, `approved_at`, and `build_ready` set | User approval after committing the draft (060aa5c) | User |
 
 ## 19. External references
 

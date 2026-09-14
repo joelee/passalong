@@ -130,6 +130,16 @@ cut to 40 characters. `CREATED` is in local time. An empty store prints
 `--json` prints the items' full metadata as a JSON array instead, using the
 fields described in [architecture](architecture.md#metajson).
 
+With the ssh backend, `list` prints the list cache that `serve` keeps (see
+[configuration](configuration.md#serve-files)) when it was checked within
+twice `serve.list_cache_check_secs`, 2 minutes by default, and makes no
+connection. Otherwise it reads the server and writes the cache. `--nocache`
+always reads the server and rewrites the cache. The output is the same
+either way; `--log-level verbose` says which was used. `file`, `clipboard`,
+`delete`, and `prune` add their own changes to the cache, and `load`,
+`cat`, and `get` refresh it after their output. A cache problem never fails
+a command.
+
 ## `passalong clipboard`
 
 Sends the clipboard's text and prints the new item's id. When the

@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00007-v0.1.6"
 execution_started_at: "2026-09-14T18:19:15Z"
-execution_updated_at: "2026-09-14T18:34:16Z"
+execution_updated_at: "2026-09-14T18:47:03Z"
 execution_completed_at: null
-current_step: "PLAN-00007-STEP-04"
+current_step: "PLAN-00007-STEP-05"
 ---
 
 # Delivery Plan 00007: V0 1 6 List Cache And Homebrew
@@ -664,7 +664,7 @@ also commits in `../homebrew-oss`. Docker tests run at STEP-04 and STEP-09.
 | PLAN-00007-STEP-01 | completed | 2026-09-14T18:19:15Z | 2026-09-14T18:21:10Z | Commit `build: complete PLAN-00007-STEP-01 - Timed write probe`; `just check` green, 92.70% lines | AC-08. store::PROBE_BYTES = 128 (new public constant); FsStore writes probe_content (128 bytes); check times the whole probe_write call and prints probe_line; WriteProbe unchanged. Usage (example and note on latency), architecture, CHANGELOG updated |
 | PLAN-00007-STEP-02 | completed | 2026-09-14T18:21:28Z | 2026-09-14T18:25:33Z | Commit `build: complete PLAN-00007-STEP-02 - The list cache and its configuration`; `just check` green, 92.83% lines | AC-01, AC-02, AC-07. New public module passalong_core::cache; ServeConfig gains list_cache and list_cache_check_secs (as pull did in v0.1.2). Configuration docs (keys and the cache file) and CHANGELOG updated |
 | PLAN-00007-STEP-03 | completed | 2026-09-14T18:26:03Z | 2026-09-14T18:34:16Z | Commit `build: complete PLAN-00007-STEP-03 - serve refreshes the cache`; refresh_loop tests (start, interval, kept file on error, reconnect, stop); StatePaths.cache tests on both platforms; binary test: no cache for local | The loop starts once serve reports ready, over its own connection; list_cache_identity gates it on the ssh backend and serve.list_cache. |
-| PLAN-00007-STEP-04 | not-started | — | — | — | — |
+| PLAN-00007-STEP-04 | completed | 2026-09-14T18:34:27Z | 2026-09-14T18:47:03Z | Commit `build: complete PLAN-00007-STEP-04 - list uses the cache; commands keep it current`; list unit tests (fresh cache opens nothing; old or other-store cache reads and writes; --nocache); list_cache tests (apply, refresh, unwritable cache fails nothing); local binary no-connection test; Docker cache test | CacheFile and the Recording store wrapper live in crates/passalong-cli/src/list_cache.rs; commands are unchanged apart from list. |
 | PLAN-00007-STEP-05 | not-started | — | — | — | — |
 | PLAN-00007-STEP-06 | not-started | — | — | — | — |
 | PLAN-00007-STEP-07 | not-started | — | — | — | — |
@@ -685,13 +685,15 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-14T18:25:33Z | PLAN-00007-STEP-02 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00007-STEP-02 - The list cache and its configuration` | Begin PLAN-00007-STEP-03 |
 | 2026-09-14T18:26:03Z | PLAN-00007-STEP-03 | Started | — | Red phase |
 | 2026-09-14T18:34:16Z | PLAN-00007-STEP-03 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00007-STEP-03 - serve refreshes the cache` | Begin PLAN-00007-STEP-04 |
+| 2026-09-14T18:34:27Z | PLAN-00007-STEP-04 | Started | — | Red phase |
+| 2026-09-14T18:47:03Z | PLAN-00007-STEP-04 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00007-STEP-04 - list uses the cache; commands keep it current` | Begin PLAN-00007-STEP-05 |
 
 ### Deviations and blockers
 
 | Timestamp (UTC) | Step | Deviation or blocker | Impact | Decision required from |
 |---|---|---|---|---|
-
-None.
+| 2026-09-14T18:47:03Z | PLAN-00007-STEP-04 | The Docker test cannot stop the shared SSH container without breaking tests running beside it, so 'list works with no connection' is proved by a local binary test whose ssh config points at 127.0.0.1:1, where nothing listens, and where list --nocache fails. The Docker test proves the cache follows clipboard, delete, and get, and that list prints the same from the cache as with --nocache. | Stronger no-connection evidence (no server exists at all); the ssh round trip is still covered in Docker. | Builder |
+| 2026-09-14T18:47:03Z | PLAN-00007-STEP-04 | An old cache of the same store is refreshed (one id listing plus new metadata) rather than read in full; --nocache reads every item's metadata. | Same output with fewer round trips, per D-01. | Builder |
 
 ### Verification results
 
@@ -706,6 +708,9 @@ None.
 | 2026-09-14T18:34:16Z | PLAN-00007-STEP-03 | cargo test -p passalong-core --all-features cache | pass | 10 passed, including the two refresh_loop tests under paused time |
 | 2026-09-14T18:34:16Z | PLAN-00007-STEP-03 | cargo test -p passalong serve | pass | 6 unit + 4 binary serve tests passed; serve --daemon with a local store writes no list-cache.json |
 | 2026-09-14T18:34:16Z | PLAN-00007-STEP-03 | just check | pass | exit 0; line coverage 92.28 %, cache.rs 97.68 % |
+| 2026-09-14T18:47:03Z | PLAN-00007-STEP-04 | cargo test -p passalong | pass | 161 unit + 31 local binary tests passed, including list_prints_a_fresh_cache_without_connecting_and_nocache_connects |
+| 2026-09-14T18:47:03Z | PLAN-00007-STEP-04 | just test-integration | pass | the_list_cache_follows_commands_and_lists_what_the_server_does passed against the Docker SSH server |
+| 2026-09-14T18:47:03Z | PLAN-00007-STEP-04 | just check | pass | exit 0; line coverage 92.44 %, list_cache.rs 98.19 %, commands/list.rs 96.89 % |
 
 ### Completion summary
 

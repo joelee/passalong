@@ -59,6 +59,10 @@ pub enum Command {
         /// Print JSON instead of a table.
         #[arg(long)]
         json: bool,
+        /// Read the server even when the list cache is fresh, and rewrite
+        /// the cache.
+        #[arg(long)]
+        nocache: bool,
     },
     /// Copy an item to DEST. Without DEST, text goes to the clipboard and
     /// files to the download directory.
@@ -263,10 +267,19 @@ mod tests {
                 path: "a.txt".into()
             }
         );
-        assert_eq!(parse(&["list"]).command, Command::List { json: false });
         assert_eq!(
-            parse(&["list", "--json"]).command,
-            Command::List { json: true }
+            parse(&["list"]).command,
+            Command::List {
+                json: false,
+                nocache: false
+            }
+        );
+        assert_eq!(
+            parse(&["list", "--json", "--nocache"]).command,
+            Command::List {
+                json: true,
+                nocache: true
+            }
         );
         assert_eq!(
             parse(&["load", "2cf2"]).command,
@@ -475,7 +488,10 @@ mod tests {
         let names: Vec<_> = [
             Command::Clipboard { stdin: false },
             Command::File { path: "f".into() },
-            Command::List { json: false },
+            Command::List {
+                json: false,
+                nocache: false,
+            },
             Command::Load {
                 id: "x".into(),
                 dest: None,

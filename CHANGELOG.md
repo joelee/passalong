@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `passalong list` prints a fresh list cache without connecting, with the
+  same output as from the server; `--nocache` reads the server and
+  rewrites the cache. `file`, `clipboard`, `delete`, and `prune` add their
+  own changes to the cache, and `load`, `cat`, and `get` refresh it after
+  their output (PLAN-00007 STEP-04).
 - `serve` keeps the list cache current for the ssh backend: at start and
   every `serve.list_cache_check_secs`, over a connection of its own
   (`passalong_core::cache::refresh_loop`, PLAN-00007 STEP-03).

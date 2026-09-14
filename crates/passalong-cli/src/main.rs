@@ -7,6 +7,7 @@ mod cli;
 mod clipboard_holder;
 mod commands;
 mod daemon;
+mod list_cache;
 mod logs;
 mod output;
 mod prompt;

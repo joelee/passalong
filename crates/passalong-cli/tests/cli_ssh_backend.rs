@@ -43,6 +43,7 @@ fn passalong(dir: &Path, config: &Path) -> Command {
     cmd.current_dir(dir)
         .env("HOME", dir)
         .env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_STATE_HOME")
         .env_remove("PASSALONG_CONFIG_FILE")
         .env_remove("PASSALONG_LOG_LEVEL")
         .env_remove("PASSALONG_SSH_KEY_PASSPHRASE")
@@ -88,6 +89,70 @@ fn clipboard_list_load_round_trip_over_ssh() {
         std::fs::read_to_string(dest.join(format!("{id}.txt"))).unwrap(),
         "sent over ssh"
     );
+}
+
+#[test]
+#[ignore = "needs the Docker SSH server: just test-integration"]
+fn the_list_cache_follows_commands_and_lists_what_the_server_does() {
+    let dir = TempDir::new().unwrap();
+    let config = write_config(dir.path(), &var("PASSALONG_IT_SSH_HOST_KEY"));
+    let cache = if cfg!(target_os = "macos") {
+        dir.path()
+            .join("Library/Application Support/passalong/list-cache.json")
+    } else {
+        dir.path().join(".local/state/passalong/list-cache.json")
+    };
+    let read_cache = || -> serde_json::Value {
+        serde_json::from_slice(&std::fs::read(&cache).unwrap()).unwrap()
+    };
+    let cached_ids = || -> Vec<String> {
+        let mut ids: Vec<String> = read_cache()["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["id"].as_str().unwrap().to_owned())
+            .collect();
+        ids.sort();
+        ids
+    };
+    let output = |cmd: &mut Command| -> String {
+        let out = cmd.assert().success().get_output().stdout.clone();
+        String::from_utf8(out).unwrap()
+    };
+    let run = |args: &[&str]| output(passalong(dir.path(), &config).args(args));
+    let send = |text: &str| {
+        let mut cmd = passalong(dir.path(), &config);
+        cmd.args(["clipboard", "--stdin"]).write_stdin(text);
+        output(&mut cmd).trim().to_owned()
+    };
+
+    // No cache yet: `list` reads the server and writes one.
+    assert_eq!(run(&["list"]), "no items\n");
+    assert_eq!(cached_ids(), Vec::<String>::new());
+
+    let (first, second) = (send("first"), send("second"));
+    let mut sent = vec![first.clone(), second.clone()];
+    sent.sort();
+    assert_eq!(cached_ids(), sent, "sends are added to the cache");
+    assert_eq!(
+        run(&["list", "--json"]),
+        run(&["list", "--json", "--nocache"]),
+        "the cache lists what the server does"
+    );
+
+    run(&["delete", &first]);
+    assert_eq!(
+        cached_ids(),
+        std::slice::from_ref(&second),
+        "deletes are applied"
+    );
+
+    // Forget the item in the cache: `get` finds it again when it refreshes.
+    let mut emptied = read_cache();
+    emptied["items"] = serde_json::json!([]);
+    std::fs::write(&cache, emptied.to_string()).unwrap();
+    run(&["get", &second]);
+    assert_eq!(cached_ids(), [second], "get refreshes the cache");
 }
 
 #[test]

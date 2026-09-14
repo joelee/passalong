@@ -10,13 +10,14 @@ use chrono::{FixedOffset, Local, Offset, Utc};
 use passalong_core::clipboard::{ArboardClipboard, Clipboard, ClipboardError};
 use passalong_core::config::{self, Config, EnvProvider, SearchRoots};
 use passalong_core::random::StdRandom;
-use passalong_core::store::BackendRegistry;
+use passalong_core::store::{BackendRegistry, Store};
 use passalong_core::telemetry::{self, LogLevel};
 use tracing::Instrument;
 
 use crate::cli::{Cli, Command, InitArgs};
 use crate::commands;
 use crate::commands::clipboard::TextSource;
+use crate::list_cache::{CacheFile, Recording};
 use crate::prompt::TerminalPrompt;
 use crate::resolve::{Chooser, Lookup};
 
@@ -129,6 +130,7 @@ async fn dispatch(
     let mut backends = BackendRegistry::with_builtin();
     passalong_ssh::register(&mut backends);
     let device = config.client.device_name.as_str();
+    let cache = CacheFile::for_config(config, context.env);
     match command {
         Command::Init(_) => anyhow::bail!("init runs before configuration is loaded"),
         Command::Check => anyhow::bail!("check loads the configuration itself"),
@@ -141,11 +143,12 @@ async fn dispatch(
         // `serve` opens, and re-opens, its own store.
         Command::Serve(args) => commands::serve::run(context, &args, backends, out).await,
         Command::Clipboard { stdin } => {
-            let store = backends.open(config).await?;
-            if stdin {
+            let opened = backends.open(config).await?;
+            let store = Recording::new(opened.as_ref());
+            let result = if stdin {
                 let mut input = io::stdin().lock();
                 commands::clipboard::run(
-                    store.as_ref(),
+                    &store,
                     TextSource::Reader(&mut input),
                     device,
                     Utc::now(),
@@ -155,22 +158,35 @@ async fn dispatch(
             } else {
                 let mut clipboard = ArboardClipboard::new()?;
                 commands::clipboard::run(
-                    store.as_ref(),
+                    &store,
                     TextSource::Clipboard(&mut clipboard),
                     device,
                     Utc::now(),
                     out,
                 )
                 .await
-            }
+            };
+            follow(cache.as_ref(), store);
+            result
         }
         Command::File { path } => {
-            let store = backends.open(config).await?;
-            commands::file::run(store.as_ref(), &path, device, out).await
+            let opened = backends.open(config).await?;
+            let store = Recording::new(opened.as_ref());
+            let result = commands::file::run(&store, &path, device, out).await;
+            follow(cache.as_ref(), store);
+            result
         }
-        Command::List { json } => {
-            let store = backends.open(config).await?;
-            commands::list::run(store.as_ref(), json, local_offset(), out).await
+        Command::List { json, nocache } => {
+            commands::list::run(
+                || Box::pin(backends.open(config)),
+                cache.as_ref(),
+                nocache,
+                Utc::now(),
+                json,
+                local_offset(),
+                out,
+            )
+            .await
         }
         Command::Cat { id, force } => {
             let store = backends.open(config).await?;
@@ -185,7 +201,8 @@ async fn dispatch(
                 input: &id,
                 chooser: Some(&mut chooser),
             };
-            commands::cat::run(store.as_ref(), lookup, force, terminal, out).await
+            let result = commands::cat::run(store.as_ref(), lookup, force, terminal, out).await;
+            refresh_after(result, cache.as_ref(), store.as_ref(), out).await
         }
         Command::Choose => {
             anyhow::ensure!(
@@ -215,17 +232,22 @@ async fn dispatch(
                 input: &id,
                 chooser: Some(&mut chooser),
             };
-            commands::get::run(store.as_ref(), lookup, json, local_offset(), out).await
+            let result =
+                commands::get::run(store.as_ref(), lookup, json, local_offset(), out).await;
+            refresh_after(result, cache.as_ref(), store.as_ref(), out).await
         }
         Command::Delete { ids } => {
-            let store = backends.open(config).await?;
+            let opened = backends.open(config).await?;
+            let store = Recording::new(opened.as_ref());
             let (mut prompt, mut stderr) = (TerminalPrompt, io::stderr());
             let mut chooser = Chooser {
                 prompt: &mut prompt,
                 err: &mut stderr,
                 now: Utc::now(),
             };
-            commands::delete::run(store.as_ref(), &ids, Some(&mut chooser), out).await
+            let result = commands::delete::run(&store, &ids, Some(&mut chooser), out).await;
+            follow(cache.as_ref(), store);
+            result
         }
         Command::Prune {
             older_than,
@@ -233,7 +255,8 @@ async fn dispatch(
             dry_run,
             yes,
         } => {
-            let store = backends.open(config).await?;
+            let opened = backends.open(config).await?;
+            let store = Recording::new(opened.as_ref());
             let options = commands::prune::PruneOptions {
                 older_than,
                 keep,
@@ -242,15 +265,17 @@ async fn dispatch(
                 quiet,
             };
             let mut prompt = TerminalPrompt;
-            commands::prune::run(
-                store.as_ref(),
+            let result = commands::prune::run(
+                &store,
                 &options,
                 Utc::now(),
                 &mut prompt,
                 local_offset(),
                 out,
             )
-            .await
+            .await;
+            follow(cache.as_ref(), store);
+            result
         }
         Command::Load { id, dest, force } => {
             let store = backends.open(config).await?;
@@ -266,7 +291,7 @@ async fn dispatch(
                 input: &id,
                 chooser: Some(&mut chooser),
             };
-            commands::load::run(
+            let result = commands::load::run(
                 store.as_ref(),
                 lookup,
                 dest.as_deref(),
@@ -275,9 +300,35 @@ async fn dispatch(
                 &mut open_clipboard,
                 out,
             )
-            .await
+            .await;
+            refresh_after(result, cache.as_ref(), store.as_ref(), out).await
         }
     }
+}
+
+/// Applies what a command put or deleted to the list cache, whether or not
+/// the command succeeded in the end.
+fn follow(cache: Option<&CacheFile>, store: Recording<'_>) {
+    if let Some(cache) = cache {
+        cache.apply(store.into_changes());
+    }
+}
+
+/// Brings the list cache up to date after a command that connected anyway
+/// has succeeded and written its output.
+async fn refresh_after(
+    result: anyhow::Result<()>,
+    cache: Option<&CacheFile>,
+    store: &dyn Store,
+    out: &mut dyn Write,
+) -> anyhow::Result<()> {
+    if result.is_ok()
+        && let Some(cache) = cache
+    {
+        let _ = out.flush();
+        cache.refresh(store, Utc::now()).await;
+    }
+    result
 }
 
 /// Runs `check`, which loads the config itself so that a config problem is

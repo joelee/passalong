@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## v0.1.4 - 2026-09-14T06:51:37Z
+
 ### Added
 
 - `passalong install-service` installs `serve` as a systemd user unit

@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Homebrew: the `joelee/oss/passalong` formula builds the crates.io
+  release, and `scripts/update-homebrew-formula.sh vX.Y.Z [TAP_DIR]` points
+  it at a new one; the release workflow ends with that step (PLAN-00007
+  STEP-06, STEP-07).
 - `passalong choose` opens from a fresh list cache and says how old it
   is; `r` reloads the cache, and the new `R` reads the server and rewrites
   the cache (PLAN-00007 STEP-05).

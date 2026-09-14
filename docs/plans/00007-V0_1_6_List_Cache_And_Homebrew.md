@@ -39,7 +39,7 @@ execution_branch: "feature/00007-v0.1.6"
 execution_started_at: "2026-09-14T18:19:15Z"
 execution_updated_at: "2026-09-14T19:08:24Z"
 execution_completed_at: null
-current_step: "PLAN-00007-STEP-07"
+current_step: "PLAN-00007-STEP-08"
 ---
 
 # Delivery Plan 00007: V0 1 6 List Cache And Homebrew
@@ -667,7 +667,7 @@ also commits in `../homebrew-oss`. Docker tests run at STEP-04 and STEP-09.
 | PLAN-00007-STEP-04 | completed | 2026-09-14T18:34:27Z | 2026-09-14T18:47:03Z | Commit `build: complete PLAN-00007-STEP-04 - list uses the cache; commands keep it current`; list unit tests (fresh cache opens nothing; old or other-store cache reads and writes; --nocache); list_cache tests (apply, refresh, unwritable cache fails nothing); local binary no-connection test; Docker cache test | CacheFile and the Recording store wrapper live in crates/passalong-cli/src/list_cache.rs; commands are unchanged apart from list. |
 | PLAN-00007-STEP-05 | completed | 2026-09-14T18:47:03Z | 2026-09-14T18:50:27Z | Commit `build: complete PLAN-00007-STEP-05 - choose opens from the cache; r and R`; run_picker tests with a Lister over a cache file and a ManualClock; state test for R; help lists R | d keeps reading the server after a delete, through the cache so it is rewritten too. |
 | PLAN-00007-STEP-06 | completed | 2026-09-14T18:50:27Z | 2026-09-14T19:08:24Z | Commit `build: complete PLAN-00007-STEP-06 - Homebrew formula in the tap`; homebrew/brew install, test, and both audits exit 0; tap commit 7930f4d on add-passalong | AC-10 completes when the user pushes add-passalong and the tap's macOS workflow passes. |
-| PLAN-00007-STEP-07 | not-started | — | — | — | — |
+| PLAN-00007-STEP-07 | completed | 2026-09-14T19:08:24Z | 2026-09-14T19:08:24Z | Commit `build: complete PLAN-00007-STEP-07 - Formula update script and release step`; homebrew_script tests; dry run against the tap's formula | Root AGENTS.md release workflow step 9 and the developer guide's Releasing step 6 cover the tap update. |
 | PLAN-00007-STEP-08 | not-started | — | — | — | — |
 | PLAN-00007-STEP-09 | not-started | — | — | — | — |
 
@@ -691,6 +691,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-14T18:50:27Z | PLAN-00007-STEP-05 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00007-STEP-05 - choose opens from the cache; r and R` | Begin PLAN-00007-STEP-06 |
 | 2026-09-14T18:50:27Z | PLAN-00007-STEP-06 | Started | — | Red phase |
 | 2026-09-14T19:08:24Z | PLAN-00007-STEP-06 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00007-STEP-06 - Homebrew formula in the tap` | Begin PLAN-00007-STEP-07 |
+| 2026-09-14T19:08:24Z | PLAN-00007-STEP-07 | Started | — | Red phase |
+| 2026-09-14T19:08:24Z | PLAN-00007-STEP-07 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00007-STEP-07 - Formula update script and release step` | Begin PLAN-00007-STEP-08 |
 
 ### Deviations and blockers
 
@@ -723,6 +725,9 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-14T19:08:24Z | PLAN-00007-STEP-06 | homebrew/brew (Homebrew 7.0.1): brew install --build-from-source, brew test, brew audit --strict --new, brew audit --strict for joelee/oss/passalong | pass | all exit 0; the test runs --version, then stores and prints text through a local store |
 | 2026-09-14T19:08:24Z | PLAN-00007-STEP-06 | git -C ../homebrew-oss log -1 | pass | 7930f4d 'Add the passalong formula' on add-passalong, not pushed |
 | 2026-09-14T19:08:24Z | PLAN-00007-STEP-06 | just check | pass | exit 0; passalong changes only in the work log for this step |
+| 2026-09-14T19:08:24Z | PLAN-00007-STEP-07 | cargo test -p passalong --test homebrew_script | pass | 6 passed: only url and sha256 change, the mode is kept, bad versions and checksums, a missing tap or formula, and a formula without exactly one url and sha256 are rejected |
+| 2026-09-14T19:08:24Z | PLAN-00007-STEP-07 | scripts/update-homebrew-formula.sh v0.1.5 <copy of the tap's formula> | pass | uses the real crates.io checksum and leaves the formula byte-identical; v9.9.9 fails as not published |
+| 2026-09-14T19:08:24Z | PLAN-00007-STEP-07 | just check | pass | exit 0; line coverage 92.48 % |
 
 ### Completion summary
 

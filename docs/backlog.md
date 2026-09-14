@@ -4,9 +4,21 @@ Future work not covered by an active plan. Completed items are removed.
 
 ## @joelee road map for next releases
 
+### v0.1.6
+- Add Homebrew package on `https://github.com/joelee/homebrew-oss`
+- `passalong check` on storage write test, track and report the time to write a 128 bytes (calculate bytes/second) file. The local path to the repo is `../homebrew-oss/`
+- **`serve` keeps the item list cached.** (disable for local path):
+  - every write will update a new timestamp file
+  - `serve` will keep a cache of the item list and the timestamp file
+  - `serve` will check every minute (configurable) the remote timestamp file to see if it has the latest list
+  - `serve` will also check the remote timestamp file on every connection to the remote for tasks like `cat`, `load`, etc.
+  - Introduce `--nocache` to the `list`. 
+  - In `choose` TUI, `r` will reload from cache, `R` will reload from remote
+- **Encryption at rest.** Implement a optional client secret key to encrypt the content stored on the server and `passalong encrypt` prompting password prompts for old password and new password (twice) to encrypt or re-encrypt (to change secret key)
+
 ### v0.2.0
 - **Windows support**
-- Add Homebrew package on `https://github.com/joelee/homebrew-oss`
+- **Amazon S3 support** for `serve`
 
 
 ## Agent suggested next steps

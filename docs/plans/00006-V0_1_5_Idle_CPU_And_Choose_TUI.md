@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00006-v0.1.5"
 execution_started_at: "2026-09-14T08:16:47Z"
-execution_updated_at: "2026-09-14T08:41:30Z"
+execution_updated_at: "2026-09-14T08:43:10Z"
 execution_completed_at: null
-current_step: "PLAN-00006-STEP-06"
+current_step: "PLAN-00006-STEP-07"
 ---
 
 # Delivery Plan 00006: V0 1 5 Idle CPU And Choose TUI
@@ -629,7 +629,7 @@ STEP-04 and STEP-08.
 | PLAN-00006-STEP-03 | completed | 2026-09-14T08:25:01Z | 2026-09-14T08:28:58Z | Commit `build: complete PLAN-00006-STEP-03 - service-install and service-remove`; `just check` green, 92.48% lines | AC-03. commands/install_service.rs renamed to commands/service_install.rs (run for install, pub remove for removal); app::service handles both; generated unit and plist headers name service-remove; docs/service, README, usage (new service-remove section), architecture, CHANGELOG Unreleased entry rewritten |
 | PLAN-00006-STEP-04 | completed | 2026-09-14T08:29:40Z | 2026-09-14T08:32:03Z | Commit `build: complete PLAN-00006-STEP-04 - check reports serve`; `just check` green, 92.54% lines; Docker tests pass | AC-04. check::run takes the serve state (Result<Status, String>); the four checks moved into run_checks, and the serve line always follows them; app reads the pid lock through StatePaths and daemon::status. Usage, architecture, CHANGELOG updated |
 | PLAN-00006-STEP-05 | completed | 2026-09-14T08:32:28Z | 2026-09-14T08:41:30Z | Commit `build: complete PLAN-00006-STEP-05 - passalong choose`; `just check` green, 92.53% lines; `just audit` green | AC-05, AC-07, AC-08; AC-06 except the real-terminal restore (manual). ratatui 0.30 without default features, crossterm through ratatui::crossterm; commands/choose/{mod,state,view}.rs; resolve::age shared. Usage, README, architecture, developer guide (skips), CHANGELOG updated |
-| PLAN-00006-STEP-06 | not-started | — | — | — | — |
+| PLAN-00006-STEP-06 | completed | 2026-09-14T08:42:26Z | 2026-09-14T08:43:10Z | Commit `build: complete PLAN-00006-STEP-06 - Android build check in CI`; `just check` green, 92.53% lines; Android CI job result recorded in STEP-07 | AC-09 pending the job on the pushed branch. just android-check picks the NDK clang for API 24 and llvm-ar for ring, then cargo check --target aarch64-linux-android -p passalong-core -p passalong-ssh --no-default-features. The user asked on 2026-09-14 to keep docs/developer-guide.md current with the Android development prerequisites: a new "Android" section lists the Rust target, the NDK (r26+, SDK Manager or sdkmanager), ANDROID_NDK_HOME, supported hosts, and why ring needs the NDK |
 | PLAN-00006-STEP-07 | not-started | — | — | — | — |
 | PLAN-00006-STEP-08 | not-started | — | — | — | — |
 
@@ -651,6 +651,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-14T08:32:03Z | PLAN-00006-STEP-04 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00006-STEP-04 - check reports serve` | Begin PLAN-00006-STEP-05 |
 | 2026-09-14T08:32:28Z | PLAN-00006-STEP-05 | Started | — | Red phase |
 | 2026-09-14T08:41:30Z | PLAN-00006-STEP-05 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00006-STEP-05 - passalong choose` | Begin PLAN-00006-STEP-06 |
+| 2026-09-14T08:42:26Z | PLAN-00006-STEP-06 | Started | — | Red phase |
+| 2026-09-14T08:43:10Z | PLAN-00006-STEP-06 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00006-STEP-06 - Android build check in CI` | Begin PLAN-00006-STEP-07 |
 
 ### Deviations and blockers
 
@@ -683,6 +685,9 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-14T08:41:30Z | PLAN-00006-STEP-05 | `just audit` with the two D-06 skips | Pass | advisories, bans, licenses, sources ok; deny.toml adds exactly foldhash@0.1.5 and hashbrown@0.16.1 |
 | 2026-09-14T08:41:30Z | PLAN-00006-STEP-05 | `cargo test -p passalong` | Pass | 143 unit tests: state (movement and clamping, / filter on id, name or preview, device, kind, Enter keeps and Esc clears it, Enter/c/g actions, d then y deletes and other keys keep, r reload, q/Esc/Ctrl-C quit, selection in range after remove and replace), view via TestBackend (columns, > selection, age, item count, key hints, filter, question, status lines), run_picker over a fake screen (Enter chooses Load, q quits, d y deletes from the store and the list stays open, a delete of an item removed behind its back shows "cannot delete"), perform runs load/cat/get code (clipboard, download dir, output); 30 binary tests incl. choose_needs_a_terminal. First run failed a view test that assumed the wrong sample order; fixed in the test |
 | 2026-09-14T08:41:30Z | PLAN-00006-STEP-05 | `just check`; doc consistency; release binary size | Pass | Lines 92.53% (choose/state.rs 98.51%, view.rs 100%, mod.rs 85.26%: the real terminal screen is not run in tests); 14 subcommands documented; release binary 8,791,240 to 9,098,144 bytes (+299 KiB, 3%) |
+| 2026-09-14T08:43:10Z | PLAN-00006-STEP-06 | `just lint-workflows` (actionlint) with the android job | Pass | no findings |
+| 2026-09-14T08:43:10Z | PLAN-00006-STEP-06 | `just android-check` without ANDROID_NDK_HOME or ANDROID_NDK_LATEST_HOME | Exit 1 (expected) | error: set ANDROID_NDK_HOME to an Android NDK (see docs/developer-guide.md, Android); no NDK on this machine, so the check itself is proved by the CI job |
+| 2026-09-14T08:43:10Z | PLAN-00006-STEP-06 | Doc consistency; `just check` | Pass | 14 subcommands, 20 recipes (android-check documented), links ok; lines 92.53% |
 
 ### Completion summary
 

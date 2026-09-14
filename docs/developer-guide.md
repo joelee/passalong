@@ -43,6 +43,7 @@ tests/docker/         OpenSSH server for the integration tests
 | `just links` | `scripts/check-links.sh`: relative links and heading anchors resolve, links to `main` name existing paths, and crate READMEs use only absolute links, because crates.io cannot resolve relative ones |
 | `just check` | `fmt-check`, `lint`, `links`, `test`, `coverage`, `build` |
 | `just audit` | `cargo deny check`: advisories, licences, duplicate crates, and sources per `deny.toml` |
+| `just android-check` | `cargo check` of `passalong-core` and `passalong-ssh` for `aarch64-linux-android` without default features; needs the Android NDK (see Android) |
 | `just lint-workflows` | `actionlint` on the GitHub Actions workflows, or its Docker image when not installed |
 | `just ci` | `check`, `audit`, `publish-dry-run`, `lint-workflows`, `test-integration`, `test-deploy`, `coverage-full` |
 | `just docker-build` | Builds the `passalong:dev` image |
@@ -52,7 +53,43 @@ tests/docker/         OpenSSH server for the integration tests
 
 CI runs `just ci` on Linux and `just check` on macOS, because GitHub's macOS
 runners have no Docker. A third job runs the desktop clipboard tests under a
-virtual X server (Xvfb).
+virtual X server (Xvfb), and a fourth runs `just android-check` with the
+runner's preinstalled Android NDK.
+
+## Android
+
+There is no Android client yet, but `passalong-core` and `passalong-ssh`
+must keep building for it: `just android-check` checks them for
+`aarch64-linux-android` without default features, so without the desktop
+clipboard (`arboard` has no Android support). CI runs it on every push;
+running it locally needs:
+
+1. The Rust target for the pinned toolchain:
+
+   ```sh
+   rustup target add aarch64-linux-android
+   ```
+
+2. The Android NDK, r26 or later. Install it with Android Studio's SDK
+   Manager ("NDK (Side by side)") or with the command-line tools:
+
+   ```sh
+   sdkmanager "ndk;27.2.12479018"
+   ```
+
+3. `ANDROID_NDK_HOME` pointing at it, for example
+   `~/Android/Sdk/ndk/27.2.12479018`. The recipe also accepts
+   `ANDROID_NDK_LATEST_HOME`, which GitHub's runners set.
+
+4. A Linux or macOS host with an x86_64 or Apple Silicon CPU, which the
+   NDK's prebuilt `linux-x86_64` and `darwin-x86_64` toolchains cover.
+
+The NDK is needed because `ring`, the crypto library under `russh`,
+compiles C code for the target; the recipe points `cc` at the NDK's clang
+for API level 24 (Android 7.0) and its `llvm-ar`. It only checks the code
+(`cargo check`): nothing is linked or run on a device. `passalong-ssh`
+uses `ring` rather than `aws-lc-rs` so that no CMake or extra toolchain is
+needed.
 
 ## Test-driven workflow
 

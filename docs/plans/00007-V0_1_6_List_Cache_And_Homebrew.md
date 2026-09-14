@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00007-v0.1.6"
 execution_started_at: "2026-09-14T18:19:15Z"
-execution_updated_at: "2026-09-14T18:50:27Z"
+execution_updated_at: "2026-09-14T19:08:24Z"
 execution_completed_at: null
-current_step: "PLAN-00007-STEP-06"
+current_step: "PLAN-00007-STEP-07"
 ---
 
 # Delivery Plan 00007: V0 1 6 List Cache And Homebrew
@@ -666,7 +666,7 @@ also commits in `../homebrew-oss`. Docker tests run at STEP-04 and STEP-09.
 | PLAN-00007-STEP-03 | completed | 2026-09-14T18:26:03Z | 2026-09-14T18:34:16Z | Commit `build: complete PLAN-00007-STEP-03 - serve refreshes the cache`; refresh_loop tests (start, interval, kept file on error, reconnect, stop); StatePaths.cache tests on both platforms; binary test: no cache for local | The loop starts once serve reports ready, over its own connection; list_cache_identity gates it on the ssh backend and serve.list_cache. |
 | PLAN-00007-STEP-04 | completed | 2026-09-14T18:34:27Z | 2026-09-14T18:47:03Z | Commit `build: complete PLAN-00007-STEP-04 - list uses the cache; commands keep it current`; list unit tests (fresh cache opens nothing; old or other-store cache reads and writes; --nocache); list_cache tests (apply, refresh, unwritable cache fails nothing); local binary no-connection test; Docker cache test | CacheFile and the Recording store wrapper live in crates/passalong-cli/src/list_cache.rs; commands are unchanged apart from list. |
 | PLAN-00007-STEP-05 | completed | 2026-09-14T18:47:03Z | 2026-09-14T18:50:27Z | Commit `build: complete PLAN-00007-STEP-05 - choose opens from the cache; r and R`; run_picker tests with a Lister over a cache file and a ManualClock; state test for R; help lists R | d keeps reading the server after a delete, through the cache so it is rewritten too. |
-| PLAN-00007-STEP-06 | not-started | — | — | — | — |
+| PLAN-00007-STEP-06 | completed | 2026-09-14T18:50:27Z | 2026-09-14T19:08:24Z | Commit `build: complete PLAN-00007-STEP-06 - Homebrew formula in the tap`; homebrew/brew install, test, and both audits exit 0; tap commit 7930f4d on add-passalong | AC-10 completes when the user pushes add-passalong and the tap's macOS workflow passes. |
 | PLAN-00007-STEP-07 | not-started | — | — | — | — |
 | PLAN-00007-STEP-08 | not-started | — | — | — | — |
 | PLAN-00007-STEP-09 | not-started | — | — | — | — |
@@ -689,6 +689,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-14T18:47:03Z | PLAN-00007-STEP-04 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00007-STEP-04 - list uses the cache; commands keep it current` | Begin PLAN-00007-STEP-05 |
 | 2026-09-14T18:47:03Z | PLAN-00007-STEP-05 | Started | — | Red phase |
 | 2026-09-14T18:50:27Z | PLAN-00007-STEP-05 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00007-STEP-05 - choose opens from the cache; r and R` | Begin PLAN-00007-STEP-06 |
+| 2026-09-14T18:50:27Z | PLAN-00007-STEP-06 | Started | — | Red phase |
+| 2026-09-14T19:08:24Z | PLAN-00007-STEP-06 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00007-STEP-06 - Homebrew formula in the tap` | Begin PLAN-00007-STEP-07 |
 
 ### Deviations and blockers
 
@@ -697,6 +699,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-14T18:47:03Z | PLAN-00007-STEP-04 | The Docker test cannot stop the shared SSH container without breaking tests running beside it, so 'list works with no connection' is proved by a local binary test whose ssh config points at 127.0.0.1:1, where nothing listens, and where list --nocache fails. The Docker test proves the cache follows clipboard, delete, and get, and that list prints the same from the cache as with --nocache. | Stronger no-connection evidence (no server exists at all); the ssh round trip is still covered in Docker. | Builder |
 | 2026-09-14T18:47:03Z | PLAN-00007-STEP-04 | An old cache of the same store is refreshed (one id listing plus new metadata) rather than read in full; --nocache reads every item's metadata. | Same output with fewer round trips, per D-01. | Builder |
 | 2026-09-14T18:50:27Z | PLAN-00007-STEP-05 | choose still connects before it shows the list, because g, d, R, and the actions need the store; the cache saves the listing time (one metadata read per item) but not the connection time. | Most of the 3 to 5 s wait on a mobile connection is the listing; a lazy connection could follow in a later release. | Builder |
+| 2026-09-14T19:08:24Z | PLAN-00007-STEP-06 | Homebrew 7.0.1 refuses formulae from untrusted taps, and a tap cloned from a local folder cannot be trusted by name (brew trust joelee/oss was recorded but ignored). The container validation and the tap's workflow set HOMEBREW_NO_REQUIRE_TAP_TRUST=1, which Homebrew calls deprecated but honours. Users of the GitHub tap run brew trust joelee/oss and brew tap joelee/oss once, verified in the container with cli-bot; the tap README and passalong's README say so. | The tap workflow keeps working for every formula on Homebrew 7; users need one extra command. The workflow change also affects cli-bot and gmail-tool. | Builder |
 
 ### Verification results
 
@@ -716,6 +719,10 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-14T18:47:03Z | PLAN-00007-STEP-04 | just check | pass | exit 0; line coverage 92.44 %, list_cache.rs 98.19 %, commands/list.rs 96.89 % |
 | 2026-09-14T18:50:26Z | PLAN-00007-STEP-05 | cargo test -p passalong choose | pass | choose tests passed, including a fresh cache opening with 'cached 30 s ago', r reloading the file, R reading the server and saving the cache, and an old cache showing Loading... |
 | 2026-09-14T18:50:26Z | PLAN-00007-STEP-05 | just check | pass | exit 0; line coverage 92.48 %, choose/mod.rs 90.46 %, choose/view.rs 100 % |
+| 2026-09-14T19:08:24Z | PLAN-00007-STEP-06 | brew audit --strict --new / brew install --build-from-source joelee/oss/passalong in homebrew/brew, tap without the formula | pass | fails first as expected: both exit 1, 'No available formula or cask with the name joelee/oss/passalong' |
+| 2026-09-14T19:08:24Z | PLAN-00007-STEP-06 | homebrew/brew (Homebrew 7.0.1): brew install --build-from-source, brew test, brew audit --strict --new, brew audit --strict for joelee/oss/passalong | pass | all exit 0; the test runs --version, then stores and prints text through a local store |
+| 2026-09-14T19:08:24Z | PLAN-00007-STEP-06 | git -C ../homebrew-oss log -1 | pass | 7930f4d 'Add the passalong formula' on add-passalong, not pushed |
+| 2026-09-14T19:08:24Z | PLAN-00007-STEP-06 | just check | pass | exit 0; passalong changes only in the work log for this step |
 
 ### Completion summary
 

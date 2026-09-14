@@ -54,7 +54,7 @@ Every invocation goes through the same start-up:
 | `delete` | Resolves every id first, then `Store::delete` for each |
 | `prune` | `Store::list`, selects items older than `--older-than` beyond the newest `--keep`, confirms, deletes, then `Store::clean_staging` |
 | `init` | Fetches the server host key without authenticating, asks you to confirm its fingerprint, writes the config file, then runs `Store::list` as a connection test |
-| `check` | Loads the config, opens the backend, `Store::list_ids`, then `Store::probe_write`, printing one line per step |
+| `check` | Loads the config, opens the backend, `Store::list_ids`, then `Store::probe_write`, printing one line per step, then reads `serve`'s pid lock |
 | `service-install` | Writes a systemd user unit or launchd agent for `serve` and loads it with `systemctl --user` or `launchctl` |
 | `service-remove` | Stops the service and removes its unit |
 

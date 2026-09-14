@@ -67,13 +67,15 @@ passalong init --host nas.local --fingerprint SHA256:5Si4lWKPwa0+I2wCQf3eOtcF8jW
 
 ## `passalong check`
 
-Checks the setup in four steps and prints one line for each:
+Checks the setup in four steps, printing one line for each, then reports
+whether `serve` is running:
 
 ```text
 config         ok    /home/me/.config/passalong/config.toml
 server         ok    ssh passalong@192.168.1.10:22, /srv/passalong
 storage read   ok    12 items
 storage write  ok    wrote and removed a probe in tmp/
+serve          ok    running (pid 4242)
 ```
 
 - `config`: the config file is found and valid.
@@ -83,6 +85,9 @@ storage write  ok    wrote and removed a probe in tmp/
 - `storage write`: a small probe file is written under the store's `tmp/`
   folder and removed again. Listings and other devices never see it, so it
   does not reach pull mode.
+- `serve`: whether `serve` is running on this machine, as `serve --status`
+  reports it. It is informational: `off` is not a failure, and the line is
+  shown even when a check failed.
 
 The first failure is shown as `FAIL` with the reason, the remaining checks
 as `skip`, and `check` exits with 1 and an `error: check failed: ...` line.

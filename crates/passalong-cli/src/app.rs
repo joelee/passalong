@@ -274,7 +274,11 @@ async fn check(cli: &Cli, env: &dyn EnvProvider, out: &mut dyn Write) -> anyhow:
     let mut backends = BackendRegistry::with_builtin();
     passalong_ssh::register(&mut backends);
     let span = telemetry::op_span("check", &mut StdRandom::new());
-    commands::check::run(loaded, &backends, out)
+    let serve = crate::daemon::StatePaths::resolve(env, crate::daemon::Os::current())
+        .context("cannot find serve's pid file: set HOME")
+        .and_then(|paths| crate::daemon::status(&paths.pid).map_err(anyhow::Error::from))
+        .map_err(|err| format!("{err:#}"));
+    commands::check::run(loaded, &backends, serve, out)
         .instrument(span)
         .await
 }

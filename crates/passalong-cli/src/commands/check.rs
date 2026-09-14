@@ -7,6 +7,8 @@ use async_trait::async_trait;
 use passalong_core::config::Config;
 use passalong_core::store::{BackendRegistry, Store, StoreError, WriteProbe};
 
+use crate::daemon::Status;
+
 /// Opens the store a config names; [`BackendRegistry`] in production.
 #[async_trait]
 pub trait Opener: Send + Sync {
@@ -53,8 +55,28 @@ impl Report<'_> {
 /// Checks, in order, that the config loaded, that the server it names
 /// accepts a connection, that the store can be listed, and that it accepts
 /// writes, printing one line per check. The first failure marks the
-/// remaining checks skipped and ends with an error.
+/// remaining checks skipped and ends with an error. A last line always says
+/// whether `serve` runs on this machine; it is informational and never
+/// fails, so it is shown after a failure too.
 pub async fn run(
+    loaded: anyhow::Result<(PathBuf, Config)>,
+    opener: &dyn Opener,
+    serve: Result<Status, String>,
+    out: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let result = run_checks(loaded, opener, out).await;
+    let (status, detail) = match serve {
+        Ok(Status::Running { pid: Some(pid), .. }) => ("ok", format!("running (pid {pid})")),
+        Ok(Status::Running { pid: None, .. }) => ("ok", "running".to_owned()),
+        Ok(Status::NotRunning) => ("off", "not running".to_owned()),
+        Err(reason) => ("n/a", format!("cannot tell: {reason}")),
+    };
+    let line = format!("{:<15}{status:<6}{detail}", "serve");
+    writeln!(out, "{}", line.trim_end())?;
+    result
+}
+
+async fn run_checks(
     loaded: anyhow::Result<(PathBuf, Config)>,
     opener: &dyn Opener,
     out: &mut dyn Write,
@@ -177,7 +199,8 @@ mod tests {
         opened: Result<Box<dyn Store>, StoreError>,
     ) -> (anyhow::Result<()>, String) {
         let mut out = Vec::new();
-        let result = run(config, &FakeOpener::new(opened), &mut out).await;
+        let opener = FakeOpener::new(opened);
+        let result = run(config, &opener, Ok(Status::NotRunning), &mut out).await;
         (result, String::from_utf8(out).unwrap())
     }
 
@@ -191,7 +214,8 @@ mod tests {
             "config         ok    /etc/passalong/config.toml\n\
              server         ok    local /srv/share\n\
              storage read   ok    2 items\n\
-             storage write  ok    wrote and removed a probe in tmp/\n"
+             storage write  ok    wrote and removed a probe in tmp/\n\
+             serve          off   not running\n"
         );
     }
 
@@ -207,7 +231,8 @@ mod tests {
             "config         FAIL  no config file found\n\
              server         skip\n\
              storage read   skip\n\
-             storage write  skip\n"
+             storage write  skip\n\
+             serve          off   not running\n"
         );
         let err = result.unwrap_err().to_string();
         assert!(
@@ -228,7 +253,9 @@ mod tests {
             "{out}"
         );
         assert!(
-            out.ends_with("storage read   skip\nstorage write  skip\n"),
+            out.ends_with(
+                "storage read   skip\nstorage write  skip\nserve          off   not running\n"
+            ),
             "{out}"
         );
         let err = result.unwrap_err().to_string();
@@ -244,7 +271,10 @@ mod tests {
         store.fs().fail_next(FsOp::ReadDir, 1);
         let (result, out) = check(local(), Ok(store)).await;
         assert!(out.contains("storage read   FAIL  "), "{out}");
-        assert!(out.ends_with("storage write  skip\n"), "{out}");
+        assert!(
+            out.ends_with("storage write  skip\nserve          off   not running\n"),
+            "{out}"
+        );
         assert!(
             result
                 .unwrap_err()
@@ -266,6 +296,45 @@ mod tests {
                 .to_string()
                 .starts_with("check failed: storage write")
         );
+    }
+
+    #[tokio::test]
+    async fn the_serve_line_reports_the_pid_lock_without_affecting_the_result() {
+        for (serve, line) in [
+            (
+                Ok(Status::Running {
+                    pid: Some(4242),
+                    ready: true,
+                }),
+                "serve          ok    running (pid 4242)\n",
+            ),
+            (
+                Ok(Status::Running {
+                    pid: None,
+                    ready: false,
+                }),
+                "serve          ok    running\n",
+            ),
+            (Ok(Status::NotRunning), "serve          off   not running\n"),
+            (
+                Err("pid file unreadable".to_owned()),
+                "serve          n/a   cannot tell: pid file unreadable\n",
+            ),
+        ] {
+            let (_dir, store) = store(0).await;
+            let mut out = Vec::new();
+            let opener = FakeOpener::new(Ok(store));
+            run(local(), &opener, serve.clone(), &mut out)
+                .await
+                .unwrap();
+            let out = String::from_utf8(out).unwrap();
+            assert!(out.ends_with(line), "{out}");
+            let mut out = Vec::new();
+            let opener = FakeOpener::new(Err(StoreError::Backend("unused".into())));
+            let failed = run(Err(anyhow::anyhow!("no config")), &opener, serve, &mut out).await;
+            assert!(failed.is_err());
+            assert!(String::from_utf8(out).unwrap().ends_with(line));
+        }
     }
 
     /// A store relying on the trait's default `probe_write`.
@@ -320,7 +389,7 @@ mod tests {
         result.unwrap();
         assert!(out.contains("storage read   ok    0 items\n"), "{out}");
         assert!(
-            out.ends_with("storage write  n/a   not supported by this backend\n"),
+            out.contains("storage write  n/a   not supported by this backend\n"),
             "{out}"
         );
     }

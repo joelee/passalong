@@ -419,6 +419,9 @@ async fn check_reports_each_step_and_fails_at_the_first_problem() {
             .and(predicate::str::contains("storage read   ok    1 item\n"))
             .and(predicate::str::contains(
                 "storage write  ok    wrote and removed a probe in tmp/\n",
+            ))
+            .and(predicate::str::ends_with(
+                "serve          off   not running\n",
             )),
     );
     sb.with_config()
@@ -433,7 +436,10 @@ async fn check_reports_each_step_and_fails_at_the_first_problem() {
         .code(1)
         .stdout(
             predicate::str::contains("config         FAIL  ")
-                .and(predicate::str::ends_with("storage write  skip\n")),
+                .and(predicate::str::contains("storage write  skip\n"))
+                .and(predicate::str::ends_with(
+                    "serve          off   not running\n",
+                )),
         )
         .stderr(predicate::str::contains("error: check failed: config"));
     #[cfg(unix)]
@@ -887,6 +893,13 @@ fn serve_daemon_starts_reports_refuses_a_second_copy_and_stops() {
         .assert()
         .success()
         .stdout(predicate::str::starts_with(format!("running (pid {pid}")));
+    sb.with_config()
+        .arg("check")
+        .assert()
+        .success()
+        .stdout(predicate::str::ends_with(format!(
+            "serve          ok    running (pid {pid})\n"
+        )));
     let busy = format!("serve is already running (pid {pid})");
     sb.with_config()
         .args(["serve", "--daemon"])

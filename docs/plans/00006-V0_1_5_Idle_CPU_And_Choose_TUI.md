@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00006-v0.1.5"
 execution_started_at: "2026-09-14T08:16:47Z"
-execution_updated_at: "2026-09-14T08:28:58Z"
+execution_updated_at: "2026-09-14T08:32:03Z"
 execution_completed_at: null
-current_step: "PLAN-00006-STEP-04"
+current_step: "PLAN-00006-STEP-05"
 ---
 
 # Delivery Plan 00006: V0 1 5 Idle CPU And Choose TUI
@@ -627,7 +627,7 @@ STEP-04 and STEP-08.
 | PLAN-00006-STEP-01 | completed | 2026-09-14T08:16:47Z | 2026-09-14T08:22:28Z | Commit `build: complete PLAN-00006-STEP-01 - Drop watcher ignores its own scans`; `just check` green, 92.48% lines; idle 136.45 % to 0.00 % CPU | AC-01. Cause confirmed: notify 8.2 inotify reports OPEN and CLOSE_NOWRITE as Access events, and every scan opened the folder. watch_folder now forwards only events for which is_change is true (all but Access, plus Access(Close(Write))). Architecture drop watcher bullet and CHANGELOG Fixed entry updated |
 | PLAN-00006-STEP-02 | completed | 2026-09-14T08:22:51Z | 2026-09-14T08:24:43Z | Commit `build: complete PLAN-00006-STEP-02 - Idle tuning`; `just check` green, 92.48% lines | AC-02: idle after this plan is 0.00 % (no clipboard) and 0.10 % (X11 clipboard with text); step 1 of D-09 applies (at most 1 %: record and change nothing) |
 | PLAN-00006-STEP-03 | completed | 2026-09-14T08:25:01Z | 2026-09-14T08:28:58Z | Commit `build: complete PLAN-00006-STEP-03 - service-install and service-remove`; `just check` green, 92.48% lines | AC-03. commands/install_service.rs renamed to commands/service_install.rs (run for install, pub remove for removal); app::service handles both; generated unit and plist headers name service-remove; docs/service, README, usage (new service-remove section), architecture, CHANGELOG Unreleased entry rewritten |
-| PLAN-00006-STEP-04 | not-started | — | — | — | — |
+| PLAN-00006-STEP-04 | completed | 2026-09-14T08:29:40Z | 2026-09-14T08:32:03Z | Commit `build: complete PLAN-00006-STEP-04 - check reports serve`; `just check` green, 92.54% lines; Docker tests pass | AC-04. check::run takes the serve state (Result<Status, String>); the four checks moved into run_checks, and the serve line always follows them; app reads the pid lock through StatePaths and daemon::status. Usage, architecture, CHANGELOG updated |
 | PLAN-00006-STEP-05 | not-started | — | — | — | — |
 | PLAN-00006-STEP-06 | not-started | — | — | — | — |
 | PLAN-00006-STEP-07 | not-started | — | — | — | — |
@@ -647,6 +647,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-14T08:24:43Z | PLAN-00006-STEP-02 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00006-STEP-02 - Idle tuning` | Begin PLAN-00006-STEP-03 |
 | 2026-09-14T08:25:01Z | PLAN-00006-STEP-03 | Started | — | Red phase |
 | 2026-09-14T08:28:58Z | PLAN-00006-STEP-03 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00006-STEP-03 - service-install and service-remove` | Begin PLAN-00006-STEP-04 |
+| 2026-09-14T08:29:40Z | PLAN-00006-STEP-04 | Started | — | Red phase |
+| 2026-09-14T08:32:03Z | PLAN-00006-STEP-04 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00006-STEP-04 - check reports serve` | Begin PLAN-00006-STEP-05 |
 
 ### Deviations and blockers
 
@@ -671,6 +673,10 @@ None.
 | 2026-09-14T08:28:58Z | PLAN-00006-STEP-03 | `cargo test -p passalong` | Pass | 129 unit tests (service-install and service-remove parse; install-service and service-install --uninstall rejected; systemd and launchd remove via the new remove(); headers name service-remove; UNSUPPORTED names both commands); 29 binary tests incl. service_install_writes_a_systemd_unit_and_service_remove_removes_it (fake systemctl) |
 | 2026-09-14T08:28:58Z | PLAN-00006-STEP-03 | `scripts/check-links.sh`; `git grep install-service` outside plans, release notes, backlog, CHANGELOG history | Pass | links ok: 29 files; the only remaining mentions are the two tests asserting the old name and --uninstall are rejected |
 | 2026-09-14T08:28:58Z | PLAN-00006-STEP-03 | `just check` | Exit 0 | Lines 92.48% |
+| 2026-09-14T08:32:03Z | PLAN-00006-STEP-04 | Red: `cargo test -p passalong --no-run` with the serve-line tests | Exit 101 (expected) | E0061 run takes 3 arguments but 4 were supplied (3), E0433 Status not in scope (4) |
+| 2026-09-14T08:32:03Z | PLAN-00006-STEP-04 | `cargo test -p passalong` | Pass | 130 unit tests incl. the_serve_line_reports_the_pid_lock_without_affecting_the_result (running with and without pid, not running, unreadable; after success and after a config failure, result unchanged); 29 binary tests: check ends with "serve          off   not running", and with a serve --daemon running ends with "serve          ok    running (pid N)". First run failed one test still expecting storage write as the last line; fixed |
+| 2026-09-14T08:32:03Z | PLAN-00006-STEP-04 | `just test-integration` (Docker) | Exit 0 | check_passes_against_the_server_and_fails_on_a_wrong_host_key passes with the fifth line |
+| 2026-09-14T08:32:03Z | PLAN-00006-STEP-04 | `just check` | Exit 0 | Lines 92.54% |
 
 ### Completion summary
 

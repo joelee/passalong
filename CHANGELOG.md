@@ -14,7 +14,8 @@ All notable changes to this project are documented here. The format follows
   it (PLAN-00005 STEP-06, renamed in PLAN-00006 STEP-03).
 - `passalong check` checks the config, the connection with its pinned host
   key, and that the store can be read and written, one line per check
-  (PLAN-00005 STEP-05).
+  (PLAN-00005 STEP-05); a last line reports whether `serve` is running
+  (PLAN-00006 STEP-04).
 - `Store::probe_write` and `WriteProbe` in `passalong-core`; the default
   reports `NotSupported`, so existing implementations keep compiling
   (PLAN-00005 STEP-05).

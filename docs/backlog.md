@@ -13,6 +13,20 @@ Future work not covered by an active plan. Completed items are removed.
 
 ### Features
 
+- **`serve` keeps the item list cached.** Requested by @joelee: over a
+  mobile connection, `list` and `choose` can take 3 to 5 seconds. Each
+  one-shot command opens its own SSH connection, then `Store::list` reads
+  every item's `meta.json`, one SFTP round trip per item, so the time grows
+  with the store and the latency. `serve` already reads the ids at every
+  pull interval and keeps a connection open. To discuss: `serve` keeps the
+  metadata of every item in memory, updated from `list_ids` and `get_meta`
+  for new ids and from its own sends and deletes, and answers `list`,
+  `choose`, `get`, and id lookups over a local socket in its state
+  directory, which only the user can open. Commands fall back to reading
+  the store when `serve` is not running, or when its answer is older than
+  an agreed age. Related options: reading the `meta.json` files in
+  parallel, which helps without `serve`, and "Connection reuse" below.
+
 - **Encryption at rest.** Encrypt content before upload, for example with
   `age`, so the server operator cannot read items.
 - **ssh-agent authentication.** Use keys held by an agent instead of an

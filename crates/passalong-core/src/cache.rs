@@ -5,13 +5,18 @@
 use std::collections::HashSet;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, TimeDelta, Utc};
 use serde::{Deserialize, Serialize};
+use tokio::sync::watch;
+use tokio::time::MissedTickBehavior;
 
+use crate::clock::Clock;
 use crate::config::Config;
 use crate::model::{ItemId, ItemMeta};
+use crate::serve::{StoreOpener, stopped};
 use crate::store::{Store, StoreError};
 
 /// The cache file's format version. A file with another version is ignored.
@@ -164,6 +169,86 @@ impl ListCache {
     }
 }
 
+/// Keeps the cache in `path` current for `serve`: one refresh at start,
+/// then one every `interval`, over a store connection of its own. A saved
+/// cache of the same store is refreshed rather than read again. After an
+/// error the file keeps its last good contents and the store is reopened at
+/// the next check; each distinct error is logged once. Returns once
+/// `shutdown` turns `true` or its sender is dropped.
+pub async fn refresh_loop(
+    open_store: StoreOpener,
+    path: PathBuf,
+    identity: String,
+    interval: Duration,
+    clock: Arc<dyn Clock>,
+    mut shutdown: watch::Receiver<bool>,
+) {
+    let mut cache = ListCache::load(&path).filter(|cache| cache.store == identity);
+    let mut store: Option<Box<dyn Store>> = None;
+    let mut ticker = tokio::time::interval(interval);
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    let mut last_error: Option<String> = None;
+    loop {
+        tokio::select! {
+            () = stopped(&mut shutdown) => return,
+            _ = ticker.tick() => {}
+        }
+        let refreshed = tokio::select! {
+            () = stopped(&mut shutdown) => return,
+            refreshed = refresh_once(&open_store, &mut store, &mut cache, &identity, clock.now()) => refreshed,
+        };
+        let outcome = refreshed
+            .map_err(|err| format!("cannot read the store: {err}"))
+            .and_then(|()| match &cache {
+                Some(cache) => cache
+                    .save(&path)
+                    .map(|()| cache.items.len())
+                    .map_err(|err| format!("cannot write {}: {err}", path.display())),
+                None => Ok(0),
+            });
+        match outcome {
+            Ok(items) => {
+                last_error = None;
+                tracing::debug!(items = items as u64, "list cache refreshed");
+            }
+            Err(message) => {
+                if last_error.as_deref() != Some(message.as_str()) {
+                    tracing::warn!(
+                        error = message.as_str(),
+                        "list cache not refreshed; retrying at the next check"
+                    );
+                    last_error = Some(message);
+                }
+            }
+        }
+    }
+}
+
+/// One refresh, opening the store first when there is none. The store is
+/// kept only when the refresh succeeds, so a failure reconnects next time.
+async fn refresh_once(
+    open_store: &StoreOpener,
+    store: &mut Option<Box<dyn Store>>,
+    cache: &mut Option<ListCache>,
+    identity: &str,
+    now: DateTime<Utc>,
+) -> Result<(), StoreError> {
+    let connected = match store.take() {
+        Some(connected) => connected,
+        None => open_store().await?,
+    };
+    let result = match cache.as_mut() {
+        Some(cache) => cache.refresh(connected.as_ref(), now).await,
+        None => ListCache::read(connected.as_ref(), identity.to_owned(), now)
+            .await
+            .map(|fresh| *cache = Some(fresh)),
+    };
+    if result.is_ok() {
+        *store = Some(connected);
+    }
+    result
+}
+
 /// Ids start with their creation time, so the largest id is the newest.
 fn sort_newest_first(items: &mut [ItemMeta]) {
     items.sort_by(|a, b| b.id.cmp(&a.id));
@@ -190,12 +275,12 @@ mod tests {
     use crate::fs::LocalFs;
     use crate::model::NewItem;
     use crate::random::StdRandom;
-    use crate::store::FsStore;
+    use crate::store::{BackendFuture, FsStore};
     use crate::testing::{FaultyFs, FsOp, ManualClock, MapEnv};
     use chrono::TimeDelta;
     use std::io::Cursor;
     use std::path::Path;
-    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use tempfile::TempDir;
 
     const T: &str = "2026-09-14T12:00:00Z";
@@ -350,6 +435,102 @@ mod tests {
             ids(&cache.items),
             [items[0].id.clone(), items[2].id.clone()]
         );
+    }
+
+    /// Opens local stores on `root`, counting the opens.
+    fn opener(root: &Path, clock: Arc<ManualClock>, opens: Arc<AtomicUsize>) -> StoreOpener {
+        let root = root.to_path_buf();
+        Arc::new(move || -> BackendFuture<'static> {
+            opens.fetch_add(1, Ordering::SeqCst);
+            let store: Box<dyn Store> = Box::new(FsStore::new(
+                LocalFs::new(root.clone()),
+                clock.clone(),
+                Box::new(StdRandom::new()),
+            ));
+            Box::pin(async move { Ok(store) })
+        })
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_refresh_loop_writes_at_start_and_every_interval_and_keeps_the_file_on_error() {
+        let (dir, store, items) = fixture(&["a", "b"]).await;
+        let clock = Arc::new(ManualClock::at(T));
+        let opens = Arc::new(AtomicUsize::new(0));
+        let path = dir.path().join("state/list-cache.json");
+        let every = Duration::from_secs(60);
+        let (stop, stopped) = watch::channel(false);
+        let task = tokio::spawn(refresh_loop(
+            opener(dir.path(), clock.clone(), opens.clone()),
+            path.clone(),
+            "s".into(),
+            every,
+            clock.clone(),
+            stopped,
+        ));
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let first = ListCache::load(&path).expect("written at start");
+        assert_eq!((first.store.as_str(), &first.items), ("s", &items));
+        assert_eq!(first.checked_at, now());
+
+        store
+            .put(NewItem::text("box"), Box::new(Cursor::new(b"c".to_vec())))
+            .await
+            .unwrap();
+        clock.advance(60);
+        tokio::time::sleep(every).await;
+        let second = ListCache::load(&path).expect("written again");
+        assert_eq!(second.items.len(), 3, "the new item is listed");
+        assert_eq!(second.checked_at, now() + TimeDelta::seconds(60));
+
+        // The items folder turns into a file: listing it fails.
+        let items_dir = dir.path().join("items");
+        std::fs::rename(&items_dir, dir.path().join("away")).unwrap();
+        std::fs::write(&items_dir, b"not a folder").unwrap();
+        clock.advance(60);
+        tokio::time::sleep(every).await;
+        assert_eq!(ListCache::load(&path).as_ref(), Some(&second), "kept");
+
+        std::fs::remove_file(&items_dir).unwrap();
+        std::fs::rename(dir.path().join("away"), &items_dir).unwrap();
+        clock.advance(60);
+        tokio::time::sleep(every).await;
+        let recovered = ListCache::load(&path).expect("written after the error");
+        assert_eq!(recovered.checked_at, now() + TimeDelta::seconds(180));
+        assert_eq!(recovered.items, second.items);
+        assert_eq!(opens.load(Ordering::SeqCst), 2, "reopened after the error");
+
+        stop.send(true).unwrap();
+        tokio::time::timeout(Duration::from_secs(1), task)
+            .await
+            .expect("the loop stops")
+            .unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_refresh_loop_replaces_a_cache_of_another_store_and_stops_with_its_sender() {
+        let (dir, _store, items) = fixture(&["a"]).await;
+        let clock = Arc::new(ManualClock::at(T));
+        let path = dir.path().join("list-cache.json");
+        ListCache::new("other".into(), now(), Vec::new())
+            .save(&path)
+            .unwrap();
+        let (stop, stopped) = watch::channel(false);
+        let task = tokio::spawn(refresh_loop(
+            opener(dir.path(), clock.clone(), Arc::default()),
+            path.clone(),
+            "s".into(),
+            Duration::from_secs(60),
+            clock,
+            stopped,
+        ));
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let cache = ListCache::load(&path).unwrap();
+        assert_eq!((cache.store.as_str(), cache.items), ("s", items));
+        drop(stop);
+        tokio::time::timeout(Duration::from_secs(1), task)
+            .await
+            .expect("the loop stops")
+            .unwrap();
     }
 
     #[tokio::test]

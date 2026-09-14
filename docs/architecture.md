@@ -188,7 +188,7 @@ that lists the candidates.
 
 ## `serve`
 
-`serve` runs three cooperating tasks:
+`serve` runs these cooperating tasks:
 
 - **Clipboard watcher.** Reads the clipboard every poll interval and queues
   text whose SHA-256 differs from the last text seen. Blank text is ignored.
@@ -222,6 +222,16 @@ that lists the candidates.
   checks whether that content key is already stored, which is how text that
   `load` just put on the clipboard is not sent back. After a file is sent,
   it moves to `sent/` or is deleted.
+- **List cache refresh** (only with the ssh backend and
+  `serve.list_cache = true`). Once `serve` is ready, it opens a store
+  connection of its own and brings `list-cache.json` in the state folder up
+  to date at once and then every `serve.list_cache_check_secs`: one
+  `Store::list_ids`, then `Store::get_meta` for new ids only, dropping ids
+  no longer stored. A saved cache of the same store is refreshed rather than
+  read again. Each result is written, readable by its owner only, through a
+  temporary file and a rename. After an error the file keeps its last good
+  contents, the error is logged once, and the store is reopened at the next
+  check. `serve`'s own sends appear at its next refresh.
 
 A failed upload is retried after 1, 2, 4 … seconds, capped at 60, and the
 store is reopened before each retry so a dropped SSH connection recovers.

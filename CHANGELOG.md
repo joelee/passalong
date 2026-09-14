@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `serve` keeps the list cache current for the ssh backend: at start and
+  every `serve.list_cache_check_secs`, over a connection of its own
+  (`passalong_core::cache::refresh_loop`, PLAN-00007 STEP-03).
 - `passalong_core::cache::ListCache`: a local copy of a store's item list,
   refreshed with one id listing plus new metadata, and the `serve.list_cache`
   and `serve.list_cache_check_secs` settings (PLAN-00007 STEP-02).

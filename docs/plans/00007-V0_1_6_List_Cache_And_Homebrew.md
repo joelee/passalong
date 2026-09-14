@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00007-v0.1.6"
 execution_started_at: "2026-09-14T18:19:15Z"
-execution_updated_at: "2026-09-14T18:25:33Z"
+execution_updated_at: "2026-09-14T18:34:16Z"
 execution_completed_at: null
-current_step: "PLAN-00007-STEP-03"
+current_step: "PLAN-00007-STEP-04"
 ---
 
 # Delivery Plan 00007: V0 1 6 List Cache And Homebrew
@@ -663,7 +663,7 @@ also commits in `../homebrew-oss`. Docker tests run at STEP-04 and STEP-09.
 |---|---|---|---|---|---|
 | PLAN-00007-STEP-01 | completed | 2026-09-14T18:19:15Z | 2026-09-14T18:21:10Z | Commit `build: complete PLAN-00007-STEP-01 - Timed write probe`; `just check` green, 92.70% lines | AC-08. store::PROBE_BYTES = 128 (new public constant); FsStore writes probe_content (128 bytes); check times the whole probe_write call and prints probe_line; WriteProbe unchanged. Usage (example and note on latency), architecture, CHANGELOG updated |
 | PLAN-00007-STEP-02 | completed | 2026-09-14T18:21:28Z | 2026-09-14T18:25:33Z | Commit `build: complete PLAN-00007-STEP-02 - The list cache and its configuration`; `just check` green, 92.83% lines | AC-01, AC-02, AC-07. New public module passalong_core::cache; ServeConfig gains list_cache and list_cache_check_secs (as pull did in v0.1.2). Configuration docs (keys and the cache file) and CHANGELOG updated |
-| PLAN-00007-STEP-03 | not-started | — | — | — | — |
+| PLAN-00007-STEP-03 | completed | 2026-09-14T18:26:03Z | 2026-09-14T18:34:16Z | Commit `build: complete PLAN-00007-STEP-03 - serve refreshes the cache`; refresh_loop tests (start, interval, kept file on error, reconnect, stop); StatePaths.cache tests on both platforms; binary test: no cache for local | The loop starts once serve reports ready, over its own connection; list_cache_identity gates it on the ssh backend and serve.list_cache. |
 | PLAN-00007-STEP-04 | not-started | — | — | — | — |
 | PLAN-00007-STEP-05 | not-started | — | — | — | — |
 | PLAN-00007-STEP-06 | not-started | — | — | — | — |
@@ -683,6 +683,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-14T18:21:10Z | PLAN-00007-STEP-01 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00007-STEP-01 - Timed write probe` | Begin PLAN-00007-STEP-02 |
 | 2026-09-14T18:21:28Z | PLAN-00007-STEP-02 | Started | — | Red phase |
 | 2026-09-14T18:25:33Z | PLAN-00007-STEP-02 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00007-STEP-02 - The list cache and its configuration` | Begin PLAN-00007-STEP-03 |
+| 2026-09-14T18:26:03Z | PLAN-00007-STEP-03 | Started | — | Red phase |
+| 2026-09-14T18:34:16Z | PLAN-00007-STEP-03 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00007-STEP-03 - serve refreshes the cache` | Begin PLAN-00007-STEP-04 |
 
 ### Deviations and blockers
 
@@ -701,6 +703,9 @@ None.
 | 2026-09-14T18:25:33Z | PLAN-00007-STEP-02 | Red: `cargo test -p passalong-core --all-features --lib` | Exit 101 (expected) | 31 errors: ListCache, CACHE_VERSION, max_age and the list_cache fields not found |
 | 2026-09-14T18:25:33Z | PLAN-00007-STEP-02 | `cargo test -p passalong-core --all-features --lib` | Pass | cache: ssh identity and none for local; save/load round trip with mode 0600 and no temporary file left; missing, invalid, newer-version files are no cache; usable only for its store within two intervals either way; refresh = 1 ReadDir + 1 OpenRead for 1 new item, drops the deleted one; failed refresh leaves the cache unchanged; apply_put/apply_delete keep newest first without duplicates; read makes a complete cache. config: defaults true/60, set false/30, 9 and 86401 rejected naming serve.list_cache_check_secs |
 | 2026-09-14T18:25:33Z | PLAN-00007-STEP-02 | `just check` | Exit 0 | Lines 92.83%; cache.rs 98.35% |
+| 2026-09-14T18:34:16Z | PLAN-00007-STEP-03 | cargo test -p passalong-core --all-features cache | pass | 10 passed, including the two refresh_loop tests under paused time |
+| 2026-09-14T18:34:16Z | PLAN-00007-STEP-03 | cargo test -p passalong serve | pass | 6 unit + 4 binary serve tests passed; serve --daemon with a local store writes no list-cache.json |
+| 2026-09-14T18:34:16Z | PLAN-00007-STEP-03 | just check | pass | exit 0; line coverage 92.28 %, cache.rs 97.68 % |
 
 ### Completion summary
 

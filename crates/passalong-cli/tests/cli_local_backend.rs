@@ -932,6 +932,12 @@ fn serve_daemon_starts_reports_refuses_a_second_copy_and_stops() {
         assert!(Instant::now() < deadline, "the daemon never sent the file");
         std::thread::sleep(Duration::from_millis(50));
     }
+    let cache = if cfg!(target_os = "macos") {
+        sb.path("home/Library/Application Support/passalong/list-cache.json")
+    } else {
+        sb.path("home/.local/state/passalong/list-cache.json")
+    };
+    assert!(!cache.exists(), "a local store needs no list cache");
 
     sb.with_config()
         .args(["serve", "--stop"])

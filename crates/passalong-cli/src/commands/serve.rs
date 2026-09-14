@@ -7,7 +7,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
+use passalong_core::cache::{self, ListCache};
 use passalong_core::clipboard::{ArboardClipboard, Clipboard};
+use passalong_core::clock::SystemClock;
 use passalong_core::config::{Config, EnvProvider};
 use passalong_core::serve::{self, ServeOptions, StoreOpener};
 use passalong_core::store::{BackendFuture, BackendRegistry};
@@ -98,11 +100,34 @@ async fn run_foreground(
     let (ready_tx, ready_rx) = oneshot::channel();
     let lock = Arc::new(lock);
     let marker = Arc::clone(&lock);
+    let refresh = list_cache_identity(config).map(|identity| {
+        let interval = Duration::from_secs(config.serve.list_cache_check_secs);
+        tracing::info!(
+            path = %paths.cache.display(),
+            every_secs = interval.as_secs(),
+            "keeping the list cache current"
+        );
+        cache::refresh_loop(
+            open_store.clone(),
+            paths.cache.clone(),
+            identity,
+            interval,
+            Arc::new(SystemClock),
+            stopped.clone(),
+        )
+    });
     tokio::spawn(async move {
-        if ready_rx.await.is_ok()
-            && let Err(err) = marker.mark_ready()
-        {
+        if ready_rx.await.is_err() {
+            return;
+        }
+        if let Err(err) = marker.mark_ready() {
             tracing::warn!(error = %err, "cannot mark serve as ready in the pid file");
+        }
+        drop(marker);
+        // Started once serve is, so a store that cannot be opened fails
+        // start-up first.
+        if let Some(refresh) = refresh {
+            refresh.await;
         }
     });
     serve::run_with_ready(
@@ -115,6 +140,12 @@ async fn run_foreground(
     .await?;
     drop(lock);
     Ok(())
+}
+
+/// The store whose list `serve` keeps, when it keeps one: the ssh backend,
+/// with `serve.list_cache` on.
+fn list_cache_identity(config: &Config) -> Option<String> {
+    ListCache::store_identity(config).filter(|_| config.serve.list_cache)
 }
 
 fn report_status(paths: &StatePaths, out: &mut dyn Write) -> anyhow::Result<()> {
@@ -255,5 +286,31 @@ async fn wait_for_stop_signal() {
     #[cfg(not(unix))]
     {
         let _ = tokio::signal::ctrl_c().await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use passalong_core::testing::MapEnv;
+
+    fn parse(text: &str) -> Config {
+        let text = format!("[client]\ndevice_name = \"t\"\n\n{text}");
+        let env = MapEnv::new().with("HOME", "/home/u");
+        passalong_core::config::parse(&text, Path::new("/c.toml"), &env).unwrap()
+    }
+
+    const SSH: &str = "[server]\nkind = \"ssh\"\n\n[server.ssh]\nhost = \"nas\"\nport = 22\nuser = \"pa\"\nhost_key = \"ssh-ed25519 AAAAkey\"\nidentity_file = \"/keys/id\"\nremote_path = \"/srv/passalong\"\n";
+
+    #[test]
+    fn only_ssh_stores_with_the_cache_on_get_a_list_cache() {
+        assert_eq!(
+            list_cache_identity(&parse(SSH)).as_deref(),
+            Some("ssh pa@nas:22 /srv/passalong")
+        );
+        let off = parse(&format!("{SSH}\n[serve]\nlist_cache = false\n"));
+        assert_eq!(list_cache_identity(&off), None);
+        let local = parse("[server]\nkind = \"local\"\n\n[server.local]\npath = \"/srv/share\"\n");
+        assert_eq!(list_cache_identity(&local), None);
     }
 }

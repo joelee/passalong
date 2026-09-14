@@ -26,6 +26,9 @@ pub struct PruneOptions {
     pub dry_run: bool,
     /// Do not ask for confirmation.
     pub yes: bool,
+    /// `--quiet`: results are hidden, so the list is shown with the
+    /// confirmation question instead.
+    pub quiet: bool,
 }
 
 fn items_word(n: usize) -> &'static str {
@@ -56,8 +59,12 @@ pub async fn run(
         writeln!(out, "nothing to prune")?;
     } else {
         let n = selected.len();
-        writeln!(out, "{n} {} to delete:", items_word(n))?;
-        out.write_all(output::render_table(&selected, offset).as_bytes())?;
+        let listing = format!(
+            "{n} {} to delete:\n{}",
+            items_word(n),
+            output::render_table(&selected, offset)
+        );
+        out.write_all(listing.as_bytes())?;
         if options.dry_run {
             writeln!(out, "dry run: nothing deleted")?;
             return Ok(());
@@ -68,6 +75,9 @@ pub async fn run(
                     "refusing to delete {n} {} without --yes when not running in a terminal",
                     items_word(n)
                 );
+            }
+            if options.quiet {
+                prompt.show(&listing)?;
             }
             if !prompt.confirm(&format!("Delete {n} {}?", items_word(n)))? {
                 writeln!(out, "nothing deleted")?;
@@ -138,6 +148,7 @@ mod tests {
             keep,
             dry_run,
             yes,
+            quiet: false,
         }
     }
 
@@ -215,6 +226,28 @@ mod tests {
         .unwrap();
         assert!(out.ends_with("deleted 2 items\n"), "{out}");
         assert_eq!(ts.store.list().await.unwrap(), remaining(&metas, &[2]));
+    }
+
+    #[tokio::test]
+    async fn quiet_still_shows_the_list_before_asking() {
+        let (ts, metas) = seeded().await;
+        let mut prompt = ScriptedPrompt::new(true, ["y"]);
+        let quiet = PruneOptions {
+            quiet: true,
+            ..opts(None, Some(1), false, false)
+        };
+        prune(&ts, &quiet, &mut prompt).await.unwrap();
+        let shown = prompt.shown();
+        assert!(shown.starts_with("2 items to delete:\n"), "{shown}");
+        assert!(shown.contains(metas[0].id.as_str()), "{shown}");
+        let (ts, _) = seeded().await;
+        let mut prompt = ScriptedPrompt::new(false, Vec::<&str>::new());
+        let quiet_yes = PruneOptions {
+            quiet: true,
+            ..opts(None, Some(1), false, true)
+        };
+        prune(&ts, &quiet_yes, &mut prompt).await.unwrap();
+        assert_eq!(prompt.shown(), "", "nothing to confirm, nothing shown");
     }
 
     #[tokio::test]

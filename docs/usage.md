@@ -10,6 +10,7 @@ the [README](../README.md#server-setup).
 |---|---|
 | `--config <PATH>` | Use this config file instead of the lookup order in [configuration](configuration.md) |
 | `--log-level <LEVEL>` | `error`, `warning`, `info`, `verbose`, or `debug`; overrides `PASSALONG_LOG_LEVEL` and `client.log_level` |
+| `-q`, `--quiet` | Print nothing but errors and prompts; `cat` still prints the item. Logging drops to `error` unless `--log-level` or `PASSALONG_LOG_LEVEL` sets a level |
 | `-h`, `--help` | Show help |
 | `-V`, `--version` | Show the version |
 
@@ -64,10 +65,39 @@ For scripts, `--yes` alone is refused so a key is never trusted blindly:
 passalong init --host nas.local --fingerprint SHA256:5Si4lWKPwa0+I2wCQf3eOtcF8jWo30BWybHoXLTxABo --yes
 ```
 
+## `passalong check`
+
+Checks the setup in four steps and prints one line for each:
+
+```text
+config         ok    /home/me/.config/passalong/config.toml
+server         ok    ssh passalong@192.168.1.10:22, /srv/passalong
+storage read   ok    12 items
+storage write  ok    wrote and removed a probe in tmp/
+```
+
+- `config`: the config file is found and valid.
+- `server`: passalong connects. For `ssh`, the server must present the
+  pinned host key and accept the login.
+- `storage read`: the storage directory can be listed.
+- `storage write`: a small probe file is written under the store's `tmp/`
+  folder and removed again. Listings and other devices never see it, so it
+  does not reach pull mode.
+
+The first failure is shown as `FAIL` with the reason, the remaining checks
+as `skip`, and `check` exits with 1 and an `error: check failed: ...` line.
+A backend that cannot test writes shows `n/a` for the last check, which is
+not a failure.
+
 ## Output and exit codes
 
 Results go to standard output; logs and errors go to standard error. A
 failure prints one line starting with `error:`.
+
+With `--quiet`, a successful command prints nothing, except `cat`, whose
+output is the item itself, so scripts can rely on the exit code. Errors are
+still printed. What a question asks about is shown with the question on
+standard error: `init`'s host-key fingerprint and `prune`'s list of items.
 
 | Exit code | Meaning |
 |---|---|
@@ -173,6 +203,9 @@ passalong cat 2cf2 | wc -l
 passalong cat 8f3a > report.pdf
 ```
 
+At the default log level nothing is written to standard error on success;
+the "item printed" record appears from `--log-level verbose`.
+
 The content is checked against the item's SHA-256 as it streams. A
 mismatch is reported with `item <ID> failed verification` and exit code 1
 after the output has been written, as `curl` does, so treat that output
@@ -188,6 +221,30 @@ error: item 8f3a9c0d-... is binary (application/pdf); redirect the output or use
 | Option | Meaning |
 |---|---|
 | `--force` | Print a binary item to the terminal anyway |
+
+## `passalong get <ID>`
+
+Prints an item's metadata, one field per line, without reading its
+content:
+
+```text
+id:      6aa52107-2cf24dba5fb0
+kind:    file
+name:    report.pdf
+mime:    application/pdf
+size:    1.5 KiB (1536 bytes)
+sha256:  2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
+device:  laptop
+created: 2026-09-12 11:53:11 +02:00 (2026-09-12T09:53:11Z)
+```
+
+Text items show a `preview` line instead of `name`. Clipboard images have
+kind `image` and an `origin: clipboard` line. The creation time is shown in
+local time and in UTC. The id works as for `load`.
+
+| Option | Meaning |
+|---|---|
+| `--json` | Print the metadata as a JSON object, the same as the item's entry in `list --json` |
 
 ## `passalong delete <ID>...`
 
@@ -292,13 +349,45 @@ Only one `serve` runs at a time: a second one exits with
 
 The background process keeps running after you close the terminal and logs
 to a file (see [configuration](configuration.md#serve-files)). For start at
-login and restarts after crashes, a service manager is still the better
-choice:
-
-- **Linux (systemd):** install `docs/service/passalong-serve.service` as a
-  user unit. Its header shows the commands.
+login and restarts after crashes, use `passalong install-service`.
 - **macOS (launchd):** install `docs/service/com.passalong.serve.plist` as a
   launch agent. Its header shows the commands.
+
+## `passalong install-service`
+
+Installs `serve` as a service that starts at login and restarts after a
+crash: a systemd user unit on Linux, a launchd agent on macOS. Run
+`passalong check` first to make sure the setup works.
+
+```sh
+passalong install-service               # write the unit, enable it, start it
+passalong install-service --uninstall   # stop it and remove the unit
+```
+
+| Platform | Unit | Loaded with |
+|---|---|---|
+| Linux | `${XDG_CONFIG_HOME:-~/.config}/systemd/user/passalong-serve.service`, logging to the journal | `systemctl --user daemon-reload`, then `systemctl --user enable --now passalong-serve.service` |
+| macOS | `~/Library/LaunchAgents/com.passalong.serve.plist`, logging to `~/Library/Logs/passalong/serve.log` | `launchctl bootstrap gui/<uid>` |
+
+The unit runs this `passalong` binary by its full path, with `--config` as
+an absolute path when you give one, from your home directory, so a
+`~/.env` holding `PASSALONG_SSH_KEY_PASSPHRASE` is found.
+
+A unit with the same content is left alone; one that differs is replaced
+only with `--force`. The service is not started while another `serve` runs:
+stop it first with `passalong serve --stop`. If `systemctl` or `launchctl`
+fails, the unit is left in place and the error names the command. Other
+platforms get `install-service supports Linux (systemd) and macOS (launchd)
+only`.
+
+| Option | Meaning |
+|---|---|
+| `--no-start` | Write the unit without enabling or starting it, and print the command that would |
+| `--force` | Replace an installed unit that differs |
+| `--uninstall` | Stop, disable, and remove the installed unit |
+
+The files in `docs/service/` are the same units with placeholder paths, for
+installing by hand.
 
 ## Clipboard support
 

@@ -3,10 +3,13 @@
 //! in-memory doubles.
 
 pub mod cat;
+pub mod check;
 pub mod clipboard;
 pub mod delete;
 pub mod file;
+pub mod get;
 pub mod init;
+pub mod install_service;
 pub mod list;
 pub mod load;
 pub mod prune;

@@ -31,9 +31,12 @@ Every invocation goes through the same start-up:
 1. Load `./.env` if it exists, without overriding the environment.
 2. Parse the command line; usage errors exit with code 2.
 3. Find and validate `config.toml` (see [configuration](configuration.md)).
-   `init`, which writes that file, and the hidden clipboard holder described
-   below run before this step.
-4. Choose the log level and start logging to standard error.
+   `init`, which writes that file, `install-service`, which needs none,
+   `check`, which reports a config problem as its first result, and the
+   hidden clipboard holder described below run before this step.
+4. Choose the log level and start logging to standard error. With
+   `--quiet`, standard output is discarded for every command but `cat`, and
+   the level is `error` unless one is set explicitly.
 5. Open a correlation span, so every log line of this run shares one `op`
    id.
 6. Build the backend registry (`local`, `ssh`) and run the command.
@@ -44,10 +47,14 @@ Every invocation goes through the same start-up:
 | `file` | Streams the file into `Store::put` |
 | `list` | `Store::list`, then renders a table or JSON |
 | `load` | `Store::resolve`, `Store::get`, verifies SHA-256, then writes a file or the clipboard |
+| `cat` | `Store::resolve`, `Store::get`, streams the content to standard output while verifying SHA-256 |
+| `get` | `Store::resolve`, then `Store::get_meta`; prints fields or JSON |
 | `serve` | Runs the loop below until stopped; `--daemon`, `--status`, and `--stop` manage a background copy |
 | `delete` | Resolves every id first, then `Store::delete` for each |
 | `prune` | `Store::list`, selects items older than `--older-than` beyond the newest `--keep`, confirms, deletes, then `Store::clean_staging` |
 | `init` | Fetches the server host key without authenticating, asks you to confirm its fingerprint, writes the config file, then runs `Store::list` as a connection test |
+| `check` | Loads the config, opens the backend, `Store::list_ids`, then `Store::probe_write`, printing one line per step |
+| `install-service` | Writes a systemd user unit or launchd agent for `serve` and loads it with `systemctl --user` or `launchctl` |
 
 Each one-shot command opens its own connection; `serve` keeps one and
 reopens it when needed.
@@ -153,6 +160,10 @@ ids alone, from one directory listing, which is how pull mode polls a large
 store cheaply. `Store::get_meta(id)` reads one item's `meta.json`
 without opening its content; the choice prompt for an ambiguous id uses it
 for the candidates it shows, at most 9, instead of listing the store.
+`Store::probe_write` writes a small file in `tmp/probe-<random>/` and
+removes that directory, which is how `passalong check` tests write access
+without storing an item. A backend without a probe reports
+`WriteProbe::NotSupported`, the trait's default.
 
 Deleting an item renames `items/<id>` to `tmp/deleted-<id>-<random>` and
 then removes it, so the item disappears from every listing in one step.
@@ -229,6 +240,13 @@ of the log. `serve --status` reads the pid file and exits 3 when nothing is
 running. `serve --stop` sends SIGTERM and waits for the pid file to be
 released.
 
+`install-service` renders a systemd user unit or a launchd agent from the
+templates in `crates/passalong-cli/src/service.rs`, running the same binary's
+`serve` from the home directory, and loads it with `systemctl --user` or
+`launchctl`. It does not start a service while the pid lock shows a running
+`serve`. `docs/service/` holds the same units with placeholder paths, and a
+test keeps them identical to the templates.
+
 ## Clipboard on Linux
 
 On X11 and Wayland the clipboard belongs to a running process, so text set
@@ -248,9 +266,13 @@ Pushing a tag `vX.Y.Z` runs `.github/workflows/release.yml`:
    three crates.
 2. Release binaries are built for Linux x86_64 and macOS arm64 and packed
    as `.tar.gz` files with SHA-256 checksums.
-3. The GitHub release is created from `docs/release/vX.Y.Z.md` and the
+3. After a maintainer approves the `release` environment, the crates are
+   published to crates.io in dependency order.
+4. The GitHub release is created from `docs/release/vX.Y.Z.md` and the
    archives are attached.
-4. The crates are published to crates.io in dependency order.
+
+The jobs that package crates remove `target/package` before the cache
+action saves the build, because its cleanup fails on the unpacked crates.
 
 CI audits dependencies with `cargo deny` (`deny.toml`) on every push and
 runs the desktop clipboard tests under a virtual X server.

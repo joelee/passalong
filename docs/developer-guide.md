@@ -40,7 +40,8 @@ tests/docker/         OpenSSH server for the integration tests
 | `just coverage` | `cargo llvm-cov --workspace --all-features --fail-under-lines 80 --summary-only` |
 | `just coverage-full` | Coverage including the Docker-backed tests |
 | `just build` | `cargo build --workspace --all-features --locked` |
-| `just check` | `fmt-check`, `lint`, `test`, `coverage`, `build` |
+| `just links` | `scripts/check-links.sh`: relative links and heading anchors resolve, links to `main` name existing paths, and crate READMEs use only absolute links, because crates.io cannot resolve relative ones |
+| `just check` | `fmt-check`, `lint`, `links`, `test`, `coverage`, `build` |
 | `just audit` | `cargo deny check`: advisories, licences, duplicate crates, and sources per `deny.toml` |
 | `just lint-workflows` | `actionlint` on the GitHub Actions workflows, or its Docker image when not installed |
 | `just ci` | `check`, `audit`, `publish-dry-run`, `lint-workflows`, `test-integration`, `test-deploy`, `coverage-full` |
@@ -147,8 +148,13 @@ When `just audit` reports a new duplicate:
 Three crates are published to crates.io, in dependency order:
 `passalong-core`, `passalong-ssh`, and `passalong`, the CLI package in
 `crates/passalong-cli/`. `just publish-dry-run` packages and verifies all
-three exactly as crates.io would, without uploading. The published CLI
-installs with `cargo install passalong`.
+three exactly as crates.io would, without uploading, and then removes the
+unpacked packages in `target/package`. The published CLI installs with
+`cargo install passalong`.
+
+`.github/dependabot.yml` has Dependabot open a pull request each month
+when an action used by the workflows has a new version. Cargo dependencies
+are updated by hand and checked by `just audit`.
 
 ## Releasing
 

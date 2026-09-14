@@ -2,7 +2,7 @@
 //! command.
 
 use std::io::{self, IsTerminal, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::Context as _;
@@ -14,7 +14,7 @@ use passalong_core::store::BackendRegistry;
 use passalong_core::telemetry::{self, LogLevel};
 use tracing::Instrument;
 
-use crate::cli::{Cli, Command, InitArgs};
+use crate::cli::{Cli, Command, InitArgs, InstallServiceArgs};
 use crate::commands;
 use crate::commands::clipboard::TextSource;
 use crate::prompt::TerminalPrompt;
@@ -24,8 +24,11 @@ use crate::resolve::{Chooser, Lookup};
 /// 0 on success, 1 on any runtime error. Usage errors never get here; clap
 /// exits with 2 for them.
 pub async fn run(cli: Cli, env: &dyn EnvProvider) -> ExitCode {
-    let mut stdout = io::stdout();
-    match execute(cli, env, &mut stdout).await {
+    // `--quiet` hides results; what `cat` prints is the item, not a result.
+    let hide_results = cli.quiet && !matches!(cli.command, Command::Cat { .. });
+    let (mut stdout, mut sink) = (io::stdout(), io::sink());
+    let out: &mut dyn Write = if hide_results { &mut sink } else { &mut stdout };
+    match execute(cli, env, out).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             if let Some(commands::QuietExit(code)) = err.downcast_ref::<commands::QuietExit>() {
@@ -44,7 +47,24 @@ pub async fn run(cli: Cli, env: &dyn EnvProvider) -> ExitCode {
 async fn execute(cli: Cli, env: &dyn EnvProvider, out: &mut dyn Write) -> anyhow::Result<()> {
     // `init` creates the config, so it runs before any lookup.
     if let Command::Init(args) = &cli.command {
-        return init(args, cli.config.as_deref(), cli.log_level, env, out).await;
+        return init(
+            args,
+            cli.config.as_deref(),
+            cli.log_level,
+            cli.quiet,
+            env,
+            out,
+        )
+        .await;
+    }
+    // `install-service` needs no config: a `--config` given is passed on in
+    // the unit it writes.
+    if let Command::InstallService(args) = &cli.command {
+        return install_service(args, &cli, env, out);
+    }
+    // `check` reports a missing or invalid config as its first result.
+    if matches!(cli.command, Command::Check) {
+        return check(&cli, env, out).await;
     }
     // The clipboard holder needs no configuration either.
     if let Command::HoldClipboard { image } = cli.command {
@@ -53,7 +73,7 @@ async fn execute(cli: Cli, env: &dyn EnvProvider, out: &mut dyn Write) -> anyhow
     let roots = SearchRoots::from_system().context("cannot determine the working directory")?;
     let located = config::locate(cli.config.as_deref(), env, &roots)?;
     let config = config::load(&located.path, env)?;
-    let level = config::effective_log_level(cli.log_level, env, &config)?;
+    let level = resolve_level(cli.log_level, cli.quiet, env, Some(&config))?;
     // `init` fails only if logging is already set up, which cannot happen
     // in a fresh process.
     let _ = telemetry::init(level, io::stderr);
@@ -65,12 +85,41 @@ async fn execute(cli: Cli, env: &dyn EnvProvider, out: &mut dyn Write) -> anyhow
         log_level: level,
         env,
     };
-    dispatch(cli.command, context, out).instrument(span).await
+    dispatch(cli.command, context, cli.quiet, out)
+        .instrument(span)
+        .await
+}
+
+/// The log level: `--log-level`, then `PASSALONG_LOG_LEVEL`, then `error`
+/// under `--quiet`, then `client.log_level`, or `info` for `init`, which
+/// runs before a config exists.
+fn resolve_level(
+    flag: Option<LogLevel>,
+    quiet: bool,
+    env: &dyn EnvProvider,
+    config: Option<&Config>,
+) -> anyhow::Result<LogLevel> {
+    if let Some(level) = flag {
+        return Ok(level);
+    }
+    if let Some(value) = env
+        .var(config::LOG_LEVEL_ENV)
+        .filter(|value| !value.is_empty())
+    {
+        return value
+            .parse()
+            .with_context(|| format!("invalid {}", config::LOG_LEVEL_ENV));
+    }
+    if quiet {
+        return Ok(LogLevel::Error);
+    }
+    Ok(config.map_or_else(LogLevel::default, |config| config.client.log_level))
 }
 
 async fn dispatch(
     command: Command,
     context: commands::serve::ServeContext<'_>,
+    quiet: bool,
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
     let config: &Config = context.config;
@@ -79,6 +128,10 @@ async fn dispatch(
     let device = config.client.device_name.as_str();
     match command {
         Command::Init(_) => anyhow::bail!("init runs before configuration is loaded"),
+        Command::Check => anyhow::bail!("check loads the configuration itself"),
+        Command::InstallService(_) => {
+            anyhow::bail!("install-service runs before configuration is loaded")
+        }
         Command::HoldClipboard { .. } => {
             anyhow::bail!("the clipboard holder runs before configuration is loaded")
         }
@@ -131,6 +184,20 @@ async fn dispatch(
             };
             commands::cat::run(store.as_ref(), lookup, force, terminal, out).await
         }
+        Command::Get { id, json } => {
+            let store = backends.open(config).await?;
+            let (mut prompt, mut stderr) = (TerminalPrompt, io::stderr());
+            let mut chooser = Chooser {
+                prompt: &mut prompt,
+                err: &mut stderr,
+                now: Utc::now(),
+            };
+            let lookup = Lookup {
+                input: &id,
+                chooser: Some(&mut chooser),
+            };
+            commands::get::run(store.as_ref(), lookup, json, local_offset(), out).await
+        }
         Command::Delete { ids } => {
             let store = backends.open(config).await?;
             let (mut prompt, mut stderr) = (TerminalPrompt, io::stderr());
@@ -153,6 +220,7 @@ async fn dispatch(
                 keep,
                 dry_run,
                 yes,
+                quiet,
             };
             let mut prompt = TerminalPrompt;
             commands::prune::run(
@@ -193,27 +261,83 @@ async fn dispatch(
     }
 }
 
+/// Runs `check`, which loads the config itself so that a config problem is
+/// reported as one of its checks.
+async fn check(cli: &Cli, env: &dyn EnvProvider, out: &mut dyn Write) -> anyhow::Result<()> {
+    let loaded = load_config(cli.config.as_deref(), env);
+    let config = loaded.as_ref().ok().map(|(_, config)| config);
+    let level = resolve_level(cli.log_level, cli.quiet, env, config)?;
+    let _ = telemetry::init(level, io::stderr);
+    let mut backends = BackendRegistry::with_builtin();
+    passalong_ssh::register(&mut backends);
+    let span = telemetry::op_span("check", &mut StdRandom::new());
+    commands::check::run(loaded, &backends, out)
+        .instrument(span)
+        .await
+}
+
+/// Runs `install-service` for this binary, passing on `--config` as an
+/// absolute path when given.
+fn install_service(
+    args: &InstallServiceArgs,
+    cli: &Cli,
+    env: &dyn EnvProvider,
+    out: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let level = resolve_level(cli.log_level, cli.quiet, env, None)?;
+    let _ = telemetry::init(level, io::stderr);
+    let _span = telemetry::op_span("install-service", &mut StdRandom::new()).entered();
+    let home = env
+        .var("HOME")
+        .filter(|home| !home.is_empty())
+        .map(PathBuf::from)
+        .context("cannot find the home directory: set HOME")?;
+    let platform = commands::install_service::current_platform(&home)?;
+    let exe = std::env::current_exe().context("cannot find the passalong executable")?;
+    let config = match cli.config.as_deref() {
+        Some(path) => {
+            anyhow::ensure!(path.is_file(), "{} does not exist", path.display());
+            Some(std::path::absolute(path)?)
+        }
+        None => None,
+    };
+    let paths = crate::daemon::StatePaths::resolve(env, crate::daemon::Os::current())
+        .context("cannot find serve's pid file: set HOME")?;
+    let serve = crate::daemon::status(&paths.pid)?;
+    let mut manager = crate::service::ProcessManager;
+    commands::install_service::run(
+        args,
+        commands::install_service::Install {
+            platform,
+            env,
+            exe: &exe,
+            config: config.as_deref(),
+            serve,
+            manager: &mut manager,
+        },
+        out,
+    )
+}
+
+/// Finds and loads the config: `--config`, or the standard locations.
+fn load_config(flag: Option<&Path>, env: &dyn EnvProvider) -> anyhow::Result<(PathBuf, Config)> {
+    let roots = SearchRoots::from_system().context("cannot determine the working directory")?;
+    let located = config::locate(flag, env, &roots)?;
+    let config = config::load(&located.path, env)?;
+    Ok((located.path, config))
+}
+
 /// Runs `init`: logging from the flag or the environment, the target from
 /// `--config` or the standard location, then the command.
 async fn init(
     args: &InitArgs,
     config_flag: Option<&Path>,
     level_flag: Option<LogLevel>,
+    quiet: bool,
     env: &dyn EnvProvider,
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
-    let level = match level_flag {
-        Some(level) => level,
-        None => match env
-            .var(config::LOG_LEVEL_ENV)
-            .filter(|value| !value.is_empty())
-        {
-            Some(value) => value
-                .parse()
-                .with_context(|| format!("invalid {}", config::LOG_LEVEL_ENV))?,
-            None => LogLevel::default(),
-        },
-    };
+    let level = resolve_level(level_flag, quiet, env, None)?;
     let _ = telemetry::init(level, io::stderr);
     let target = match config_flag {
         Some(path) => path.to_path_buf(),
@@ -228,6 +352,7 @@ async fn init(
         prompt: &mut prompt,
         keys: &commands::init::NetworkHostKeys,
         check: &commands::init::StoreCheck(backends),
+        quiet,
     };
     let span = telemetry::op_span("init", &mut StdRandom::new());
     commands::init::run(args, &target, deps, out)
@@ -273,4 +398,40 @@ fn hold_clipboard(image: bool) -> anyhow::Result<()> {
 /// The machine's current UTC offset, for showing times in local time.
 fn local_offset() -> FixedOffset {
     Local::now().offset().fix()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use passalong_core::testing::MapEnv;
+
+    fn config(level: &str) -> Config {
+        let text = format!(
+            "[client]\ndevice_name = \"t\"\nlog_level = \"{level}\"\n\n[server]\nkind = \"local\"\n\n[server.local]\npath = \"/srv/store\"\n"
+        );
+        let env = MapEnv::new().with("HOME", "/home/t");
+        config::parse(&text, Path::new("c.toml"), &env).unwrap()
+    }
+
+    #[test]
+    fn quiet_lowers_the_level_unless_one_is_given_explicitly() {
+        let none = MapEnv::new();
+        let env_info = MapEnv::new().with(config::LOG_LEVEL_ENV, "info");
+        let cfg = config("verbose");
+        let level = |flag, quiet, env: &MapEnv, cfg| resolve_level(flag, quiet, env, cfg).unwrap();
+        assert_eq!(level(None, false, &none, Some(&cfg)), LogLevel::Verbose);
+        assert_eq!(level(None, true, &none, Some(&cfg)), LogLevel::Error);
+        assert_eq!(
+            level(Some(LogLevel::Debug), true, &none, Some(&cfg)),
+            LogLevel::Debug
+        );
+        assert_eq!(level(None, true, &env_info, Some(&cfg)), LogLevel::Info);
+        // `init` resolves the level before any config exists.
+        assert_eq!(level(None, false, &none, None), LogLevel::Info);
+        assert_eq!(level(None, true, &none, None), LogLevel::Error);
+        assert_eq!(level(None, true, &env_info, None), LogLevel::Info);
+        let loud = MapEnv::new().with(config::LOG_LEVEL_ENV, "loud");
+        assert!(resolve_level(None, true, &loud, None).is_err());
+        assert!(resolve_level(None, false, &loud, Some(&cfg)).is_err());
+    }
 }

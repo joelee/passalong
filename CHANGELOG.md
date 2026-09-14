@@ -6,6 +6,47 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Added
+
+- `passalong install-service` installs `serve` as a systemd user unit
+  (Linux) or a launchd agent (macOS), enables it, and starts it;
+  `--no-start`, `--force`, and `--uninstall` (PLAN-00005 STEP-06).
+- `passalong check` checks the config, the connection with its pinned host
+  key, and that the store can be read and written, one line per check
+  (PLAN-00005 STEP-05).
+- `Store::probe_write` and `WriteProbe` in `passalong-core`; the default
+  reports `NotSupported`, so existing implementations keep compiling
+  (PLAN-00005 STEP-05).
+- `passalong get <ID>` prints an item's metadata without reading its
+  content; `--json` prints the same object as `list --json` (PLAN-00005
+  STEP-04).
+- `-q`/`--quiet`: print nothing but errors and prompts, with logging at
+  `error` unless a level is set explicitly; `cat` still prints the item
+  (PLAN-00005 STEP-03).
+
+### Changed
+
+- The units in `docs/service/` run from the home directory, so a `~/.env`
+  is found; the launchd agent logs to `~/Library/Logs/passalong/serve.log`,
+  like `serve --daemon`, and is loaded with `launchctl bootstrap`
+  (PLAN-00005 STEP-06).
+- The README's "How it works" diagram is a Mermaid diagram (PLAN-00005
+  STEP-02).
+
+### Fixed
+
+- `passalong cat` prints only the item: its "item printed" record is now at
+  `verbose` level, so it no longer follows the content on the terminal
+  (PLAN-00005 STEP-03).
+- The links in the README work on crates.io: they are absolute, because
+  crates.io resolved the relative ones against `crates/passalong-cli/`.
+  `just check` now runs `scripts/check-links.sh`, which also fails on a
+  missing link target or heading (PLAN-00005 STEP-02).
+- The Release workflow no longer reports errors from the build cache's
+  cleanup of `target/package`, and its artifact actions run on Node.js 24
+  (`upload-artifact@v7`, `download-artifact@v8`). Dependabot proposes
+  action updates monthly (PLAN-00005 STEP-01).
+
 ## v0.1.3 - 2026-09-13T16:39:56Z
 
 ### Added

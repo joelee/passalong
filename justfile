@@ -107,8 +107,13 @@ lint-workflows:
 build:
     cargo build --workspace --all-features --locked
 
-# All mandated checks: format, lint, tests, coverage, build
-check: fmt-check lint test coverage build
+# Check Markdown links: relative targets, headings, paths on main, and
+# absolute links in crate READMEs (scripts/check-links.sh)
+links:
+    scripts/check-links.sh
+
+# All mandated checks: format, lint, links, tests, coverage, build
+check: fmt-check lint links test coverage build
 
 # Full CI pipeline: all checks, then Docker-backed integration and coverage
 ci: check audit publish-dry-run lint-workflows test-integration test-deploy coverage-full
@@ -127,6 +132,9 @@ publish-dry-run *ARGS:
     cargo clean -p passalong-core -p passalong-ssh -p passalong
     rm -rf "${CARGO_HOME:-$HOME/.cargo}"/registry/src/-*/passalong-*
     cargo publish --workspace --dry-run --locked {{ARGS}}
+    # The unpacked packages in target/package are only needed during
+    # verification, and rust-cache's cleanup fails on their tests/ folders.
+    rm -rf target/package
 
 # Run the CLI, e.g. `just run list`
 run *ARGS:

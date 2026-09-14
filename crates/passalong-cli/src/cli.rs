@@ -27,6 +27,11 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "LEVEL")]
     pub log_level: Option<LogLevel>,
 
+    /// Print nothing but errors and prompts; `cat` still prints the item.
+    /// Scripts can rely on the exit code.
+    #[arg(short = 'q', long, global = true)]
+    pub quiet: bool,
+
     /// What to do.
     #[command(subcommand)]
     pub command: Command,
@@ -71,6 +76,14 @@ pub enum Command {
         #[arg(long)]
         force: bool,
     },
+    /// Print an item's metadata.
+    Get {
+        /// The item's id, or at least 4 characters of it.
+        id: String,
+        /// Print JSON instead of one field per line.
+        #[arg(long)]
+        json: bool,
+    },
     /// Keep running: send every new clipboard text and every file dropped
     /// into the drop folder.
     Serve(ServeArgs),
@@ -93,6 +106,12 @@ pub enum Command {
     /// Write a config file for your SSH server, pinning its host key after
     /// you confirm its fingerprint.
     Init(InitArgs),
+    /// Check the configuration, and that the server can be reached, read,
+    /// and written.
+    Check,
+    /// Install `passalong serve` as a service that starts at login: a
+    /// systemd user unit on Linux, a launchd agent on macOS.
+    InstallService(InstallServiceArgs),
     /// Keeps text on the Linux clipboard after `load` exits (internal).
     #[command(name = "__hold-clipboard", hide = true)]
     HoldClipboard {
@@ -117,10 +136,13 @@ impl Command {
             Self::List { .. } => "list",
             Self::Load { .. } => "load",
             Self::Cat { .. } => "cat",
+            Self::Get { .. } => "get",
             Self::Serve(_) => "serve",
             Self::Delete { .. } => "delete",
             Self::Prune { .. } => "prune",
             Self::Init(_) => "init",
+            Self::Check => "check",
+            Self::InstallService(_) => "install-service",
             Self::HoldClipboard { .. } => "hold-clipboard",
         }
     }
@@ -141,6 +163,20 @@ pub struct ServeArgs {
     /// Set by `--daemon` on the background process it starts.
     #[arg(long, hide = true)]
     pub daemon_child: bool,
+}
+
+/// Options of `passalong install-service`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Args)]
+pub struct InstallServiceArgs {
+    /// Write the unit, but do not enable or start it.
+    #[arg(long, conflicts_with = "uninstall")]
+    pub no_start: bool,
+    /// Replace an installed unit that differs.
+    #[arg(long, conflicts_with = "uninstall")]
+    pub force: bool,
+    /// Stop, disable, and remove the installed unit.
+    #[arg(long)]
+    pub uninstall: bool,
 }
 
 /// Options of `passalong init`. Anything not given is asked for, or takes
@@ -201,7 +237,7 @@ mod tests {
     fn version_flag_prints_name_and_version() {
         let err = Cli::try_parse_from(["passalong", "--version"]).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::DisplayVersion);
-        assert_eq!(err.to_string(), "passalong 0.1.3\n");
+        assert_eq!(err.to_string(), "passalong 0.1.4\n");
     }
 
     #[test]
@@ -363,6 +399,49 @@ mod tests {
             }
         );
         assert!(Cli::try_parse_from(["passalong", "cat"]).is_err());
+        assert_eq!(
+            parse(&["get", "2cf2"]).command,
+            Command::Get {
+                id: "2cf2".into(),
+                json: false
+            }
+        );
+        assert_eq!(
+            parse(&["get", "2cf2", "--json"]).command,
+            Command::Get {
+                id: "2cf2".into(),
+                json: true
+            }
+        );
+        assert!(Cli::try_parse_from(["passalong", "get"]).is_err());
+        assert_eq!(parse(&["check"]).command, Command::Check);
+        assert_eq!(
+            parse(&["install-service"]).command,
+            Command::InstallService(InstallServiceArgs::default())
+        );
+        assert_eq!(
+            parse(&["install-service", "--no-start", "--force"]).command,
+            Command::InstallService(InstallServiceArgs {
+                no_start: true,
+                force: true,
+                uninstall: false,
+            })
+        );
+        assert_eq!(
+            parse(&["install-service", "--uninstall"]).command,
+            Command::InstallService(InstallServiceArgs {
+                uninstall: true,
+                ..InstallServiceArgs::default()
+            })
+        );
+        assert!(
+            Cli::try_parse_from(["passalong", "install-service", "--uninstall", "--force"])
+                .is_err()
+        );
+        assert!(
+            Cli::try_parse_from(["passalong", "install-service", "--uninstall", "--no-start"])
+                .is_err()
+        );
     }
 
     #[test]
@@ -373,6 +452,14 @@ mod tests {
         let cli = parse(&["--log-level", "debug", "serve"]);
         assert_eq!(cli.log_level, Some(LogLevel::Debug));
         assert_eq!(cli.config, None);
+    }
+
+    #[test]
+    fn quiet_is_a_global_flag() {
+        assert!(!parse(&["list"]).quiet);
+        assert!(parse(&["-q", "list"]).quiet);
+        assert!(parse(&["list", "--quiet"]).quiet);
+        assert!(parse(&["cat", "2cf2", "-q"]).quiet);
     }
 
     #[test]
@@ -403,6 +490,10 @@ mod tests {
                 id: "x".into(),
                 force: false,
             },
+            Command::Get {
+                id: "x".into(),
+                json: false,
+            },
             Command::Serve(ServeArgs::default()),
             Command::Delete { ids: vec![] },
             Command::Init(InitArgs::default()),
@@ -412,6 +503,8 @@ mod tests {
                 dry_run: false,
                 yes: false,
             },
+            Command::Check,
+            Command::InstallService(InstallServiceArgs::default()),
         ]
         .iter()
         .map(Command::name)
@@ -424,10 +517,13 @@ mod tests {
                 "list",
                 "load",
                 "cat",
+                "get",
                 "serve",
                 "delete",
                 "init",
-                "prune"
+                "prune",
+                "check",
+                "install-service"
             ]
         );
     }

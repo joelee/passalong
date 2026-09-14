@@ -1,6 +1,7 @@
 # systemd user unit for `passalong serve`.
 #
-# Install:
+# `passalong install-service` writes this unit with the right paths,
+# enables it, and starts it. To install it by hand instead:
 #   mkdir -p ~/.config/systemd/user
 #   cp docs/service/passalong-serve.service ~/.config/systemd/user/
 #   systemctl --user daemon-reload
@@ -12,6 +13,9 @@
 # If your session does not start graphical-session.target, import the
 # display variables once per login instead:
 #   systemctl --user import-environment WAYLAND_DISPLAY DISPLAY
+#
+# It runs in your home directory, so a ~/.env file holding
+# PASSALONG_SSH_KEY_PASSPHRASE is found.
 
 [Unit]
 Description=passalong: send clipboard text and dropped files
@@ -21,6 +25,7 @@ After=graphical-session.target network-online.target
 [Service]
 Type=simple
 ExecStart=%h/.cargo/bin/passalong serve
+WorkingDirectory=%h
 Restart=on-failure
 RestartSec=10
 # error, warning, info, verbose, or debug

@@ -10,16 +10,20 @@ and no custom server daemon.
 
 > **Status:** released versions and their notes are on the
 > [releases page](https://github.com/joelee/passalong/releases), and
-> [CHANGELOG.md](CHANGELOG.md) lists what changed in each. A GUI, Android,
+> [CHANGELOG.md](https://github.com/joelee/passalong/blob/main/CHANGELOG.md) lists what changed in each. A GUI, Android,
 > and Windows support are planned for v0.2 and later.
 
 ## How it works
 
-```text
- laptop ─┐                          ┌─ desktop
-         │  SSH/SFTP, pinned host key│
- phone ──┼──────►  server:/srv/passalong  ◄──────┘
-         │         items/<time>-<hash>/{content,meta.json}
+```mermaid
+flowchart LR
+    laptop["laptop"]
+    desktop["desktop"]
+    phone["phone (Android, planned)"]
+    server[("server:/srv/passalong<br/>items/&lt;time&gt;-&lt;hash&gt;/{content,meta.json}")]
+    laptop <-- "SSH/SFTP, pinned host key" --> server
+    desktop <-- "SSH/SFTP, pinned host key" --> server
+    phone <-- "SSH/SFTP, pinned host key" --> server
 ```
 
 - The server needs nothing but `sshd` and a directory.
@@ -56,9 +60,10 @@ and no custom server daemon.
    ```
 
 5. Keep `passalong serve` running, so everything you copy and every file
-   you drop into `~/PassAlong` is sent automatically. Either start it in the
-   background with `passalong serve --daemon`, or install the systemd or
-   launchd unit in [`docs/service/`](docs/service/) to start it at login.
+   you drop into `~/PassAlong` is sent automatically. `passalong
+   install-service` installs it as a systemd user service (Linux) or a
+   launchd agent (macOS) that starts at login; `passalong serve --daemon`
+   starts it in the background until you log out.
 
 ## Commands
 
@@ -69,19 +74,22 @@ and no custom server daemon.
 | `passalong list` | List stored items, newest first (`--json` for scripts) |
 | `passalong load <id> [dest]` | Copy an item to `dest`; without `dest`, text goes to the clipboard and files to `~/Downloads` |
 | `passalong cat <id>` | Print an item to standard output |
+| `passalong get <id>` | Print an item's metadata (`--json` for scripts) |
 | `passalong serve` | Keep running, sending every new clipboard text and every file dropped into the drop folder (`--daemon`, `--status`, `--stop`) |
 | `passalong delete <id>...` | Delete items |
 | `passalong prune` | Delete items older than `--older-than`, keeping the newest `--keep` |
 | `passalong init` | Write a config file for an SSH server and pin its host key |
+| `passalong install-service` | Start `serve` at login as a systemd user service or launchd agent (`--uninstall` removes it) |
+| `passalong check` | Check the config, and that the server can be reached, read, and written |
 
 An id can be shortened to its first 4 or more distinctive characters. See
-[docs/usage.md](docs/usage.md) for every option and exit code.
+[docs/usage.md](https://github.com/joelee/passalong/blob/main/docs/usage.md) for every option and exit code.
 
 ## Server setup
 
 Any machine with an OpenSSH server can be the server. To run one in
 Docker with the storage on the host, follow
-[docs/docker-ssh-server-setup.md](docs/docker-ssh-server-setup.md).
+[docs/docker-ssh-server-setup.md](https://github.com/joelee/passalong/blob/main/docs/docker-ssh-server-setup.md).
 Otherwise, do this once:
 
 1. Create a user and a storage directory for passalong:
@@ -138,20 +146,21 @@ just run --help   # run the CLI from source
 ## Development
 
 Development is test-driven, and every change must pass `just check`:
-format, clippy, tests, line coverage of at least 80 %, and a locked build.
-See [docs/developer-guide.md](docs/developer-guide.md).
+format, clippy, a link check, tests, line coverage of at least 80 %, and a
+locked build.
+See [docs/developer-guide.md](https://github.com/joelee/passalong/blob/main/docs/developer-guide.md).
 
 | Document | Contents |
 |---|---|
-| [docs/usage.md](docs/usage.md) | Command reference |
-| [docs/configuration.md](docs/configuration.md) | Every configuration key and environment variable |
-| [docs/architecture.md](docs/architecture.md) | Crates, storage layout, `serve`, security model |
-| [docs/developer-guide.md](docs/developer-guide.md) | Toolchain, `just` recipes, testing |
-| [docs/backlog.md](docs/backlog.md) | Planned future work |
-| [CHANGELOG.md](CHANGELOG.md) | Release notes |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | How to propose a change |
-| [SECURITY.md](SECURITY.md) | Reporting vulnerabilities privately |
+| [docs/usage.md](https://github.com/joelee/passalong/blob/main/docs/usage.md) | Command reference |
+| [docs/configuration.md](https://github.com/joelee/passalong/blob/main/docs/configuration.md) | Every configuration key and environment variable |
+| [docs/architecture.md](https://github.com/joelee/passalong/blob/main/docs/architecture.md) | Crates, storage layout, `serve`, security model |
+| [docs/developer-guide.md](https://github.com/joelee/passalong/blob/main/docs/developer-guide.md) | Toolchain, `just` recipes, testing |
+| [docs/backlog.md](https://github.com/joelee/passalong/blob/main/docs/backlog.md) | Planned future work |
+| [CHANGELOG.md](https://github.com/joelee/passalong/blob/main/CHANGELOG.md) | Release notes |
+| [CONTRIBUTING.md](https://github.com/joelee/passalong/blob/main/CONTRIBUTING.md) | How to propose a change |
+| [SECURITY.md](https://github.com/joelee/passalong/blob/main/SECURITY.md) | Reporting vulnerabilities privately |
 
 ## License
 
-Licensed under the [Apache License, Version 2.0](LICENSE).
+Licensed under the [Apache License, Version 2.0](https://github.com/joelee/passalong/blob/main/LICENSE).

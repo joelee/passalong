@@ -102,7 +102,7 @@ fn help_and_version() {
         .arg("--version")
         .assert()
         .success()
-        .stdout("passalong 0.1.3\n");
+        .stdout("passalong 0.1.4\n");
 }
 
 #[test]
@@ -352,6 +352,260 @@ async fn cat_prints_text_and_file_items_exactly() {
         .stdout
         .clone();
     assert_eq!(printed, data);
+}
+
+#[tokio::test]
+async fn cat_adds_nothing_to_stderr_unless_verbose() {
+    let sb = Sandbox::new();
+    let metas = sb.seed(&["hello there"]).await;
+    sb.with_config()
+        .args(["cat", metas[0].id.as_str()])
+        .assert()
+        .success()
+        .stdout("hello there")
+        .stderr("");
+    sb.with_config()
+        .args(["cat", metas[0].id.as_str(), "--log-level", "verbose"])
+        .assert()
+        .success()
+        .stdout("hello there")
+        .stderr(predicate::str::contains("item printed"));
+}
+
+#[tokio::test]
+async fn get_prints_an_items_metadata_as_fields_or_json() {
+    let sb = Sandbox::new();
+    let metas = sb.seed(&["hello"]).await;
+    let id = metas[0].id.as_str();
+    sb.with_config()
+        .args(["get", &id[9..15]])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::starts_with(format!("id:      {id}\n"))
+                .and(predicate::str::contains("preview: hello\n")),
+        )
+        .stderr("");
+    let out = sb
+        .with_config()
+        .args(["get", id, "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(json["id"], id);
+    sb.with_config()
+        .args(["--quiet", "get", id])
+        .assert()
+        .success()
+        .stdout("")
+        .stderr("");
+    sb.with_config()
+        .args(["get", "ffff"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("no item matches `ffff`"));
+}
+
+#[tokio::test]
+async fn check_reports_each_step_and_fails_at_the_first_problem() {
+    let sb = Sandbox::new();
+    sb.seed(&["one"]).await;
+    sb.with_config().arg("check").assert().success().stdout(
+        predicate::str::contains("config         ok    ")
+            .and(predicate::str::contains("server         ok    local "))
+            .and(predicate::str::contains("storage read   ok    1 item\n"))
+            .and(predicate::str::contains(
+                "storage write  ok    wrote and removed a probe in tmp/\n",
+            )),
+    );
+    sb.with_config()
+        .args(["--quiet", "check"])
+        .assert()
+        .success()
+        .stdout("")
+        .stderr("");
+    sb.cmd()
+        .arg("check")
+        .assert()
+        .code(1)
+        .stdout(
+            predicate::str::contains("config         FAIL  ")
+                .and(predicate::str::ends_with("storage write  skip\n")),
+        )
+        .stderr(predicate::str::contains("error: check failed: config"));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = sb.path("store/tmp");
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o555)).unwrap();
+        // Root ignores permissions, and then there is nothing to test.
+        let enforced = std::fs::create_dir(tmp.join("root-test")).is_err();
+        if enforced {
+            sb.with_config()
+                .arg("check")
+                .assert()
+                .code(1)
+                .stdout(predicate::str::contains("storage write  FAIL  "))
+                .stderr(predicate::str::contains(
+                    "error: check failed: storage write",
+                ));
+        }
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            std::fs::read_dir(&tmp)
+                .unwrap()
+                .filter(|entry| entry
+                    .as_ref()
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("probe-"))
+                .count(),
+            0,
+            "no probe is left behind"
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn install_service_writes_a_systemd_unit_and_drives_systemctl() {
+    use std::os::unix::fs::PermissionsExt;
+    let sb = Sandbox::new();
+    let bin = sb.path("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let fake = bin.join("systemctl");
+    std::fs::write(&fake, "#!/bin/sh\necho \"$*\" >> \"$FAKE_SYSTEMCTL_LOG\"\n").unwrap();
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let log = sb.path("systemctl.log");
+    let config = sb.config();
+    let install = |args: &[&str]| {
+        let mut cmd = sb.cmd();
+        cmd.env(
+            "PATH",
+            format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
+        )
+        .env("XDG_CONFIG_HOME", sb.path("xdg"))
+        .env("FAKE_SYSTEMCTL_LOG", &log)
+        .arg("--config")
+        .arg(&config)
+        .args(args);
+        cmd
+    };
+    let unit = sb.path("xdg/systemd/user/passalong-serve.service");
+    install(&["install-service"])
+        .assert()
+        .success()
+        .stdout(format!(
+            "wrote {}\nenabled and started passalong-serve.service\n",
+            unit.display()
+        ));
+    let text = std::fs::read_to_string(&unit).unwrap();
+    let exe = std::fs::canonicalize(env!("CARGO_BIN_EXE_passalong")).unwrap();
+    assert!(
+        text.contains(&format!(
+            "ExecStart={} --config {} serve\n",
+            exe.display(),
+            config.display()
+        )),
+        "{text}"
+    );
+    assert!(text.contains("WorkingDirectory=%h\n"), "{text}");
+    assert_eq!(
+        std::fs::read_to_string(&log).unwrap(),
+        "--user daemon-reload\n--user enable --now passalong-serve.service\n"
+    );
+    install(&["install-service"])
+        .assert()
+        .success()
+        .stdout(predicate::str::ends_with(
+            "is already installed and unchanged\n",
+        ));
+    install(&["--quiet", "install-service", "--uninstall"])
+        .assert()
+        .success()
+        .stdout("")
+        .stderr("");
+    assert!(!unit.exists());
+    assert_eq!(
+        std::fs::read_to_string(&log).unwrap(),
+        "--user daemon-reload\n--user enable --now passalong-serve.service\n--user disable --now passalong-serve.service\n--user daemon-reload\n"
+    );
+}
+
+#[tokio::test]
+async fn quiet_prints_nothing_but_errors_and_cat_output() {
+    let sb = Sandbox::new();
+    let metas = sb.seed(&["one", "two", "three"]).await;
+    let quiet = |args: &[&str]| {
+        let mut cmd = sb.with_config();
+        cmd.arg("--quiet").args(args);
+        cmd
+    };
+    quiet(&["list"]).assert().success().stdout("").stderr("");
+    quiet(&["clipboard", "--stdin"])
+        .write_stdin("hi")
+        .assert()
+        .success()
+        .stdout("")
+        .stderr("");
+    let source = sb.path("work/a.txt");
+    std::fs::write(&source, "file body").unwrap();
+    quiet(&["file", source.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout("")
+        .stderr("");
+    let dest = sb.path("work/out.txt");
+    quiet(&["load", metas[0].id.as_str(), dest.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout("")
+        .stderr("");
+    assert_eq!(std::fs::read_to_string(&dest).unwrap(), "one");
+    quiet(&["cat", metas[1].id.as_str()])
+        .assert()
+        .success()
+        .stdout("two")
+        .stderr("");
+    quiet(&["delete", metas[0].id.as_str()])
+        .assert()
+        .success()
+        .stdout("")
+        .stderr("");
+    quiet(&["prune", "--keep", "1", "--yes"])
+        .assert()
+        .success()
+        .stdout("")
+        .stderr("");
+    quiet(&["serve", "--status"])
+        .assert()
+        .code(3)
+        .stdout("")
+        .stderr("");
+    quiet(&["delete", "ffff"])
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr(predicate::str::ends_with("error: no item matches `ffff`\n"));
+    // An explicit level wins over --quiet, from the flag or the environment.
+    quiet(&["--log-level", "info", "clipboard", "--stdin"])
+        .write_stdin("flag")
+        .assert()
+        .success()
+        .stdout("")
+        .stderr(predicate::str::contains("item stored"));
+    quiet(&["clipboard", "--stdin"])
+        .env("PASSALONG_LOG_LEVEL", "info")
+        .write_stdin("env")
+        .assert()
+        .success()
+        .stdout("")
+        .stderr(predicate::str::contains("item stored"));
 }
 
 #[test]

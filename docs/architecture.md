@@ -31,9 +31,10 @@ Every invocation goes through the same start-up:
 1. Load `./.env` if it exists, without overriding the environment.
 2. Parse the command line; usage errors exit with code 2.
 3. Find and validate `config.toml` (see [configuration](configuration.md)).
-   `init`, which writes that file, `install-service`, which needs none,
-   `check`, which reports a config problem as its first result, and the
-   hidden clipboard holder described below run before this step.
+   `init`, which writes that file, `service-install` and `service-remove`,
+   which need none, `check`, which reports a config problem as its first
+   result, and the hidden clipboard holder described below run before this
+   step.
 4. Choose the log level and start logging to standard error. With
    `--quiet`, standard output is discarded for every command but `cat`, and
    the level is `error` unless one is set explicitly.
@@ -54,7 +55,8 @@ Every invocation goes through the same start-up:
 | `prune` | `Store::list`, selects items older than `--older-than` beyond the newest `--keep`, confirms, deletes, then `Store::clean_staging` |
 | `init` | Fetches the server host key without authenticating, asks you to confirm its fingerprint, writes the config file, then runs `Store::list` as a connection test |
 | `check` | Loads the config, opens the backend, `Store::list_ids`, then `Store::probe_write`, printing one line per step |
-| `install-service` | Writes a systemd user unit or launchd agent for `serve` and loads it with `systemctl --user` or `launchctl` |
+| `service-install` | Writes a systemd user unit or launchd agent for `serve` and loads it with `systemctl --user` or `launchctl` |
+| `service-remove` | Stops the service and removes its unit |
 
 Each one-shot command opens its own connection; `serve` keeps one and
 reopens it when needed.
@@ -243,12 +245,13 @@ of the log. `serve --status` reads the pid file and exits 3 when nothing is
 running. `serve --stop` sends SIGTERM and waits for the pid file to be
 released.
 
-`install-service` renders a systemd user unit or a launchd agent from the
+`service-install` renders a systemd user unit or a launchd agent from the
 templates in `crates/passalong-cli/src/service.rs`, running the same binary's
 `serve` from the home directory, and loads it with `systemctl --user` or
 `launchctl`. It does not start a service while the pid lock shows a running
 `serve`. `docs/service/` holds the same units with placeholder paths, and a
-test keeps them identical to the templates.
+test keeps them identical to the templates. `service-remove` stops the
+service and removes the unit.
 
 ## Clipboard on Linux
 

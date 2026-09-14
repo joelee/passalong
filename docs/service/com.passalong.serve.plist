@@ -2,7 +2,7 @@
 <!--
   launchd agent for `passalong serve` on macOS.
 
-  `passalong install-service` writes this agent with the right paths and
+  `passalong service-install` writes this agent with the right paths and
   loads it. To install it by hand instead, replace YOU with your user name,
   adjust the binary path if passalong is installed elsewhere, then run:
     mkdir -p ~/Library/Logs/passalong

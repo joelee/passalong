@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00006-v0.1.5"
 execution_started_at: "2026-09-14T08:16:47Z"
-execution_updated_at: "2026-09-14T08:24:43Z"
+execution_updated_at: "2026-09-14T08:28:58Z"
 execution_completed_at: null
-current_step: "PLAN-00006-STEP-03"
+current_step: "PLAN-00006-STEP-04"
 ---
 
 # Delivery Plan 00006: V0 1 5 Idle CPU And Choose TUI
@@ -626,7 +626,7 @@ STEP-04 and STEP-08.
 |---|---|---|---|---|---|
 | PLAN-00006-STEP-01 | completed | 2026-09-14T08:16:47Z | 2026-09-14T08:22:28Z | Commit `build: complete PLAN-00006-STEP-01 - Drop watcher ignores its own scans`; `just check` green, 92.48% lines; idle 136.45 % to 0.00 % CPU | AC-01. Cause confirmed: notify 8.2 inotify reports OPEN and CLOSE_NOWRITE as Access events, and every scan opened the folder. watch_folder now forwards only events for which is_change is true (all but Access, plus Access(Close(Write))). Architecture drop watcher bullet and CHANGELOG Fixed entry updated |
 | PLAN-00006-STEP-02 | completed | 2026-09-14T08:22:51Z | 2026-09-14T08:24:43Z | Commit `build: complete PLAN-00006-STEP-02 - Idle tuning`; `just check` green, 92.48% lines | AC-02: idle after this plan is 0.00 % (no clipboard) and 0.10 % (X11 clipboard with text); step 1 of D-09 applies (at most 1 %: record and change nothing) |
-| PLAN-00006-STEP-03 | not-started | — | — | — | — |
+| PLAN-00006-STEP-03 | completed | 2026-09-14T08:25:01Z | 2026-09-14T08:28:58Z | Commit `build: complete PLAN-00006-STEP-03 - service-install and service-remove`; `just check` green, 92.48% lines | AC-03. commands/install_service.rs renamed to commands/service_install.rs (run for install, pub remove for removal); app::service handles both; generated unit and plist headers name service-remove; docs/service, README, usage (new service-remove section), architecture, CHANGELOG Unreleased entry rewritten |
 | PLAN-00006-STEP-04 | not-started | — | — | — | — |
 | PLAN-00006-STEP-05 | not-started | — | — | — | — |
 | PLAN-00006-STEP-06 | not-started | — | — | — | — |
@@ -645,6 +645,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-14T08:22:28Z | PLAN-00006-STEP-01 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00006-STEP-01 - Drop watcher ignores its own scans` | Begin PLAN-00006-STEP-02 |
 | 2026-09-14T08:22:51Z | PLAN-00006-STEP-02 | Started | — | Red phase |
 | 2026-09-14T08:24:43Z | PLAN-00006-STEP-02 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00006-STEP-02 - Idle tuning` | Begin PLAN-00006-STEP-03 |
+| 2026-09-14T08:25:01Z | PLAN-00006-STEP-03 | Started | — | Red phase |
+| 2026-09-14T08:28:58Z | PLAN-00006-STEP-03 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00006-STEP-03 - service-install and service-remove` | Begin PLAN-00006-STEP-04 |
 
 ### Deviations and blockers
 
@@ -665,6 +667,10 @@ None.
 | 2026-09-14T08:24:43Z | PLAN-00006-STEP-02 | Idle with a clipboard (D-09 method, archlinux container with Xvfb :99 and text held by xclip; the host clipboard is never touched) | Recorded | fixed build: cpu 0.10 %, threads 36, 338 context switches in 20 s (16/s); baseline build in the same container: cpu 136.70 %, threads 38, 661,286 context switches/s |
 | 2026-09-14T08:24:43Z | PLAN-00006-STEP-02 | D-09 decision | No tuning | idle CPU is 0.00 % without a clipboard and 0.10 % with one, both under the 1 % threshold, so the runtime, blocking pool, and clipboard polling stay as they are; the remaining ~36 threads are idle tokio workers and cost memory, not CPU |
 | 2026-09-14T08:24:43Z | PLAN-00006-STEP-02 | `just check` | Exit 0 | Lines 92.48%; no code change in this step |
+| 2026-09-14T08:28:58Z | PLAN-00006-STEP-03 | Red: `cargo test -p passalong --no-run` with the tests renamed | Exit 101 (expected) | 15 errors: ServiceInstallArgs, Command::ServiceInstall, Command::ServiceRemove, remove not found (the existing private remove(path) helper clashed and was renamed remove_file) |
+| 2026-09-14T08:28:58Z | PLAN-00006-STEP-03 | `cargo test -p passalong` | Pass | 129 unit tests (service-install and service-remove parse; install-service and service-install --uninstall rejected; systemd and launchd remove via the new remove(); headers name service-remove; UNSUPPORTED names both commands); 29 binary tests incl. service_install_writes_a_systemd_unit_and_service_remove_removes_it (fake systemctl) |
+| 2026-09-14T08:28:58Z | PLAN-00006-STEP-03 | `scripts/check-links.sh`; `git grep install-service` outside plans, release notes, backlog, CHANGELOG history | Pass | links ok: 29 files; the only remaining mentions are the two tests asserting the old name and --uninstall are rejected |
+| 2026-09-14T08:28:58Z | PLAN-00006-STEP-03 | `just check` | Exit 0 | Lines 92.48% |
 
 ### Completion summary
 

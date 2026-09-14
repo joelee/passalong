@@ -349,19 +349,19 @@ Only one `serve` runs at a time: a second one exits with
 
 The background process keeps running after you close the terminal and logs
 to a file (see [configuration](configuration.md#serve-files)). For start at
-login and restarts after crashes, use `passalong install-service`.
+login and restarts after crashes, use `passalong service-install`.
 - **macOS (launchd):** install `docs/service/com.passalong.serve.plist` as a
   launch agent. Its header shows the commands.
 
-## `passalong install-service`
+## `passalong service-install`
 
 Installs `serve` as a service that starts at login and restarts after a
 crash: a systemd user unit on Linux, a launchd agent on macOS. Run
 `passalong check` first to make sure the setup works.
 
 ```sh
-passalong install-service               # write the unit, enable it, start it
-passalong install-service --uninstall   # stop it and remove the unit
+passalong service-install   # write the unit, enable it, start it
+passalong service-remove    # stop it and remove the unit
 ```
 
 | Platform | Unit | Loaded with |
@@ -377,17 +377,25 @@ A unit with the same content is left alone; one that differs is replaced
 only with `--force`. The service is not started while another `serve` runs:
 stop it first with `passalong serve --stop`. If `systemctl` or `launchctl`
 fails, the unit is left in place and the error names the command. Other
-platforms get `install-service supports Linux (systemd) and macOS (launchd)
-only`.
+platforms get `service-install and service-remove support Linux (systemd)
+and macOS (launchd) only`.
 
 | Option | Meaning |
 |---|---|
 | `--no-start` | Write the unit without enabling or starting it, and print the command that would |
 | `--force` | Replace an installed unit that differs |
-| `--uninstall` | Stop, disable, and remove the installed unit |
 
 The files in `docs/service/` are the same units with placeholder paths, for
 installing by hand.
+
+## `passalong service-remove`
+
+Stops, disables, and removes the unit `service-install` wrote. On Linux it
+runs `systemctl --user disable --now passalong-serve.service`, removes the
+file, and reloads systemd; on macOS it boots the agent out with `launchctl
+bootout` (an agent that is not loaded is fine) and removes the file.
+Without an installed unit it prints `not installed: no <path>` and
+succeeds.
 
 ## Clipboard support
 

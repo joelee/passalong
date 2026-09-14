@@ -8,9 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- `passalong install-service` installs `serve` as a systemd user unit
-  (Linux) or a launchd agent (macOS), enables it, and starts it;
-  `--no-start`, `--force`, and `--uninstall` (PLAN-00005 STEP-06).
+- `passalong service-install` installs `serve` as a systemd user unit
+  (Linux) or a launchd agent (macOS), enables it, and starts it, with
+  `--no-start` and `--force`; `passalong service-remove` stops and removes
+  it (PLAN-00005 STEP-06, renamed in PLAN-00006 STEP-03).
 - `passalong check` checks the config, the connection with its pinned host
   key, and that the store can be read and written, one line per check
   (PLAN-00005 STEP-05).

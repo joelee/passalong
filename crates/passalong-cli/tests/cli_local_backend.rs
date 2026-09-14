@@ -473,7 +473,7 @@ async fn check_reports_each_step_and_fails_at_the_first_problem() {
 
 #[cfg(target_os = "linux")]
 #[test]
-fn install_service_writes_a_systemd_unit_and_drives_systemctl() {
+fn service_install_writes_a_systemd_unit_and_service_remove_removes_it() {
     use std::os::unix::fs::PermissionsExt;
     let sb = Sandbox::new();
     let bin = sb.path("bin");
@@ -497,7 +497,7 @@ fn install_service_writes_a_systemd_unit_and_drives_systemctl() {
         cmd
     };
     let unit = sb.path("xdg/systemd/user/passalong-serve.service");
-    install(&["install-service"])
+    install(&["service-install"])
         .assert()
         .success()
         .stdout(format!(
@@ -519,13 +519,13 @@ fn install_service_writes_a_systemd_unit_and_drives_systemctl() {
         std::fs::read_to_string(&log).unwrap(),
         "--user daemon-reload\n--user enable --now passalong-serve.service\n"
     );
-    install(&["install-service"])
+    install(&["service-install"])
         .assert()
         .success()
         .stdout(predicate::str::ends_with(
             "is already installed and unchanged\n",
         ));
-    install(&["--quiet", "install-service", "--uninstall"])
+    install(&["--quiet", "service-remove"])
         .assert()
         .success()
         .stdout("")

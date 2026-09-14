@@ -9,8 +9,8 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - `passalong choose` opens a full-screen list of the stored items to
-  filter and pick one, then load, print, show, or delete it (PLAN-00006
-  STEP-05).
+  filter and pick one, then load, print, show, or delete it; `?` shows the
+  passalong version and every key (PLAN-00006 STEP-05).
 - `passalong service-install` installs `serve` as a systemd user unit
   (Linux) or a launchd agent (macOS), enables it, and starts it, with
   `--no-start` and `--force`; `passalong service-remove` stops and removes

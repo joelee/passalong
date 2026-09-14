@@ -663,6 +663,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | Timestamp (UTC) | Step | Deviation or blocker | Impact | Decision required from |
 |---|---|---|---|---|
 | 2026-09-14T08:41:30Z | PLAN-00006-STEP-05 | The terminal guard is not covered by an automated test: it needs a real terminal. TerminalScreen uses ratatui::try_init, which enters raw mode and the alternate screen and installs a panic hook that restores the terminal, and its Drop calls ratatui::restore. Resize events redraw the list; store operations are followed by a full redraw because their log lines share the terminal. The user tries choose by hand. | AC-06 terminal restore is verified manually | User (manual check) |
+| 2026-09-14T13:37:48Z | PLAN-00006-STEP-08 | Post-gate addition requested by the user after the hand-off: in `passalong choose`, `?` opens a centred help dialog with the passalong version, the description (now the shared `cli::ABOUT`, also used by `--help`), the repository and licence, and every key from `view::KEYS`, the single list the dialog and its test use; any key closes it without acting, Ctrl-C still quits, and `?` stays text while filtering. The hint line starts with `? help`. Commit `feat(choose): ? shows the about details and every key`. | choose gains a help dialog | User |
 
 ### Verification results
 

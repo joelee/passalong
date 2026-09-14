@@ -265,6 +265,7 @@ act on it. It needs a terminal.
 | `g` | Show its metadata, as `passalong get <ID>` does |
 | `d` | Delete it; asks for `y` first, then stays in the list |
 | `r` | Reload the list |
+| `?` | Show the passalong version, what it is, and these keys; any key closes it |
 | `q`, Esc, Ctrl-C | Quit without doing anything |
 
 Loading, printing, and showing metadata close the list first, so what they

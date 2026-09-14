@@ -10,12 +10,15 @@ fn parse_age(text: &str) -> Result<Duration, String> {
     passalong_core::retention::parse_age(text).map_err(|err| err.to_string())
 }
 
+/// What passalong is, for `--help` and the `choose` help.
+pub const ABOUT: &str = "Lightweight cross-platform clipboard and file sharing over SSH";
+
 /// Command-line arguments.
 #[derive(Debug, Parser)]
 #[command(
     name = "passalong",
     version,
-    about = "Lightweight cross-platform clipboard and file sharing over SSH",
+    about = ABOUT,
     propagate_version = true
 )]
 pub struct Cli {

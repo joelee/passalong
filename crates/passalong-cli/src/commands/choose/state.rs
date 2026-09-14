@@ -45,6 +45,8 @@ pub enum Mode {
     Filter,
     /// The next key confirms deleting this item, if it is `y`.
     ConfirmDelete(ItemId),
+    /// The help is shown; any key closes it.
+    Help,
 }
 
 /// The items, the filter, the selection, and a status message.
@@ -148,6 +150,10 @@ impl Picker {
                     Outcome::Continue
                 }
             }
+            Mode::Help => {
+                self.mode = Mode::Browse;
+                Outcome::Continue
+            }
             Mode::Browse => self.browse_key(key.code),
         }
     }
@@ -185,6 +191,7 @@ impl Picker {
                 self.mode = Mode::Filter;
                 self.status = None;
             }
+            KeyCode::Char('?') => self.mode = Mode::Help,
             KeyCode::Char('r') => return Outcome::Reload,
             KeyCode::Char('q') | KeyCode::Esc => return Outcome::Quit,
             KeyCode::Enter => return self.act(Action::Load),
@@ -363,6 +370,35 @@ mod tests {
             picker.handle(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
             Outcome::Quit
         );
+    }
+
+    #[tokio::test]
+    async fn question_mark_opens_help_and_any_key_closes_it() {
+        let (_ts, items) = sample(&["a"]).await;
+        let mut picker = Picker::new(items);
+        assert_eq!(picker.handle(ch('?')), Outcome::Continue);
+        assert_eq!(picker.mode(), &Mode::Help);
+        // Closing help does not quit, even with `q`.
+        assert_eq!(picker.handle(ch('q')), Outcome::Continue);
+        assert_eq!(picker.mode(), &Mode::Browse);
+        picker.handle(ch('?'));
+        assert_eq!(
+            picker.handle(key(KeyCode::Enter)),
+            Outcome::Continue,
+            "Enter does not load"
+        );
+        assert_eq!(picker.mode(), &Mode::Browse);
+        picker.handle(ch('?'));
+        assert_eq!(
+            picker.handle(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+            Outcome::Quit
+        );
+        // While filtering, `?` is just text.
+        let mut picker = Picker::new(Vec::new());
+        picker.handle(ch('/'));
+        picker.handle(ch('?'));
+        assert_eq!(picker.mode(), &Mode::Filter);
+        assert_eq!(picker.filter(), "?");
     }
 
     #[tokio::test]

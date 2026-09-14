@@ -3,16 +3,40 @@
 
 use chrono::{DateTime, Utc};
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Layout};
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
-use ratatui::widgets::{Cell, Paragraph, Row, Table, TableState};
+use ratatui::text::Line;
+use ratatui::widgets::{Block, Cell, Clear, Padding, Paragraph, Row, Table, TableState};
 
 use super::state::{Mode, Picker};
 use crate::output::{human_size, kind_label};
 use crate::resolve::age;
 
 /// The key hints on the last line.
-const HINTS: &str = "Enter load  c print  g details  d delete  / filter  r reload  q quit";
+const HINTS: &str = "? help  Enter load  c print  g details  d delete  / filter  r reload  q quit";
+
+/// Every key the picker understands, and what it does, for the help.
+pub const KEYS: [(&str, &str); 11] = [
+    ("Up, Down, k, j", "Move"),
+    ("Page Up, Down", "Move ten rows"),
+    ("Home, End", "First or last item"),
+    ("/", "Filter; Enter keeps it, Esc clears it"),
+    ("Enter", "Load: text to the clipboard, files to downloads"),
+    ("c", "Print the item"),
+    ("g", "Show its metadata"),
+    ("d", "Delete it, after y to confirm"),
+    ("r", "Reload the list"),
+    ("?", "Show this help"),
+    ("q, Esc, Ctrl-C", "Quit"),
+];
+
+/// Width of the key column in the help.
+const KEY_WIDTH: usize = 16;
+
+/// One row of the help's key table.
+pub fn key_line(keys: &str, action: &str) -> String {
+    format!("{keys:<KEY_WIDTH$}{action}")
+}
 
 /// Draws the picker: the table of visible items with the selection, then
 /// the filter, question, or status line, then the key hints. Ages are
@@ -62,6 +86,53 @@ pub fn render(frame: &mut Frame, picker: &Picker, now: DateTime<Utc>) {
         Paragraph::new(HINTS).style(Style::new().add_modifier(Modifier::DIM)),
         hints_area,
     );
+    if picker.mode() == &Mode::Help {
+        render_help(frame);
+    }
+}
+
+/// A dialog over the list: what passalong is, then every key. It is cut
+/// down to fit a small terminal.
+fn render_help(frame: &mut Frame) {
+    let mut lines = vec![
+        Line::styled(
+            format!("passalong {}", env!("CARGO_PKG_VERSION")),
+            Style::new().add_modifier(Modifier::BOLD),
+        ),
+        Line::raw(crate::cli::ABOUT),
+        Line::raw(format!(
+            "{}, {}",
+            env!("CARGO_PKG_REPOSITORY"),
+            env!("CARGO_PKG_LICENSE")
+        )),
+        Line::raw(""),
+    ];
+    lines.extend(
+        KEYS.iter()
+            .map(|(keys, action)| Line::raw(key_line(keys, action))),
+    );
+    lines.push(Line::raw(""));
+    lines.push(Line::styled(
+        "Any key closes this help",
+        Style::new().add_modifier(Modifier::DIM),
+    ));
+    // Borders and one column of padding on each side.
+    let width = lines.iter().map(Line::width).max().unwrap_or(0) + 4;
+    let height = lines.len() + 2;
+    let area = frame.area();
+    let width = u16::try_from(width).unwrap_or(u16::MAX).min(area.width);
+    let height = u16::try_from(height).unwrap_or(u16::MAX).min(area.height);
+    let popup = Rect::new(
+        area.x + (area.width - width) / 2,
+        area.y + (area.height - height) / 2,
+        width,
+        height,
+    );
+    let block = Block::bordered()
+        .title(" Help ")
+        .padding(Padding::horizontal(1));
+    frame.render_widget(Clear, popup);
+    frame.render_widget(Paragraph::new(lines).block(block), popup);
 }
 
 /// The filter being typed, the delete question, the last status, or a
@@ -70,6 +141,7 @@ fn bottom_line(picker: &Picker) -> String {
     match picker.mode() {
         Mode::Filter => format!("/{}", picker.filter()),
         Mode::ConfirmDelete(id) => format!("Delete {id}? y to delete, any other key to keep it"),
+        Mode::Help => "any key closes the help".to_owned(),
         Mode::Browse => match picker.status() {
             Some(status) => status.to_owned(),
             None if picker.filter().is_empty() => format!("{} items", picker.total()),
@@ -130,6 +202,7 @@ mod tests {
         }
         assert!(screen.contains("2 items"), "{screen}");
         for hint in [
+            "? help",
             "Enter load",
             "c print",
             "g details",
@@ -139,6 +212,39 @@ mod tests {
             "q quit",
         ] {
             assert!(screen.contains(hint), "{hint}:\n{screen}");
+        }
+    }
+
+    #[tokio::test]
+    async fn question_mark_shows_the_about_details_and_every_key() {
+        let (_ts, items) = sample(&["hello"]).await;
+        let mut picker = Picker::new(items.clone());
+        picker.handle(ch('?'));
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        terminal
+            .draw(|frame| render(frame, &picker, items[0].created_at))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let screen: String = (0..buffer.area.height)
+            .map(|y| {
+                (0..buffer.area.width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+                    + "\n"
+            })
+            .collect();
+        let version = format!("passalong {}", env!("CARGO_PKG_VERSION"));
+        for text in [
+            version.as_str(),
+            "clipboard and file sharing over SSH",
+            "https://github.com/joelee/passalong, Apache-2.0",
+            "Any key closes this help",
+        ] {
+            assert!(screen.contains(text), "{text}:\n{screen}");
+        }
+        for (keys, action) in KEYS {
+            let row = key_line(keys, action);
+            assert!(screen.contains(&row), "{row}:\n{screen}");
         }
     }
 

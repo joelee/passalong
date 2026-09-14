@@ -262,15 +262,17 @@ act on it. It needs a terminal.
 | `/` | Filter: type to match the id, name or preview, device, or kind, ignoring case; Enter keeps the filter, Esc clears it |
 | Enter | Load the item, as `passalong load <ID>` does: text and images go to the clipboard, files to the download directory |
 | `c` | Print the item, as `passalong cat <ID>` does |
-| `g` | Show its metadata, as `passalong get <ID>` does |
-| `d` | Delete it; asks for `y` first, then stays in the list |
+| `g` | Show its metadata, as `passalong get <ID>` does, in a dialog over the list; Up, Down, Page Up, Page Down, Home, and End scroll it, and Esc, `q`, `g`, or Enter close it |
+| `d` | Delete it after `y`, then show the list read again from the store |
 | `r` | Reload the list |
 | `?` | Show the passalong version, what it is, and these keys; any key closes it |
 | `q`, Esc, Ctrl-C | Quit without doing anything |
 
-Loading, printing, and showing metadata close the list first, so what they
-print stays in the terminal. With `--quiet`, nothing is printed after the
-list closes.
+Loading and printing close the list first, so what they print stays in the
+terminal. With `--quiet`, nothing is printed after the list closes. While
+the list is being read or an item deleted, the bottom line says
+`Loading...`, `Reloading...`, or `Deleting <ID>...`, and keys wait until it
+is done.
 
 ## `passalong delete <ID>...`
 

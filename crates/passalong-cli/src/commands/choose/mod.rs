@@ -1,10 +1,11 @@
-//! `passalong choose`: pick an item from a full-screen list, then load,
-//! print, or show it, or delete it from the list.
+//! `passalong choose`: pick an item from a full-screen list, then load or
+//! print it, see its metadata, or delete it.
 //!
 //! The list itself is a [`state::Picker`] driven by key events and drawn by
-//! [`view::render`]. Loading, printing, and showing metadata run after the
-//! list is closed and the terminal restored, through the same code as
-//! `load`, `cat`, and `get`, so their output stays in the terminal.
+//! [`view::render`]. Showing metadata and deleting happen inside the list.
+//! Loading and printing run after the list is closed and the terminal
+//! restored, through the same code as `load` and `cat`, so their output
+//! stays in the terminal.
 
 pub mod state;
 pub mod view;
@@ -18,6 +19,7 @@ use passalong_core::store::Store;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::commands::load::OpenClipboard;
+use crate::output::render_meta;
 use crate::resolve::Lookup;
 pub use state::Action;
 use state::{Outcome, Picker};
@@ -73,7 +75,7 @@ pub async fn run(
 ) -> anyhow::Result<()> {
     let chosen = {
         let mut screen = TerminalScreen::open()?;
-        run_picker(store, &mut screen).await?
+        run_picker(store, &mut screen, targets.offset).await?
         // The screen is dropped here, which restores the terminal.
     };
     match chosen {
@@ -83,7 +85,10 @@ pub async fn run(
 }
 
 /// Lists the store and handles keys until an item is chosen or the user
-/// quits. Deleting and reloading happen here; the list stays open.
+/// quits. Showing metadata (with times at `offset`), deleting, and
+/// reloading happen here, and the list stays open. While the store is being
+/// read or changed, the status line says so, since keys wait until it is
+/// done.
 ///
 /// # Errors
 ///
@@ -91,32 +96,48 @@ pub async fn run(
 pub async fn run_picker(
     store: &dyn Store,
     screen: &mut dyn Screen,
+    offset: FixedOffset,
 ) -> anyhow::Result<Option<Chosen>> {
-    let mut picker = Picker::new(store.list().await?);
+    let mut picker = Picker::new(Vec::new());
+    picker.set_status("Loading...");
+    screen.draw(&picker)?;
+    picker.replace(store.list().await?);
+    picker.clear_status();
     loop {
         screen.draw(&picker)?;
         match picker.handle(screen.next_key()?) {
             Outcome::Continue => {}
             Outcome::Quit => return Ok(None),
             Outcome::Act(action, id) => return Ok(Some(Chosen { action, id })),
+            Outcome::Details(id) => {
+                match store.get_meta(&id).await {
+                    Ok(meta) => picker.show_details(
+                        meta.id.to_string(),
+                        render_meta(&meta, offset)
+                            .lines()
+                            .map(str::to_owned)
+                            .collect(),
+                    ),
+                    Err(err) => picker.set_status(format!("cannot read {id}: {err}")),
+                }
+                screen.redraw_all()?;
+            }
             Outcome::Delete(id) => {
+                picker.set_status(format!("Deleting {id}..."));
+                screen.draw(&picker)?;
                 match store.delete(&id).await {
                     Ok(_) => {
-                        picker.remove(&id);
-                        picker.set_status(format!("deleted {id}"));
+                        if reload(store, screen, &mut picker).await?.is_some() {
+                            picker.set_status(format!("deleted {id}"));
+                        }
                     }
                     Err(err) => picker.set_status(format!("cannot delete {id}: {err}")),
                 }
                 screen.redraw_all()?;
             }
             Outcome::Reload => {
-                match store.list().await {
-                    Ok(items) => {
-                        let n = items.len();
-                        picker.replace(items);
-                        picker.set_status(format!("reloaded: {n} items"));
-                    }
-                    Err(err) => picker.set_status(format!("cannot reload: {err}")),
+                if let Some(n) = reload(store, screen, &mut picker).await? {
+                    picker.set_status(format!("reloaded: {n} items"));
                 }
                 screen.redraw_all()?;
             }
@@ -124,7 +145,30 @@ pub async fn run_picker(
     }
 }
 
-/// Carries out `chosen` through the code of `load`, `cat`, or `get`.
+/// Lists the store again, showing `Reloading...` meanwhile. Returns how
+/// many items there are, or `None` when listing failed, which the status
+/// line then reports.
+async fn reload(
+    store: &dyn Store,
+    screen: &mut dyn Screen,
+    picker: &mut Picker,
+) -> io::Result<Option<usize>> {
+    picker.set_status("Reloading...");
+    screen.draw(picker)?;
+    Ok(match store.list().await {
+        Ok(items) => {
+            let n = items.len();
+            picker.replace(items);
+            Some(n)
+        }
+        Err(err) => {
+            picker.set_status(format!("cannot reload: {err}"));
+            None
+        }
+    })
+}
+
+/// Carries out `chosen` through the code of `load` or `cat`.
 ///
 /// # Errors
 ///
@@ -156,7 +200,6 @@ pub async fn perform(
         Action::Cat => {
             crate::commands::cat::run(store, lookup, false, targets.stdout_is_terminal, out).await
         }
-        Action::Get => crate::commands::get::run(store, lookup, false, targets.offset, out).await,
     }
 }
 
@@ -237,15 +280,23 @@ mod tests {
     use passalong_core::clipboard::{Clipboard, ClipboardError};
     use passalong_core::model::NewItem;
     use passalong_core::testing::MockClipboard;
+    use state::Mode;
     use std::collections::VecDeque;
     use std::path::PathBuf;
 
-    /// A screen that replays keys, records each frame's status line, and
-    /// can remove an item's folder before a given key, behind the picker's
-    /// back.
+    /// What one frame showed.
+    #[derive(Debug, Clone)]
+    struct Shown {
+        status: Option<String>,
+        mode: Mode,
+        items: usize,
+    }
+
+    /// A screen that replays keys, records each frame, and can remove an
+    /// item's folder before a given key, behind the picker's back.
     struct FakeScreen {
         keys: VecDeque<KeyEvent>,
-        statuses: Vec<Option<String>>,
+        frames: Vec<Shown>,
         keys_read: usize,
         remove_before_key: Option<(usize, PathBuf)>,
     }
@@ -257,16 +308,27 @@ mod tests {
                     .into_iter()
                     .map(|code| KeyEvent::new(code, KeyModifiers::NONE))
                     .collect(),
-                statuses: Vec::new(),
+                frames: Vec::new(),
                 keys_read: 0,
                 remove_before_key: None,
             }
+        }
+
+        fn statuses(&self) -> Vec<Option<&str>> {
+            self.frames
+                .iter()
+                .map(|frame| frame.status.as_deref())
+                .collect()
         }
     }
 
     impl Screen for FakeScreen {
         fn draw(&mut self, picker: &Picker) -> io::Result<()> {
-            self.statuses.push(picker.status().map(str::to_owned));
+            self.frames.push(Shown {
+                status: picker.status().map(str::to_owned),
+                mode: picker.mode().clone(),
+                items: picker.total(),
+            });
             Ok(())
         }
         fn next_key(&mut self) -> io::Result<KeyEvent> {
@@ -282,11 +344,19 @@ mod tests {
         }
     }
 
+    fn utc() -> FixedOffset {
+        FixedOffset::east_opt(0).unwrap()
+    }
+
+    fn item_dir(ts: &TestStore, id: &ItemId) -> PathBuf {
+        ts.dir.path().join("items").join(id.as_str())
+    }
+
     #[tokio::test]
-    async fn enter_chooses_loading_the_selected_item() {
+    async fn loading_shows_first_then_enter_chooses_loading_the_item() {
         let (ts, items) = sample(&["newer", "older"]).await;
         let mut screen = FakeScreen::new([KeyCode::Down, KeyCode::Enter]);
-        let chosen = run_picker(&ts.store, &mut screen).await.unwrap();
+        let chosen = run_picker(&ts.store, &mut screen, utc()).await.unwrap();
         assert_eq!(
             chosen,
             Some(Chosen {
@@ -294,44 +364,110 @@ mod tests {
                 id: items[1].id.clone()
             })
         );
-        assert_eq!(screen.statuses.len(), 2);
+        assert_eq!(screen.statuses(), [Some("Loading..."), None, None]);
+        assert_eq!(screen.frames[0].items, 0);
+        assert_eq!(screen.frames[1].items, 2);
     }
 
     #[tokio::test]
     async fn quitting_chooses_nothing() {
         let (ts, _) = sample(&["a"]).await;
         let mut screen = FakeScreen::new([KeyCode::Char('q')]);
-        assert_eq!(run_picker(&ts.store, &mut screen).await.unwrap(), None);
+        assert_eq!(
+            run_picker(&ts.store, &mut screen, utc()).await.unwrap(),
+            None
+        );
     }
 
     #[tokio::test]
-    async fn d_then_y_deletes_from_the_store_and_the_list_stays_open() {
-        let (ts, items) = sample(&["keep", "drop"]).await;
-        let mut screen = FakeScreen::new([
-            KeyCode::Char('d'),
-            KeyCode::Char('y'),
-            KeyCode::Char('r'),
-            KeyCode::Char('q'),
-        ]);
-        assert_eq!(run_picker(&ts.store, &mut screen).await.unwrap(), None);
-        let left: Vec<_> = ts
-            .store
-            .list()
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|meta| meta.id)
-            .collect();
+    async fn g_shows_the_metadata_in_the_list_and_esc_returns_to_it() {
+        let (ts, items) = sample(&["hello"]).await;
+        let mut screen = FakeScreen::new([KeyCode::Char('g'), KeyCode::Esc, KeyCode::Char('q')]);
         assert_eq!(
-            left,
-            [items[1].id.clone()],
-            "the newest was selected and deleted"
+            run_picker(&ts.store, &mut screen, utc()).await.unwrap(),
+            None
+        );
+        let Mode::Details {
+            title,
+            lines,
+            scroll,
+        } = &screen.frames[2].mode
+        else {
+            panic!("no details: {:?}", screen.frames[2]);
+        };
+        assert_eq!(title, items[0].id.as_str());
+        assert_eq!(*scroll, 0);
+        assert_eq!(lines[0], format!("id:      {}", items[0].id));
+        assert!(
+            lines.iter().any(|line| line == "preview: hello"),
+            "{lines:?}"
+        );
+        assert_eq!(screen.frames[3].mode, Mode::Browse);
+    }
+
+    #[tokio::test]
+    async fn g_on_an_item_that_is_gone_says_so() {
+        let (ts, items) = sample(&["a"]).await;
+        let mut screen = FakeScreen::new([KeyCode::Char('g'), KeyCode::Char('q')]);
+        screen.remove_before_key = Some((0, item_dir(&ts, &items[0].id)));
+        assert_eq!(
+            run_picker(&ts.store, &mut screen, utc()).await.unwrap(),
+            None
+        );
+        let last = screen.frames.last().unwrap();
+        assert_eq!(last.mode, Mode::Browse);
+        assert!(
+            last.status
+                .as_deref()
+                .unwrap()
+                .starts_with(&format!("cannot read {}", items[0].id)),
+            "{last:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn d_then_y_deletes_and_shows_the_list_read_again() {
+        let (ts, items) = sample(&["other", "chosen"]).await;
+        let mut screen =
+            FakeScreen::new([KeyCode::Char('d'), KeyCode::Char('y'), KeyCode::Char('q')]);
+        // Another device removes the other item meanwhile; reading the list
+        // again shows it gone too.
+        screen.remove_before_key = Some((1, item_dir(&ts, &items[1].id)));
+        assert_eq!(
+            run_picker(&ts.store, &mut screen, utc()).await.unwrap(),
+            None
+        );
+        assert!(ts.store.list().await.unwrap().is_empty());
+        let deleted = format!("deleted {}", items[0].id);
+        let deleting = format!("Deleting {}...", items[0].id);
+        assert_eq!(
+            screen.statuses()[3..],
+            [
+                Some(deleting.as_str()),
+                Some("Reloading..."),
+                Some(deleted.as_str())
+            ]
+        );
+        assert_eq!(screen.frames.last().unwrap().items, 0);
+    }
+
+    #[tokio::test]
+    async fn r_shows_reloading_until_the_list_is_read() {
+        let (ts, _) = sample(&["a"]).await;
+        let mut screen = FakeScreen::new([KeyCode::Char('r'), KeyCode::Char('q')]);
+        assert_eq!(
+            run_picker(&ts.store, &mut screen, utc()).await.unwrap(),
+            None
         );
         assert_eq!(
-            screen.statuses[2].as_deref(),
-            Some(format!("deleted {}", items[0].id).as_str())
+            screen.statuses(),
+            [
+                Some("Loading..."),
+                None,
+                Some("Reloading..."),
+                Some("reloaded: 1 items")
+            ]
         );
-        assert_eq!(screen.statuses[3].as_deref(), Some("reloaded: 1 items"));
     }
 
     #[tokio::test]
@@ -340,10 +476,12 @@ mod tests {
         let mut screen =
             FakeScreen::new([KeyCode::Char('d'), KeyCode::Char('y'), KeyCode::Char('q')]);
         // Gone from the store just before `y` is pressed.
-        screen.remove_before_key =
-            Some((1, ts.dir.path().join("items").join(items[0].id.as_str())));
-        assert_eq!(run_picker(&ts.store, &mut screen).await.unwrap(), None);
-        let last = screen.statuses.last().unwrap().clone().unwrap();
+        screen.remove_before_key = Some((1, item_dir(&ts, &items[0].id)));
+        assert_eq!(
+            run_picker(&ts.store, &mut screen, utc()).await.unwrap(),
+            None
+        );
+        let last = screen.frames.last().unwrap().status.clone().unwrap();
         assert!(
             last.starts_with(&format!("cannot delete {}", items[0].id)),
             "{last}"
@@ -358,7 +496,7 @@ mod tests {
             download_dir: downloads,
             open_clipboard: open,
             stdout_is_terminal: false,
-            offset: FixedOffset::east_opt(0).unwrap(),
+            offset: utc(),
         }
     }
 
@@ -384,12 +522,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_actions_do_what_load_cat_and_get_do() {
+    async fn the_actions_do_what_load_and_cat_do() {
         let (ts, items) = sample(&["hello"]).await;
         let clip = MockClipboard::new();
         let id = &items[0].id;
-        let got = perform_on(&ts, Action::Get, id, &clip).await;
-        assert!(got.starts_with(&format!("id:      {id}\n")), "{got}");
         assert_eq!(perform_on(&ts, Action::Cat, id, &clip).await, "hello");
         perform_on(&ts, Action::Load, id, &clip).await;
         assert_eq!(clip.writes(), ["hello"]);

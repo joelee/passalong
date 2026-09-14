@@ -17,8 +17,6 @@ pub enum Action {
     Load,
     /// As `passalong cat <ID>`.
     Cat,
-    /// As `passalong get <ID>`.
-    Get,
 }
 
 /// What a key press led to.
@@ -32,6 +30,8 @@ pub enum Outcome {
     Act(Action, ItemId),
     /// Delete the item and stay in the list.
     Delete(ItemId),
+    /// Show the item's metadata over the list.
+    Details(ItemId),
     /// List the store again.
     Reload,
 }
@@ -47,6 +47,16 @@ pub enum Mode {
     ConfirmDelete(ItemId),
     /// The help is shown; any key closes it.
     Help,
+    /// Lines about one item are shown from line `scroll` on; Esc, `q`, `g`,
+    /// or Enter closes them.
+    Details {
+        /// The dialog's title.
+        title: String,
+        /// The lines shown.
+        lines: Vec<String>,
+        /// The first line shown.
+        scroll: usize,
+    },
 }
 
 /// The items, the filter, the selection, and a status message.
@@ -116,15 +126,23 @@ impl Picker {
         self.status = Some(text.into());
     }
 
+    /// Clears the status line.
+    pub fn clear_status(&mut self) {
+        self.status = None;
+    }
+
+    /// Shows `lines` in a dialog titled `title`, from the first line.
+    pub fn show_details(&mut self, title: String, lines: Vec<String>) {
+        self.mode = Mode::Details {
+            title,
+            lines,
+            scroll: 0,
+        };
+    }
+
     /// Replaces the items, keeping the selection in range.
     pub fn replace(&mut self, items: Vec<ItemMeta>) {
         self.items = items;
-        self.clamp();
-    }
-
-    /// Drops a deleted item, keeping the selection in range.
-    pub fn remove(&mut self, id: &ItemId) {
-        self.items.retain(|meta| &meta.id != id);
         self.clamp();
     }
 
@@ -152,6 +170,10 @@ impl Picker {
             }
             Mode::Help => {
                 self.mode = Mode::Browse;
+                Outcome::Continue
+            }
+            Mode::Details { .. } => {
+                self.details_key(key.code);
                 Outcome::Continue
             }
             Mode::Browse => self.browse_key(key.code),
@@ -196,7 +218,10 @@ impl Picker {
             KeyCode::Char('q') | KeyCode::Esc => return Outcome::Quit,
             KeyCode::Enter => return self.act(Action::Load),
             KeyCode::Char('c') => return self.act(Action::Cat),
-            KeyCode::Char('g') => return self.act(Action::Get),
+            KeyCode::Char('g') => match self.selected().map(|meta| meta.id.clone()) {
+                Some(id) => return Outcome::Details(id),
+                None => self.set_status("no item selected"),
+            },
             KeyCode::Char('d') => match self.selected().map(|meta| meta.id.clone()) {
                 Some(id) => self.mode = Mode::ConfirmDelete(id),
                 None => self.set_status("no item selected"),
@@ -204,6 +229,29 @@ impl Picker {
             _ => {}
         }
         Outcome::Continue
+    }
+
+    fn details_key(&mut self, code: KeyCode) {
+        if matches!(
+            code,
+            KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q' | 'g')
+        ) {
+            self.mode = Mode::Browse;
+            return;
+        }
+        let Mode::Details { lines, scroll, .. } = &mut self.mode else {
+            return;
+        };
+        let last = lines.len().saturating_sub(1);
+        match code {
+            KeyCode::Up | KeyCode::Char('k') => *scroll = scroll.saturating_sub(1),
+            KeyCode::Down | KeyCode::Char('j') => *scroll = (*scroll + 1).min(last),
+            KeyCode::PageUp => *scroll = scroll.saturating_sub(PAGE),
+            KeyCode::PageDown => *scroll = (*scroll + PAGE).min(last),
+            KeyCode::Home => *scroll = 0,
+            KeyCode::End => *scroll = last,
+            _ => {}
+        }
     }
 
     fn act(&mut self, action: Action) -> Outcome {
@@ -323,7 +371,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn enter_c_and_g_choose_an_action_for_the_selected_item() {
+    async fn enter_and_c_choose_an_action_and_g_asks_for_details() {
         let (_ts, items) = sample(&["a", "b"]).await;
         let mut picker = Picker::new(items.clone());
         picker.handle(key(KeyCode::Down));
@@ -336,7 +384,7 @@ mod tests {
             picker.handle(ch('c')),
             Outcome::Act(Action::Cat, id.clone())
         );
-        assert_eq!(picker.handle(ch('g')), Outcome::Act(Action::Get, id));
+        assert_eq!(picker.handle(ch('g')), Outcome::Details(id));
         picker.handle(ch('/'));
         typed(&mut picker, "nothing matches");
         picker.handle(key(KeyCode::Enter));
@@ -402,11 +450,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn details_scroll_ignore_other_keys_and_close_without_quitting() {
+        let (_ts, items) = sample(&["a"]).await;
+        let mut picker = Picker::new(items);
+        let lines: Vec<String> = (0..30).map(|n| format!("row {n:02}")).collect();
+        let scroll = |picker: &Picker| match picker.mode() {
+            Mode::Details { scroll, .. } => *scroll,
+            other => panic!("not showing details: {other:?}"),
+        };
+        picker.show_details("title".into(), lines.clone());
+        assert_eq!(scroll(&picker), 0);
+        picker.handle(key(KeyCode::Up));
+        assert_eq!(scroll(&picker), 0);
+        picker.handle(key(KeyCode::Down));
+        picker.handle(ch('j'));
+        assert_eq!(scroll(&picker), 2);
+        picker.handle(ch('k'));
+        assert_eq!(scroll(&picker), 1);
+        picker.handle(key(KeyCode::End));
+        assert_eq!(scroll(&picker), 29);
+        picker.handle(key(KeyCode::Down));
+        assert_eq!(scroll(&picker), 29, "clamped at the last line");
+        picker.handle(key(KeyCode::PageUp));
+        assert_eq!(scroll(&picker), 19);
+        picker.handle(key(KeyCode::PageDown));
+        assert_eq!(scroll(&picker), 29);
+        picker.handle(key(KeyCode::Home));
+        assert_eq!(scroll(&picker), 0);
+        // Other keys do nothing while the details are open.
+        assert_eq!(picker.handle(ch('r')), Outcome::Continue);
+        assert_eq!(picker.handle(ch('d')), Outcome::Continue);
+        assert!(matches!(picker.mode(), Mode::Details { .. }));
+        for close in [key(KeyCode::Esc), ch('q'), ch('g'), key(KeyCode::Enter)] {
+            picker.show_details("title".into(), lines.clone());
+            assert_eq!(picker.handle(close), Outcome::Continue);
+            assert_eq!(picker.mode(), &Mode::Browse);
+        }
+        picker.show_details("title".into(), lines);
+        assert_eq!(
+            picker.handle(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+            Outcome::Quit
+        );
+        picker.set_status("Reloading...");
+        picker.clear_status();
+        assert_eq!(picker.status(), None);
+    }
+
+    #[tokio::test]
     async fn the_selection_stays_in_range_as_items_go() {
         let (_ts, items) = sample(&["a", "b", "c"]).await;
         let mut picker = Picker::new(items.clone());
         picker.handle(key(KeyCode::End));
-        picker.remove(&items[2].id);
+        picker.replace(items[..2].to_vec());
         assert_eq!(picker.selected().unwrap().id, items[1].id);
         assert_eq!(picker.visible().len(), 2);
         picker.replace(items[..1].to_vec());

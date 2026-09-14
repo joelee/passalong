@@ -23,8 +23,8 @@ pub const KEYS: [(&str, &str); 11] = [
     ("/", "Filter; Enter keeps it, Esc clears it"),
     ("Enter", "Load: text to the clipboard, files to downloads"),
     ("c", "Print the item"),
-    ("g", "Show its metadata"),
-    ("d", "Delete it, after y to confirm"),
+    ("g", "Show its metadata in a scrollable dialog"),
+    ("d", "Delete after y, then reload the list"),
     ("r", "Reload the list"),
     ("?", "Show this help"),
     ("q, Esc, Ctrl-C", "Quit"),
@@ -86,9 +86,55 @@ pub fn render(frame: &mut Frame, picker: &Picker, now: DateTime<Utc>) {
         Paragraph::new(HINTS).style(Style::new().add_modifier(Modifier::DIM)),
         hints_area,
     );
-    if picker.mode() == &Mode::Help {
-        render_help(frame);
+    match picker.mode() {
+        Mode::Help => render_help(frame),
+        Mode::Details {
+            title,
+            lines,
+            scroll,
+        } => render_details(frame, title, lines, *scroll),
+        _ => {}
     }
+}
+
+/// A `width` by `height` rectangle in the middle of `area`, cut down to
+/// fit it.
+fn centered(area: Rect, width: usize, height: usize) -> Rect {
+    let width = u16::try_from(width).unwrap_or(u16::MAX).min(area.width);
+    let height = u16::try_from(height).unwrap_or(u16::MAX).min(area.height);
+    Rect::new(
+        area.x + (area.width - width) / 2,
+        area.y + (area.height - height) / 2,
+        width,
+        height,
+    )
+}
+
+/// A dialog over the list with `lines` from line `scroll` on, as far as
+/// the dialog fits.
+fn render_details(frame: &mut Frame, title: &str, lines: &[String], scroll: usize) {
+    let widest = lines
+        .iter()
+        .map(|line| line.chars().count())
+        .chain([title.chars().count()])
+        .max()
+        .unwrap_or(0);
+    // Borders and one column of padding on each side.
+    let popup = centered(frame.area(), widest + 4, lines.len() + 2);
+    let shown = usize::from(popup.height.saturating_sub(2));
+    let scroll = scroll.min(lines.len().saturating_sub(shown));
+    let block = Block::bordered()
+        .title(format!(" {title} "))
+        .title_bottom(" Up/Down scroll, Esc closes ")
+        .padding(Padding::horizontal(1));
+    let text: Vec<Line> = lines.iter().map(|line| Line::raw(line.as_str())).collect();
+    frame.render_widget(Clear, popup);
+    frame.render_widget(
+        Paragraph::new(text)
+            .block(block)
+            .scroll((u16::try_from(scroll).unwrap_or(u16::MAX), 0)),
+        popup,
+    );
 }
 
 /// A dialog over the list: what passalong is, then every key. It is cut
@@ -118,16 +164,7 @@ fn render_help(frame: &mut Frame) {
     ));
     // Borders and one column of padding on each side.
     let width = lines.iter().map(Line::width).max().unwrap_or(0) + 4;
-    let height = lines.len() + 2;
-    let area = frame.area();
-    let width = u16::try_from(width).unwrap_or(u16::MAX).min(area.width);
-    let height = u16::try_from(height).unwrap_or(u16::MAX).min(area.height);
-    let popup = Rect::new(
-        area.x + (area.width - width) / 2,
-        area.y + (area.height - height) / 2,
-        width,
-        height,
-    );
+    let popup = centered(frame.area(), width, lines.len() + 2);
     let block = Block::bordered()
         .title(" Help ")
         .padding(Padding::horizontal(1));
@@ -142,6 +179,7 @@ fn bottom_line(picker: &Picker) -> String {
         Mode::Filter => format!("/{}", picker.filter()),
         Mode::ConfirmDelete(id) => format!("Delete {id}? y to delete, any other key to keep it"),
         Mode::Help => "any key closes the help".to_owned(),
+        Mode::Details { .. } => "Up and Down scroll, Esc closes the details".to_owned(),
         Mode::Browse => match picker.status() {
             Some(status) => status.to_owned(),
             None if picker.filter().is_empty() => format!("{} items", picker.total()),
@@ -246,6 +284,34 @@ mod tests {
             let row = key_line(keys, action);
             assert!(screen.contains(&row), "{row}:\n{screen}");
         }
+    }
+
+    #[tokio::test]
+    async fn the_details_dialog_shows_a_scrolled_window_of_the_metadata() {
+        let (_ts, items) = sample(&["hello"]).await;
+        let mut picker = Picker::new(items.clone());
+        let lines: Vec<String> = (0..40).map(|n| format!("row {n:02}")).collect();
+        picker.show_details(items[0].id.to_string(), lines);
+        for _ in 0..5 {
+            picker.handle(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        }
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal
+            .draw(|frame| render(frame, &picker, items[0].created_at))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let screen: String = (0..buffer.area.height)
+            .map(|y| {
+                (0..buffer.area.width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+                    + "\n"
+            })
+            .collect();
+        assert!(screen.contains(items[0].id.as_str()), "title:\n{screen}");
+        assert!(screen.contains("row 05"), "{screen}");
+        assert!(!screen.contains("row 04"), "scrolled past: {screen}");
+        assert!(screen.contains("Esc closes"), "{screen}");
     }
 
     #[tokio::test]

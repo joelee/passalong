@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## v0.1.5 - 2026-09-14T14:26:22Z
+
 ### Added
 
 - `passalong choose` opens a full-screen list of the stored items to

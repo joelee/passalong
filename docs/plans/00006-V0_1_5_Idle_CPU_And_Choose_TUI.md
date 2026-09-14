@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00006-v0.1.5"
 execution_started_at: "2026-09-14T08:16:47Z"
-execution_updated_at: "2026-09-14T08:22:28Z"
+execution_updated_at: "2026-09-14T08:24:43Z"
 execution_completed_at: null
-current_step: "PLAN-00006-STEP-02"
+current_step: "PLAN-00006-STEP-03"
 ---
 
 # Delivery Plan 00006: V0 1 5 Idle CPU And Choose TUI
@@ -625,7 +625,7 @@ STEP-04 and STEP-08.
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
 | PLAN-00006-STEP-01 | completed | 2026-09-14T08:16:47Z | 2026-09-14T08:22:28Z | Commit `build: complete PLAN-00006-STEP-01 - Drop watcher ignores its own scans`; `just check` green, 92.48% lines; idle 136.45 % to 0.00 % CPU | AC-01. Cause confirmed: notify 8.2 inotify reports OPEN and CLOSE_NOWRITE as Access events, and every scan opened the folder. watch_folder now forwards only events for which is_change is true (all but Access, plus Access(Close(Write))). Architecture drop watcher bullet and CHANGELOG Fixed entry updated |
-| PLAN-00006-STEP-02 | not-started | — | — | — | — |
+| PLAN-00006-STEP-02 | completed | 2026-09-14T08:22:51Z | 2026-09-14T08:24:43Z | Commit `build: complete PLAN-00006-STEP-02 - Idle tuning`; `just check` green, 92.48% lines | AC-02: idle after this plan is 0.00 % (no clipboard) and 0.10 % (X11 clipboard with text); step 1 of D-09 applies (at most 1 %: record and change nothing) |
 | PLAN-00006-STEP-03 | not-started | — | — | — | — |
 | PLAN-00006-STEP-04 | not-started | — | — | — | — |
 | PLAN-00006-STEP-05 | not-started | — | — | — | — |
@@ -643,6 +643,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-14T08:16:47Z | PLAN-00006 | Plan approved (commit 693aa90); Builder starts on feature/00006-v0.1.5 | `docs(plan): approve PLAN-00006 - V0 1 5 Idle CPU And Choose TUI` | Begin PLAN-00006-STEP-01 |
 | 2026-09-14T08:16:47Z | PLAN-00006-STEP-01 | Started | — | Red phase |
 | 2026-09-14T08:22:28Z | PLAN-00006-STEP-01 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00006-STEP-01 - Drop watcher ignores its own scans` | Begin PLAN-00006-STEP-02 |
+| 2026-09-14T08:22:51Z | PLAN-00006-STEP-02 | Started | — | Red phase |
+| 2026-09-14T08:24:43Z | PLAN-00006-STEP-02 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00006-STEP-02 - Idle tuning` | Begin PLAN-00006-STEP-03 |
 
 ### Deviations and blockers
 
@@ -660,6 +662,9 @@ None.
 | 2026-09-14T08:22:28Z | PLAN-00006-STEP-01 | `cargo test -p passalong-core --all-features --lib drop_watcher` | Pass | 12 passed: scan and read do not notify; create, write, rename, remove each notify; only_events_that_may_change_files_count (Access other than close-after-write ignored) |
 | 2026-09-14T08:22:28Z | PLAN-00006-STEP-01 | Idle after the fix (D-09, same method) | Recorded | cpu 0.00 %, threads 35, 41 context switches in 20 s (2/s); the sandbox has no clipboard, so clipboard polling is measured in STEP-02 |
 | 2026-09-14T08:22:28Z | PLAN-00006-STEP-01 | `just check` | Exit 0 | Lines 92.48% (first run failed clippy type_complexity on the test; rewritten as sequential steps) |
+| 2026-09-14T08:24:43Z | PLAN-00006-STEP-02 | Idle with a clipboard (D-09 method, archlinux container with Xvfb :99 and text held by xclip; the host clipboard is never touched) | Recorded | fixed build: cpu 0.10 %, threads 36, 338 context switches in 20 s (16/s); baseline build in the same container: cpu 136.70 %, threads 38, 661,286 context switches/s |
+| 2026-09-14T08:24:43Z | PLAN-00006-STEP-02 | D-09 decision | No tuning | idle CPU is 0.00 % without a clipboard and 0.10 % with one, both under the 1 % threshold, so the runtime, blocking pool, and clipboard polling stay as they are; the remaining ~36 threads are idle tokio workers and cost memory, not CPU |
+| 2026-09-14T08:24:43Z | PLAN-00006-STEP-02 | `just check` | Exit 0 | Lines 92.48%; no code change in this step |
 
 ### Completion summary
 

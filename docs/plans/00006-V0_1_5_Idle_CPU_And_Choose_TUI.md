@@ -8,10 +8,10 @@ tags:
   - opencode
 type: delivery-plan
 plan_id: "PLAN-00006"
-plan_status: draft                 # draft | approved | cancelled
+plan_status: approved              # draft | approved | cancelled
 plan_kind: initial                 # initial | superseding
 created_at: "2026-09-14T07:48:16Z"
-approved_at: null
+approved_at: "2026-09-14T08:15:45Z"
 planner_agent: "Claude Code"
 planner_model: "anthropic/claude-opus-5"
 triggered_by: user                 # user | agent:<agent-name>
@@ -26,7 +26,7 @@ requirements_count: 12
 steps_count: 8
 acceptance_criteria_count: 14
 blocking_decisions: 0
-build_ready: false
+build_ready: true
 web_research_used: false
 confidence: medium                # high | medium | low
 
@@ -44,15 +44,15 @@ current_step: null
 
 # Delivery Plan 00006: V0 1 5 Idle CPU And Choose TUI
 
-> [!abstract] Plan status: `draft`
+> [!abstract] Plan status: `approved`
 > Deliver `passalong` v0.1.5, the first release since v0.1.3. It fixes the
 > idle CPU bug in `serve` and measures what idle costs afterwards. It adds
 > `passalong choose`, a terminal UI for picking and acting on items. It
 > renames `install-service` to `service-install` and adds `service-remove`.
 > `check` also reports whether `serve` is running, and CI gains an Android
 > build check. It ships the unreleased v0.1.4 work too. The user settled
-> D-01 to D-04 on 2026-09-14 (all as recommended); no decision blocks
-> approval.
+> D-01 to D-04 on 2026-09-14 (all as recommended); approved by the user
+> at 2026-09-14T08:15:45Z; Builder-ready.
 
 ## 1. Objective and outcome
 
@@ -667,6 +667,7 @@ None.
 | Timestamp (UTC) | Plan status | Change | Reason | Requested/approved by |
 |---|---|---|---|---|
 | 2026-09-14T07:48:16Z | draft | Created with 12 requirements, 8 steps, 14 acceptance criteria, and decisions D-01 to D-12; D-01 to D-04 were answered by the user before drafting (all as recommended), so none blocks approval | User request to plan v0.1.5 from the backlog road map | User |
+| 2026-09-14T08:15:45Z | approved | Approved; `plan_status`, `approved_at`, and `build_ready` set | User approval after committing the draft (07eb565) | User |
 
 ## 19. External references
 

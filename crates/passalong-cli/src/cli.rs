@@ -10,12 +10,15 @@ fn parse_age(text: &str) -> Result<Duration, String> {
     passalong_core::retention::parse_age(text).map_err(|err| err.to_string())
 }
 
+/// What passalong is, for `--help` and the `choose` help.
+pub const ABOUT: &str = "Lightweight cross-platform clipboard and file sharing over SSH";
+
 /// Command-line arguments.
 #[derive(Debug, Parser)]
 #[command(
     name = "passalong",
     version,
-    about = "Lightweight cross-platform clipboard and file sharing over SSH",
+    about = ABOUT,
     propagate_version = true
 )]
 pub struct Cli {
@@ -111,7 +114,12 @@ pub enum Command {
     Check,
     /// Install `passalong serve` as a service that starts at login: a
     /// systemd user unit on Linux, a launchd agent on macOS.
-    InstallService(InstallServiceArgs),
+    ServiceInstall(ServiceInstallArgs),
+    /// Stop, disable, and remove the service `service-install` installed.
+    ServiceRemove,
+    /// Pick an item from a full-screen list, then load, print, show, or
+    /// delete it.
+    Choose,
     /// Keeps text on the Linux clipboard after `load` exits (internal).
     #[command(name = "__hold-clipboard", hide = true)]
     HoldClipboard {
@@ -142,7 +150,9 @@ impl Command {
             Self::Prune { .. } => "prune",
             Self::Init(_) => "init",
             Self::Check => "check",
-            Self::InstallService(_) => "install-service",
+            Self::ServiceInstall(_) => "service-install",
+            Self::ServiceRemove => "service-remove",
+            Self::Choose => "choose",
             Self::HoldClipboard { .. } => "hold-clipboard",
         }
     }
@@ -165,18 +175,15 @@ pub struct ServeArgs {
     pub daemon_child: bool,
 }
 
-/// Options of `passalong install-service`.
+/// Options of `passalong service-install`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Args)]
-pub struct InstallServiceArgs {
+pub struct ServiceInstallArgs {
     /// Write the unit, but do not enable or start it.
-    #[arg(long, conflicts_with = "uninstall")]
+    #[arg(long)]
     pub no_start: bool,
     /// Replace an installed unit that differs.
-    #[arg(long, conflicts_with = "uninstall")]
-    pub force: bool,
-    /// Stop, disable, and remove the installed unit.
     #[arg(long)]
-    pub uninstall: bool,
+    pub force: bool,
 }
 
 /// Options of `passalong init`. Anything not given is asked for, or takes
@@ -237,7 +244,7 @@ mod tests {
     fn version_flag_prints_name_and_version() {
         let err = Cli::try_parse_from(["passalong", "--version"]).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::DisplayVersion);
-        assert_eq!(err.to_string(), "passalong 0.1.4\n");
+        assert_eq!(err.to_string(), "passalong 0.1.5\n");
     }
 
     #[test]
@@ -416,32 +423,20 @@ mod tests {
         assert!(Cli::try_parse_from(["passalong", "get"]).is_err());
         assert_eq!(parse(&["check"]).command, Command::Check);
         assert_eq!(
-            parse(&["install-service"]).command,
-            Command::InstallService(InstallServiceArgs::default())
+            parse(&["service-install"]).command,
+            Command::ServiceInstall(ServiceInstallArgs::default())
         );
         assert_eq!(
-            parse(&["install-service", "--no-start", "--force"]).command,
-            Command::InstallService(InstallServiceArgs {
+            parse(&["service-install", "--no-start", "--force"]).command,
+            Command::ServiceInstall(ServiceInstallArgs {
                 no_start: true,
                 force: true,
-                uninstall: false,
             })
         );
-        assert_eq!(
-            parse(&["install-service", "--uninstall"]).command,
-            Command::InstallService(InstallServiceArgs {
-                uninstall: true,
-                ..InstallServiceArgs::default()
-            })
-        );
-        assert!(
-            Cli::try_parse_from(["passalong", "install-service", "--uninstall", "--force"])
-                .is_err()
-        );
-        assert!(
-            Cli::try_parse_from(["passalong", "install-service", "--uninstall", "--no-start"])
-                .is_err()
-        );
+        assert_eq!(parse(&["service-remove"]).command, Command::ServiceRemove);
+        assert_eq!(parse(&["choose"]).command, Command::Choose);
+        assert!(Cli::try_parse_from(["passalong", "install-service"]).is_err());
+        assert!(Cli::try_parse_from(["passalong", "service-install", "--uninstall"]).is_err());
     }
 
     #[test]
@@ -504,7 +499,9 @@ mod tests {
                 yes: false,
             },
             Command::Check,
-            Command::InstallService(InstallServiceArgs::default()),
+            Command::ServiceInstall(ServiceInstallArgs::default()),
+            Command::ServiceRemove,
+            Command::Choose,
         ]
         .iter()
         .map(Command::name)
@@ -523,7 +520,9 @@ mod tests {
                 "init",
                 "prune",
                 "check",
-                "install-service"
+                "service-install",
+                "service-remove",
+                "choose"
             ]
         );
     }

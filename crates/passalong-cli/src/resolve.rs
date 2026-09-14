@@ -145,7 +145,7 @@ pub async fn resolve_item(
 }
 
 /// How long ago `created` was, in the largest whole unit.
-fn age(created: DateTime<Utc>, now: DateTime<Utc>) -> String {
+pub(crate) fn age(created: DateTime<Utc>, now: DateTime<Utc>) -> String {
     let secs = (now - created).num_seconds();
     match secs {
         ..60 => "just now".to_owned(),

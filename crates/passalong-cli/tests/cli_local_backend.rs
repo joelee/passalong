@@ -102,7 +102,7 @@ fn help_and_version() {
         .arg("--version")
         .assert()
         .success()
-        .stdout("passalong 0.1.4\n");
+        .stdout("passalong 0.1.5\n");
 }
 
 #[test]
@@ -419,6 +419,9 @@ async fn check_reports_each_step_and_fails_at_the_first_problem() {
             .and(predicate::str::contains("storage read   ok    1 item\n"))
             .and(predicate::str::contains(
                 "storage write  ok    wrote and removed a probe in tmp/\n",
+            ))
+            .and(predicate::str::ends_with(
+                "serve          off   not running\n",
             )),
     );
     sb.with_config()
@@ -433,7 +436,10 @@ async fn check_reports_each_step_and_fails_at_the_first_problem() {
         .code(1)
         .stdout(
             predicate::str::contains("config         FAIL  ")
-                .and(predicate::str::ends_with("storage write  skip\n")),
+                .and(predicate::str::contains("storage write  skip\n"))
+                .and(predicate::str::ends_with(
+                    "serve          off   not running\n",
+                )),
         )
         .stderr(predicate::str::contains("error: check failed: config"));
     #[cfg(unix)]
@@ -473,7 +479,7 @@ async fn check_reports_each_step_and_fails_at_the_first_problem() {
 
 #[cfg(target_os = "linux")]
 #[test]
-fn install_service_writes_a_systemd_unit_and_drives_systemctl() {
+fn service_install_writes_a_systemd_unit_and_service_remove_removes_it() {
     use std::os::unix::fs::PermissionsExt;
     let sb = Sandbox::new();
     let bin = sb.path("bin");
@@ -497,7 +503,7 @@ fn install_service_writes_a_systemd_unit_and_drives_systemctl() {
         cmd
     };
     let unit = sb.path("xdg/systemd/user/passalong-serve.service");
-    install(&["install-service"])
+    install(&["service-install"])
         .assert()
         .success()
         .stdout(format!(
@@ -519,13 +525,13 @@ fn install_service_writes_a_systemd_unit_and_drives_systemctl() {
         std::fs::read_to_string(&log).unwrap(),
         "--user daemon-reload\n--user enable --now passalong-serve.service\n"
     );
-    install(&["install-service"])
+    install(&["service-install"])
         .assert()
         .success()
         .stdout(predicate::str::ends_with(
             "is already installed and unchanged\n",
         ));
-    install(&["--quiet", "install-service", "--uninstall"])
+    install(&["--quiet", "service-remove"])
         .assert()
         .success()
         .stdout("")
@@ -535,6 +541,20 @@ fn install_service_writes_a_systemd_unit_and_drives_systemctl() {
         std::fs::read_to_string(&log).unwrap(),
         "--user daemon-reload\n--user enable --now passalong-serve.service\n--user disable --now passalong-serve.service\n--user daemon-reload\n"
     );
+}
+
+#[tokio::test]
+async fn choose_needs_a_terminal() {
+    let sb = Sandbox::new();
+    sb.seed(&["one"]).await;
+    sb.with_config()
+        .arg("choose")
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr(predicate::str::ends_with(
+            "error: choose needs a terminal\n",
+        ));
 }
 
 #[tokio::test]
@@ -887,6 +907,13 @@ fn serve_daemon_starts_reports_refuses_a_second_copy_and_stops() {
         .assert()
         .success()
         .stdout(predicate::str::starts_with(format!("running (pid {pid}")));
+    sb.with_config()
+        .arg("check")
+        .assert()
+        .success()
+        .stdout(predicate::str::ends_with(format!(
+            "serve          ok    running (pid {pid})\n"
+        )));
     let busy = format!("serve is already running (pid {pid})");
     sb.with_config()
         .args(["serve", "--daemon"])

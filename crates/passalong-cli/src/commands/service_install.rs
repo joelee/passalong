@@ -1,5 +1,5 @@
-//! `passalong install-service`: install `serve` as a service that starts at
-//! login.
+//! `passalong service-install` and `passalong service-remove`: install
+//! `serve` as a service that starts at login, and remove it again.
 
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
@@ -7,12 +7,13 @@ use std::path::{Path, PathBuf};
 use anyhow::Context as _;
 use passalong_core::config::EnvProvider;
 
-use crate::cli::InstallServiceArgs;
+use crate::cli::ServiceInstallArgs;
 use crate::daemon::{Os, StatePaths, Status};
 use crate::service::{self, LAUNCHD_LABEL, SYSTEMD_UNIT, ServiceManager};
 
 /// The error on platforms without a supported service manager.
-pub const UNSUPPORTED: &str = "install-service supports Linux (systemd) and macOS (launchd) only";
+pub const UNSUPPORTED: &str =
+    "service-install and service-remove support Linux (systemd) and macOS (launchd) only";
 
 /// The service manager to install for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,7 +54,7 @@ fn owner_uid(_path: &Path) -> anyhow::Result<u32> {
     anyhow::bail!(UNSUPPORTED)
 }
 
-/// What `install-service` works with besides its options.
+/// What `service-install` works with besides its options.
 pub struct Install<'a> {
     /// Which service manager to use.
     pub platform: Platform,
@@ -69,10 +70,9 @@ pub struct Install<'a> {
     pub manager: &'a mut dyn ServiceManager,
 }
 
-/// Writes the unit, then enables and starts it unless `--no-start`, or
-/// with `--uninstall` stops and removes it.
+/// Writes the unit, then enables and starts it unless `--no-start`.
 pub fn run(
-    args: &InstallServiceArgs,
+    args: &ServiceInstallArgs,
     install: Install<'_>,
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
@@ -84,15 +84,8 @@ pub fn run(
         serve,
         manager,
     } = install;
-    let home = env
-        .var("HOME")
-        .filter(|home| !home.is_empty())
-        .map(PathBuf::from)
-        .context("cannot find the home directory: set HOME")?;
+    let home = home_dir(env)?;
     let path = unit_path(platform, env, &home);
-    if args.uninstall {
-        return uninstall(platform, &path, manager, out);
-    }
     let mut argv = vec![exe.display().to_string()];
     if let Some(config) = config {
         argv.push("--config".to_owned());
@@ -133,7 +126,7 @@ pub fn run(
     {
         let pid = pid.map_or_else(String::new, |pid| format!(" (pid {pid})"));
         anyhow::bail!(
-            "serve is already running{pid}; stop it first with `passalong serve --stop`, or with `passalong install-service --uninstall` if a service runs it"
+            "serve is already running{pid}; stop it first with `passalong serve --stop`, or with `passalong service-remove` if a service runs it"
         );
     }
     write_atomically(&path, &text)?;
@@ -186,7 +179,26 @@ pub fn run(
     Ok(())
 }
 
-fn uninstall(
+/// Stops, disables, and removes the installed unit, or says it is not
+/// installed.
+pub fn remove(
+    platform: Platform,
+    env: &dyn EnvProvider,
+    manager: &mut dyn ServiceManager,
+    out: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let path = unit_path(platform, env, &home_dir(env)?);
+    remove_unit(platform, &path, manager, out)
+}
+
+fn home_dir(env: &dyn EnvProvider) -> anyhow::Result<PathBuf> {
+    env.var("HOME")
+        .filter(|home| !home.is_empty())
+        .map(PathBuf::from)
+        .context("cannot find the home directory: set HOME")
+}
+
+fn remove_unit(
     platform: Platform,
     path: &Path,
     manager: &mut dyn ServiceManager,
@@ -204,7 +216,7 @@ fn uninstall(
                 &["--user", "disable", "--now", SYSTEMD_UNIT],
             )
             .with_context(|| format!("{} is left in place", path.display()))?;
-            remove(path)?;
+            remove_file(path)?;
             call(manager, "systemctl", &["--user", "daemon-reload"])?;
         }
         Platform::Launchd { uid } => {
@@ -213,7 +225,7 @@ fn uninstall(
             if let Err(err) = call(manager, "launchctl", &["bootout", &agent(uid)]) {
                 tracing::warn!(error = %format!("{err:#}"), "the agent was not loaded");
             }
-            remove(path)?;
+            remove_file(path)?;
         }
     }
     writeln!(out, "removed {}", path.display())?;
@@ -257,7 +269,7 @@ fn left_in_place(path: &Path) -> String {
     )
 }
 
-fn remove(path: &Path) -> anyhow::Result<()> {
+fn remove_file(path: &Path) -> anyhow::Result<()> {
     std::fs::remove_file(path).with_context(|| format!("cannot remove {}", path.display()))
 }
 
@@ -334,7 +346,7 @@ mod tests {
         fn run(
             &mut self,
             platform: Platform,
-            args: InstallServiceArgs,
+            args: ServiceInstallArgs,
             serve: Status,
         ) -> (anyhow::Result<()>, String) {
             let mut out = Vec::new();
@@ -349,10 +361,16 @@ mod tests {
             let result = run(&args, install, &mut out);
             (result, String::from_utf8(out).unwrap())
         }
+
+        fn remove(&mut self, platform: Platform) -> (anyhow::Result<()>, String) {
+            let mut out = Vec::new();
+            let result = remove(platform, &self.env, &mut self.manager, &mut out);
+            (result, String::from_utf8(out).unwrap())
+        }
     }
 
-    fn args() -> InstallServiceArgs {
-        InstallServiceArgs::default()
+    fn args() -> ServiceInstallArgs {
+        ServiceInstallArgs::default()
     }
 
     const LAUNCHD: Platform = Platform::Launchd { uid: 501 };
@@ -402,7 +420,7 @@ mod tests {
     #[test]
     fn no_start_only_writes_the_unit_and_says_how_to_start_it() {
         let mut rig = Rig::new();
-        let no_start = InstallServiceArgs {
+        let no_start = ServiceInstallArgs {
             no_start: true,
             ..args()
         };
@@ -449,7 +467,7 @@ mod tests {
             std::fs::read_to_string(rig.unit()).unwrap(),
             "[Unit]\nDescription=edited\n"
         );
-        let force = InstallServiceArgs {
+        let force = ServiceInstallArgs {
             force: true,
             ..args()
         };
@@ -496,17 +514,13 @@ mod tests {
     }
 
     #[test]
-    fn systemd_uninstall_disables_removes_and_reloads() {
+    fn systemd_remove_disables_removes_and_reloads() {
         let mut rig = Rig::new();
         rig.run(Platform::Systemd, args(), Status::NotRunning)
             .0
             .unwrap();
         rig.manager.calls.clear();
-        let uninstall = InstallServiceArgs {
-            uninstall: true,
-            ..args()
-        };
-        let (result, out) = rig.run(Platform::Systemd, uninstall.clone(), Status::NotRunning);
+        let (result, out) = rig.remove(Platform::Systemd);
         result.unwrap();
         assert!(!rig.unit().exists());
         assert_eq!(
@@ -518,7 +532,7 @@ mod tests {
         );
         assert_eq!(out, format!("removed {}\n", rig.unit().display()));
         rig.manager.calls.clear();
-        let (result, out) = rig.run(Platform::Systemd, uninstall, Status::NotRunning);
+        let (result, out) = rig.remove(Platform::Systemd);
         result.unwrap();
         assert_eq!(out, format!("not installed: no {}\n", rig.unit().display()));
         assert!(rig.manager.calls.is_empty());
@@ -560,7 +574,7 @@ mod tests {
         let mut rig = Rig::new();
         std::fs::create_dir_all(rig.plist().parent().unwrap()).unwrap();
         std::fs::write(rig.plist(), "old").unwrap();
-        let force = InstallServiceArgs {
+        let force = ServiceInstallArgs {
             force: true,
             ..args()
         };
@@ -577,16 +591,12 @@ mod tests {
     }
 
     #[test]
-    fn launchd_uninstall_boots_out_and_removes_even_when_not_loaded() {
+    fn launchd_remove_boots_out_and_removes_even_when_not_loaded() {
         let mut rig = Rig::new();
         rig.run(LAUNCHD, args(), Status::NotRunning).0.unwrap();
         rig.manager.calls.clear();
         rig.manager.fail = Some(1);
-        let uninstall = InstallServiceArgs {
-            uninstall: true,
-            ..args()
-        };
-        let (result, out) = rig.run(LAUNCHD, uninstall, Status::NotRunning);
+        let (result, out) = rig.remove(LAUNCHD);
         result.unwrap();
         assert_eq!(
             rig.manager.calls,
@@ -609,7 +619,7 @@ mod tests {
         }
         assert_eq!(
             UNSUPPORTED,
-            "install-service supports Linux (systemd) and macOS (launchd) only"
+            "service-install and service-remove support Linux (systemd) and macOS (launchd) only"
         );
     }
 }

@@ -14,7 +14,7 @@ use passalong_core::store::BackendRegistry;
 use passalong_core::telemetry::{self, LogLevel};
 use tracing::Instrument;
 
-use crate::cli::{Cli, Command, InitArgs, InstallServiceArgs};
+use crate::cli::{Cli, Command, InitArgs};
 use crate::commands;
 use crate::commands::clipboard::TextSource;
 use crate::prompt::TerminalPrompt;
@@ -57,10 +57,13 @@ async fn execute(cli: Cli, env: &dyn EnvProvider, out: &mut dyn Write) -> anyhow
         )
         .await;
     }
-    // `install-service` needs no config: a `--config` given is passed on in
-    // the unit it writes.
-    if let Command::InstallService(args) = &cli.command {
-        return install_service(args, &cli, env, out);
+    // The service commands need no config: a `--config` given is passed on
+    // in the unit `service-install` writes.
+    if matches!(
+        cli.command,
+        Command::ServiceInstall(_) | Command::ServiceRemove
+    ) {
+        return service(&cli, env, out);
     }
     // `check` reports a missing or invalid config as its first result.
     if matches!(cli.command, Command::Check) {
@@ -76,7 +79,7 @@ async fn execute(cli: Cli, env: &dyn EnvProvider, out: &mut dyn Write) -> anyhow
     let level = resolve_level(cli.log_level, cli.quiet, env, Some(&config))?;
     // `init` fails only if logging is already set up, which cannot happen
     // in a fresh process.
-    let _ = telemetry::init(level, io::stderr);
+    let _ = telemetry::init(level, crate::logs::writer);
     tracing::debug!(path = %located.path.display(), "using config from {}", located.origin);
     let span = telemetry::op_span(cli.command.name(), &mut StdRandom::new());
     let context = commands::serve::ServeContext {
@@ -129,8 +132,8 @@ async fn dispatch(
     match command {
         Command::Init(_) => anyhow::bail!("init runs before configuration is loaded"),
         Command::Check => anyhow::bail!("check loads the configuration itself"),
-        Command::InstallService(_) => {
-            anyhow::bail!("install-service runs before configuration is loaded")
+        Command::ServiceInstall(_) | Command::ServiceRemove => {
+            anyhow::bail!("the service commands run before configuration is loaded")
         }
         Command::HoldClipboard { .. } => {
             anyhow::bail!("the clipboard holder runs before configuration is loaded")
@@ -183,6 +186,22 @@ async fn dispatch(
                 chooser: Some(&mut chooser),
             };
             commands::cat::run(store.as_ref(), lookup, force, terminal, out).await
+        }
+        Command::Choose => {
+            anyhow::ensure!(
+                io::stdin().is_terminal() && io::stdout().is_terminal(),
+                "choose needs a terminal"
+            );
+            let store = backends.open(config).await?;
+            let mut open_clipboard =
+                || -> Result<Box<dyn Clipboard>, ClipboardError> { clipboard_for_load() };
+            let targets = commands::choose::ActionTargets {
+                download_dir: &config.client.download_dir,
+                open_clipboard: &mut open_clipboard,
+                stdout_is_terminal: true,
+                offset: local_offset(),
+            };
+            commands::choose::run(store.as_ref(), targets, out).await
         }
         Command::Get { id, json } => {
             let store = backends.open(config).await?;
@@ -267,32 +286,36 @@ async fn check(cli: &Cli, env: &dyn EnvProvider, out: &mut dyn Write) -> anyhow:
     let loaded = load_config(cli.config.as_deref(), env);
     let config = loaded.as_ref().ok().map(|(_, config)| config);
     let level = resolve_level(cli.log_level, cli.quiet, env, config)?;
-    let _ = telemetry::init(level, io::stderr);
+    let _ = telemetry::init(level, crate::logs::writer);
     let mut backends = BackendRegistry::with_builtin();
     passalong_ssh::register(&mut backends);
     let span = telemetry::op_span("check", &mut StdRandom::new());
-    commands::check::run(loaded, &backends, out)
+    let serve = crate::daemon::StatePaths::resolve(env, crate::daemon::Os::current())
+        .context("cannot find serve's pid file: set HOME")
+        .and_then(|paths| crate::daemon::status(&paths.pid).map_err(anyhow::Error::from))
+        .map_err(|err| format!("{err:#}"));
+    commands::check::run(loaded, &backends, serve, out)
         .instrument(span)
         .await
 }
 
-/// Runs `install-service` for this binary, passing on `--config` as an
-/// absolute path when given.
-fn install_service(
-    args: &InstallServiceArgs,
-    cli: &Cli,
-    env: &dyn EnvProvider,
-    out: &mut dyn Write,
-) -> anyhow::Result<()> {
+/// Runs `service-install` for this binary, passing on `--config` as an
+/// absolute path when given, or `service-remove`.
+fn service(cli: &Cli, env: &dyn EnvProvider, out: &mut dyn Write) -> anyhow::Result<()> {
     let level = resolve_level(cli.log_level, cli.quiet, env, None)?;
-    let _ = telemetry::init(level, io::stderr);
-    let _span = telemetry::op_span("install-service", &mut StdRandom::new()).entered();
+    let _ = telemetry::init(level, crate::logs::writer);
+    let _span = telemetry::op_span(cli.command.name(), &mut StdRandom::new()).entered();
     let home = env
         .var("HOME")
         .filter(|home| !home.is_empty())
         .map(PathBuf::from)
         .context("cannot find the home directory: set HOME")?;
-    let platform = commands::install_service::current_platform(&home)?;
+    let platform = commands::service_install::current_platform(&home)?;
+    let mut manager = crate::service::ProcessManager;
+    // Only `service-install` and `service-remove` reach here.
+    let Command::ServiceInstall(args) = &cli.command else {
+        return commands::service_install::remove(platform, env, &mut manager, out);
+    };
     let exe = std::env::current_exe().context("cannot find the passalong executable")?;
     let config = match cli.config.as_deref() {
         Some(path) => {
@@ -304,10 +327,9 @@ fn install_service(
     let paths = crate::daemon::StatePaths::resolve(env, crate::daemon::Os::current())
         .context("cannot find serve's pid file: set HOME")?;
     let serve = crate::daemon::status(&paths.pid)?;
-    let mut manager = crate::service::ProcessManager;
-    commands::install_service::run(
+    commands::service_install::run(
         args,
-        commands::install_service::Install {
+        commands::service_install::Install {
             platform,
             env,
             exe: &exe,
@@ -338,7 +360,7 @@ async fn init(
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
     let level = resolve_level(level_flag, quiet, env, None)?;
-    let _ = telemetry::init(level, io::stderr);
+    let _ = telemetry::init(level, crate::logs::writer);
     let target = match config_flag {
         Some(path) => path.to_path_buf(),
         None => config::default_config_path(env)

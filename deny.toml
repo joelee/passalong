@@ -36,8 +36,10 @@ confidence-threshold = 0.9
 multiple-versions = "deny"
 wildcards = "deny"
 skip = [
+    { crate = "foldhash@0.1.5", reason = "hashbrown 0.15, through petgraph and wl-clipboard-rs, uses foldhash 0.1 while kasuari's hashbrown 0.16 uses foldhash 0.2" },
     { crate = "getrandom@0.2.17", reason = "ring 0.17, russh's crypto backend, still uses getrandom 0.2" },
     { crate = "hashbrown@0.14.5", reason = "dashmap 6, through russh-sftp, uses hashbrown 0.14" },
+    { crate = "hashbrown@0.16.1", reason = "kasuari, the layout solver of ratatui (passalong choose), uses hashbrown 0.16" },
     { crate = "hashbrown@0.15.5", reason = "petgraph 0.8, through wl-clipboard-rs (arboard's Wayland support, Linux only), uses hashbrown 0.15" },
     { crate = "miniz_oxide@0.8.9", reason = "png 0.18, for clipboard images, uses miniz_oxide 0.8 while flate2 uses 0.9" },
     { crate = "sha3@0.11.0", reason = "ml-kem 0.3, russh's post-quantum key exchange, uses sha3 0.11" },

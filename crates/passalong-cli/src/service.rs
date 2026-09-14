@@ -66,11 +66,11 @@ WantedBy=graphical-session.target\n\
     )
 }
 
-/// The systemd unit `install-service` writes.
+/// The systemd unit `service-install` writes.
 pub fn systemd_unit(exec_start: &str) -> String {
     format!(
-        "# Written by `passalong install-service`; remove it with\n\
-         # `passalong install-service --uninstall`.\n\
+        "# Written by `passalong service-install`; remove it with\n\
+         # `passalong service-remove`.\n\
          # Logs: journalctl --user -u passalong-serve.service -f\n\n{}",
         systemd_unit_body(exec_start)
     )
@@ -114,11 +114,11 @@ pub fn launchd_plist_body(args: &[String], home: &str, log: &str) -> String {
     text
 }
 
-/// The launchd agent `install-service` writes.
+/// The launchd agent `service-install` writes.
 pub fn launchd_plist(args: &[String], home: &str, log: &str) -> String {
-    // XML comments cannot contain two hyphens in a row, so no `--uninstall`.
+    // XML comments cannot contain two hyphens in a row; this text has none.
     format!(
-        "{XML_DECLARATION}<!-- Written by passalong install-service, which also removes it with its uninstall option. -->\n{}",
+        "{XML_DECLARATION}<!-- Written by passalong service-install; remove it with passalong service-remove. -->\n{}",
         launchd_plist_body(args, home, log)
     )
 }
@@ -187,13 +187,10 @@ mod tests {
     fn the_systemd_unit_runs_serve_from_the_home_directory() {
         let unit = systemd_unit("/usr/bin/passalong serve");
         assert!(
-            unit.starts_with("# Written by `passalong install-service`"),
+            unit.starts_with("# Written by `passalong service-install`"),
             "{unit}"
         );
-        assert!(
-            unit.contains("passalong install-service --uninstall"),
-            "{unit}"
-        );
+        assert!(unit.contains("`passalong service-remove`"), "{unit}");
         for line in [
             "ExecStart=/usr/bin/passalong serve\n",
             "WorkingDirectory=%h\n",
@@ -217,7 +214,7 @@ mod tests {
             "/Users/me",
             "/Users/me/Library/Logs/passalong/serve.log",
         );
-        assert!(plist.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!-- Written by passalong install-service"), "{plist}");
+        assert!(plist.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!-- Written by passalong service-install"), "{plist}");
         let comment = &plist[plist.find("<!--").unwrap() + 4..plist.find("-->").unwrap()];
         assert!(
             !comment.contains("--"),

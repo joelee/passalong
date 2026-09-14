@@ -4,16 +4,17 @@
 
 pub mod cat;
 pub mod check;
+pub mod choose;
 pub mod clipboard;
 pub mod delete;
 pub mod file;
 pub mod get;
 pub mod init;
-pub mod install_service;
 pub mod list;
 pub mod load;
 pub mod prune;
 pub mod serve;
+pub mod service_install;
 
 /// Ends the process with this exit code without printing an error, for
 /// results such as `serve --status` reporting "not running".

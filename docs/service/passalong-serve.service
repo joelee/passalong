@@ -1,6 +1,6 @@
 # systemd user unit for `passalong serve`.
 #
-# `passalong install-service` writes this unit with the right paths,
+# `passalong service-install` writes this unit with the right paths,
 # enables it, and starts it. To install it by hand instead:
 #   mkdir -p ~/.config/systemd/user
 #   cp docs/service/passalong-serve.service ~/.config/systemd/user/

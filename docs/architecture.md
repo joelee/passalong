@@ -6,7 +6,7 @@
 |---|---|---|
 | `passalong-core` | library | Configuration, item model, storage traits, clipboard trait, `serve` loop, telemetry. No CLI or terminal dependencies. |
 | `passalong-ssh` | library | SSH/SFTP storage backend (`russh`), host-key pinning. |
-| `passalong` (in `crates/passalong-cli/`) | binary `passalong` | Argument parsing, command handlers, output formatting. |
+| `passalong` (in `crates/passalong-cli/`) | binary `passalong` | Argument parsing, command handlers, output formatting, and the `choose` terminal UI (ratatui). |
 
 Future GUI and Android front-ends depend on `passalong-core` and
 `passalong-ssh` only. `passalong-core` keeps the desktop clipboard behind its
@@ -31,9 +31,10 @@ Every invocation goes through the same start-up:
 1. Load `./.env` if it exists, without overriding the environment.
 2. Parse the command line; usage errors exit with code 2.
 3. Find and validate `config.toml` (see [configuration](configuration.md)).
-   `init`, which writes that file, `install-service`, which needs none,
-   `check`, which reports a config problem as its first result, and the
-   hidden clipboard holder described below run before this step.
+   `init`, which writes that file, `service-install` and `service-remove`,
+   which need none, `check`, which reports a config problem as its first
+   result, and the hidden clipboard holder described below run before this
+   step.
 4. Choose the log level and start logging to standard error. With
    `--quiet`, standard output is discarded for every command but `cat`, and
    the level is `error` unless one is set explicitly.
@@ -49,12 +50,14 @@ Every invocation goes through the same start-up:
 | `load` | `Store::resolve`, `Store::get`, verifies SHA-256, then writes a file or the clipboard |
 | `cat` | `Store::resolve`, `Store::get`, streams the content to standard output while verifying SHA-256 |
 | `get` | `Store::resolve`, then `Store::get_meta`; prints fields or JSON |
+| `choose` | `Store::list`, then a full-screen list (ratatui over crossterm); `g` shows `Store::get_meta` in a dialog, `d` runs `Store::delete` and lists again, and `r` lists again; Enter and `c` run the code of `load` or `cat` after the terminal is restored; log records are held while the list is open and written when it closes |
 | `serve` | Runs the loop below until stopped; `--daemon`, `--status`, and `--stop` manage a background copy |
 | `delete` | Resolves every id first, then `Store::delete` for each |
 | `prune` | `Store::list`, selects items older than `--older-than` beyond the newest `--keep`, confirms, deletes, then `Store::clean_staging` |
 | `init` | Fetches the server host key without authenticating, asks you to confirm its fingerprint, writes the config file, then runs `Store::list` as a connection test |
-| `check` | Loads the config, opens the backend, `Store::list_ids`, then `Store::probe_write`, printing one line per step |
-| `install-service` | Writes a systemd user unit or launchd agent for `serve` and loads it with `systemctl --user` or `launchctl` |
+| `check` | Loads the config, opens the backend, `Store::list_ids`, then `Store::probe_write`, printing one line per step, then reads `serve`'s pid lock |
+| `service-install` | Writes a systemd user unit or launchd agent for `serve` and loads it with `systemctl --user` or `launchctl` |
+| `service-remove` | Stops the service and removes its unit |
 
 Each one-shot command opens its own connection; `serve` keeps one and
 reopens it when needed.
@@ -196,6 +199,9 @@ that lists the candidates.
   access runs on a blocking thread, off the async runtime.
 - **Drop watcher.** Scans the drop folder whenever the operating system
   reports a change, and at least every 5 seconds in case events are missed.
+  Only events that may change files count: creating, writing, renaming, or
+  removing them. Opening and reading do not, because every scan opens the
+  folder and would otherwise trigger the next scan.
   A file is queued once two scans at least `file_stable_wait_ms` apart show
   the same size and modification time.
 - **Pull loop** (only with `serve.pull = true`). At start-up, before
@@ -240,12 +246,13 @@ of the log. `serve --status` reads the pid file and exits 3 when nothing is
 running. `serve --stop` sends SIGTERM and waits for the pid file to be
 released.
 
-`install-service` renders a systemd user unit or a launchd agent from the
+`service-install` renders a systemd user unit or a launchd agent from the
 templates in `crates/passalong-cli/src/service.rs`, running the same binary's
 `serve` from the home directory, and loads it with `systemctl --user` or
 `launchctl`. It does not start a service while the pid lock shows a running
 `serve`. `docs/service/` holds the same units with placeholder paths, and a
-test keeps them identical to the templates.
+test keeps them identical to the templates. `service-remove` stops the
+service and removes the unit.
 
 ## Clipboard on Linux
 

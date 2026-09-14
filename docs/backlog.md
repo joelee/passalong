@@ -4,30 +4,6 @@ Future work not covered by an active plan. Completed items are removed.
 
 ## @joelee road map for next releases
 
-### v0.1.5
-- **Android cross-compile check in CI.**
-- **Bug: `serve` burns CPU when idle.** Reported by @joelee: an idle
-  `serve` uses 9.8 MB of RAM and 4.8 % CPU. Measured on 2026-09-14 with
-  v0.1.4 on Linux under Wayland, it used about 134 % CPU continuously
-  (38 threads), with plain text on the clipboard and an empty drop folder.
-  A sandboxed `serve` with no clipboard, a local store, and an empty drop
-  folder used 139 %, so the clipboard is not the cause. The busy threads are
-  the tokio workers and the `notify` watcher. Likely cause:
-  `drop_watcher::watch_folder` forwards every inotify event, including the
-  access events that `drop_loop`'s own `scan` causes by opening the
-  folder, so each scan triggers the next. To discuss: react only to create,
-  modify, remove, and rename events, with a test that an idle `serve` does
-  not rescan between `rescan_interval`s; then measure the remaining idle
-  cost (clipboard poll every 750 ms on a blocking thread, pull every 5 s,
-  the runtime's thread count) and whether a current-thread runtime suits
-  `serve`.
-- **`check` reports whether `serve` is running**, with its pid, as
-  `serve --status` does.
-- **Rename `install-service` to `service-install` and add
-  `service-remove`**, which replaces `install-service --uninstall`. v0.1.4
-  is not released, so the old name needs no alias.
-- `passalong choose` - invoke a TUI to select 
-
 ### v0.2.0
 - **Windows support**
 - Add Homebrew package on `https://github.com/joelee/homebrew-oss`
@@ -36,6 +12,20 @@ Future work not covered by an active plan. Completed items are removed.
 ## Agent suggested next steps
 
 ### Features
+
+- **`serve` keeps the item list cached.** Requested by @joelee: over a
+  mobile connection, `list` and `choose` can take 3 to 5 seconds. Each
+  one-shot command opens its own SSH connection, then `Store::list` reads
+  every item's `meta.json`, one SFTP round trip per item, so the time grows
+  with the store and the latency. `serve` already reads the ids at every
+  pull interval and keeps a connection open. To discuss: `serve` keeps the
+  metadata of every item in memory, updated from `list_ids` and `get_meta`
+  for new ids and from its own sends and deletes, and answers `list`,
+  `choose`, `get`, and id lookups over a local socket in its state
+  directory, which only the user can open. Commands fall back to reading
+  the store when `serve` is not running, or when its answer is older than
+  an agreed age. Related options: reading the `meta.json` files in
+  parallel, which helps without `serve`, and "Connection reuse" below.
 
 - **Encryption at rest.** Encrypt content before upload, for example with
   `age`, so the server operator cannot read items.

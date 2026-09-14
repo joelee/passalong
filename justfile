@@ -103,6 +103,29 @@ audit:
 lint-workflows:
     if command -v actionlint >/dev/null; then actionlint; else docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color; fi
 
+# Check that passalong-core and passalong-ssh build for Android (aarch64),
+# without the desktop clipboard. Needs the Android NDK (ANDROID_NDK_HOME or
+# ANDROID_NDK_LATEST_HOME) and `rustup target add aarch64-linux-android`;
+# see docs/developer-guide.md, "Android".
+android-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ndk="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-}}"
+    if [ -z "$ndk" ] || [ ! -d "$ndk" ]; then
+        echo "error: set ANDROID_NDK_HOME to an Android NDK (see docs/developer-guide.md, Android)" >&2
+        exit 1
+    fi
+    case "$(uname -s)" in
+        Linux) host=linux-x86_64 ;;
+        Darwin) host=darwin-x86_64 ;;
+        *) echo "error: the NDK toolchain is only looked up on Linux and macOS hosts" >&2; exit 1 ;;
+    esac
+    bin="$ndk/toolchains/llvm/prebuilt/$host/bin"
+    # ring compiles C code for the target, with the NDK's clang for API 24.
+    export CC_aarch64_linux_android="$bin/aarch64-linux-android24-clang"
+    export AR_aarch64_linux_android="$bin/llvm-ar"
+    cargo check --locked --target aarch64-linux-android -p passalong-core -p passalong-ssh --no-default-features
+
 # Build the workspace from the lockfile
 build:
     cargo build --workspace --all-features --locked

@@ -6,14 +6,22 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## v0.1.5 - 2026-09-14T14:26:22Z
+
 ### Added
 
-- `passalong install-service` installs `serve` as a systemd user unit
-  (Linux) or a launchd agent (macOS), enables it, and starts it;
-  `--no-start`, `--force`, and `--uninstall` (PLAN-00005 STEP-06).
+- `passalong choose` opens a full-screen list of the stored items to
+  filter and pick one, then load or print it, show its metadata in a
+  scrollable dialog, or delete it and see the list read again; `?` shows
+  the passalong version and every key (PLAN-00006 STEP-05).
+- `passalong service-install` installs `serve` as a systemd user unit
+  (Linux) or a launchd agent (macOS), enables it, and starts it, with
+  `--no-start` and `--force`; `passalong service-remove` stops and removes
+  it (PLAN-00005 STEP-06, renamed in PLAN-00006 STEP-03).
 - `passalong check` checks the config, the connection with its pinned host
   key, and that the store can be read and written, one line per check
-  (PLAN-00005 STEP-05).
+  (PLAN-00005 STEP-05); a last line reports whether `serve` is running
+  (PLAN-00006 STEP-04).
 - `Store::probe_write` and `WriteProbe` in `passalong-core`; the default
   reports `NotSupported`, so existing implementations keep compiling
   (PLAN-00005 STEP-05).
@@ -35,6 +43,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- An idle `serve` no longer keeps more than a CPU core busy: the drop
+  folder watcher ignored nothing, so the folder being opened by each scan
+  triggered the next scan. It now reacts only to files being created,
+  written, renamed, or removed (PLAN-00006 STEP-01).
 - `passalong cat` prints only the item: its "item printed" record is now at
   `verbose` level, so it no longer follows the content on the terminal
   (PLAN-00005 STEP-03).

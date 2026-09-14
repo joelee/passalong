@@ -67,13 +67,15 @@ passalong init --host nas.local --fingerprint SHA256:5Si4lWKPwa0+I2wCQf3eOtcF8jW
 
 ## `passalong check`
 
-Checks the setup in four steps and prints one line for each:
+Checks the setup in four steps, printing one line for each, then reports
+whether `serve` is running:
 
 ```text
 config         ok    /home/me/.config/passalong/config.toml
 server         ok    ssh passalong@192.168.1.10:22, /srv/passalong
 storage read   ok    12 items
 storage write  ok    wrote and removed a probe in tmp/
+serve          ok    running (pid 4242)
 ```
 
 - `config`: the config file is found and valid.
@@ -83,6 +85,9 @@ storage write  ok    wrote and removed a probe in tmp/
 - `storage write`: a small probe file is written under the store's `tmp/`
   folder and removed again. Listings and other devices never see it, so it
   does not reach pull mode.
+- `serve`: whether `serve` is running on this machine, as `serve --status`
+  reports it. It is informational: `off` is not a failure, and the line is
+  shown even when a check failed.
 
 The first failure is shown as `FAIL` with the reason, the remaining checks
 as `skip`, and `check` exits with 1 and an `error: check failed: ...` line.
@@ -246,6 +251,30 @@ local time and in UTC. The id works as for `load`.
 |---|---|
 | `--json` | Print the metadata as a JSON object, the same as the item's entry in `list --json` |
 
+## `passalong choose`
+
+Opens a full-screen list of the stored items, newest first, to pick one and
+act on it. It needs a terminal.
+
+| Key | Action |
+|---|---|
+| Up, Down, `k`, `j`, Page Up, Page Down, Home, End | Move |
+| `/` | Filter: type to match the id, name or preview, device, or kind, ignoring case; Enter keeps the filter, Esc clears it |
+| Enter | Load the item, as `passalong load <ID>` does: text and images go to the clipboard, files to the download directory |
+| `c` | Print the item, as `passalong cat <ID>` does |
+| `g` | Show its metadata, as `passalong get <ID>` does, in a dialog over the list; Up, Down, Page Up, Page Down, Home, and End scroll it, and Esc, `q`, `g`, or Enter close it |
+| `d` | Delete it after `y`, then show the list read again from the store |
+| `r` | Reload the list |
+| `?` | Show the passalong version, what it is, and these keys; any key closes it |
+| `q`, Esc, Ctrl-C | Quit without doing anything |
+
+Loading and printing close the list first, so what they print stays in the
+terminal. With `--quiet`, nothing is printed after the list closes. While
+the list is being read or an item deleted, the bottom line says
+`Loading...`, `Reloading...`, or `Deleting <ID>...`, and keys wait until it
+is done. Log lines are held while the list is open and printed when it
+closes.
+
 ## `passalong delete <ID>...`
 
 Deletes items from the store and prints each deleted id. Each `ID` is a full
@@ -349,19 +378,19 @@ Only one `serve` runs at a time: a second one exits with
 
 The background process keeps running after you close the terminal and logs
 to a file (see [configuration](configuration.md#serve-files)). For start at
-login and restarts after crashes, use `passalong install-service`.
+login and restarts after crashes, use `passalong service-install`.
 - **macOS (launchd):** install `docs/service/com.passalong.serve.plist` as a
   launch agent. Its header shows the commands.
 
-## `passalong install-service`
+## `passalong service-install`
 
 Installs `serve` as a service that starts at login and restarts after a
 crash: a systemd user unit on Linux, a launchd agent on macOS. Run
 `passalong check` first to make sure the setup works.
 
 ```sh
-passalong install-service               # write the unit, enable it, start it
-passalong install-service --uninstall   # stop it and remove the unit
+passalong service-install   # write the unit, enable it, start it
+passalong service-remove    # stop it and remove the unit
 ```
 
 | Platform | Unit | Loaded with |
@@ -377,17 +406,25 @@ A unit with the same content is left alone; one that differs is replaced
 only with `--force`. The service is not started while another `serve` runs:
 stop it first with `passalong serve --stop`. If `systemctl` or `launchctl`
 fails, the unit is left in place and the error names the command. Other
-platforms get `install-service supports Linux (systemd) and macOS (launchd)
-only`.
+platforms get `service-install and service-remove support Linux (systemd)
+and macOS (launchd) only`.
 
 | Option | Meaning |
 |---|---|
 | `--no-start` | Write the unit without enabling or starting it, and print the command that would |
 | `--force` | Replace an installed unit that differs |
-| `--uninstall` | Stop, disable, and remove the installed unit |
 
 The files in `docs/service/` are the same units with placeholder paths, for
 installing by hand.
+
+## `passalong service-remove`
+
+Stops, disables, and removes the unit `service-install` wrote. On Linux it
+runs `systemctl --user disable --now passalong-serve.service`, removes the
+file, and reloads systemd; on macOS it boots the agent out with `launchctl
+bootout` (an agent that is not loaded is fine) and removes the file.
+Without an installed unit it prints `not installed: no <path>` and
+succeeds.
 
 ## Clipboard support
 

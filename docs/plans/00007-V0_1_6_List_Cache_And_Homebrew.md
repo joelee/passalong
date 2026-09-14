@@ -32,14 +32,14 @@ confidence: medium                # high | medium | low
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; Delivery Planner initializes them.
-implementation_status: in-progress # not-started | in-progress | blocked | completed | abandoned
+implementation_status: completed # not-started | in-progress | blocked | completed | abandoned
 builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00007-v0.1.6"
 execution_started_at: "2026-09-14T18:19:15Z"
-execution_updated_at: "2026-09-14T19:09:25Z"
-execution_completed_at: null
-current_step: "PLAN-00007-STEP-09"
+execution_updated_at: "2026-09-14T19:16:08Z"
+execution_completed_at: "2026-09-14T19:16:08Z"
+current_step: null
 ---
 
 # Delivery Plan 00007: V0 1 6 List Cache And Homebrew
@@ -669,7 +669,7 @@ also commits in `../homebrew-oss`. Docker tests run at STEP-04 and STEP-09.
 | PLAN-00007-STEP-06 | completed | 2026-09-14T18:50:27Z | 2026-09-14T19:08:24Z | Commit `build: complete PLAN-00007-STEP-06 - Homebrew formula in the tap`; homebrew/brew install, test, and both audits exit 0; tap commit 7930f4d on add-passalong | AC-10 completes when the user pushes add-passalong and the tap's macOS workflow passes. |
 | PLAN-00007-STEP-07 | completed | 2026-09-14T19:08:24Z | 2026-09-14T19:08:24Z | Commit `build: complete PLAN-00007-STEP-07 - Formula update script and release step`; homebrew_script tests; dry run against the tap's formula | Root AGENTS.md release workflow step 9 and the developer guide's Releasing step 6 cover the tap update. |
 | PLAN-00007-STEP-08 | completed | 2026-09-14T19:08:24Z | 2026-09-14T19:09:25Z | Commit `build: complete PLAN-00007-STEP-08 - Documentation and v0.1.6 release preparation`; links, just check, publish dry run, timing, consistency check | Backlog: encryption moved under v0.1.7 with its design questions; the delivered v0.1.6 items and the Android CI item dropped; a lazy choose connection and parallel metadata reads added. The release notes' Tests and Coverage sections are filled in by STEP-09. |
-| PLAN-00007-STEP-09 | not-started | — | — | — | — |
+| PLAN-00007-STEP-09 | completed | 2026-09-14T19:09:25Z | 2026-09-14T19:16:08Z | Commit `build: complete PLAN-00007-STEP-09 - Final quality gate`; just ci exit 0 (coverage 92.48 % / 93.85 % full); CI run 34885452935 green on all four jobs with no annotations; scope review clean; list timing recorded | AC-10 completes when the user pushes ../homebrew-oss add-passalong (7930f4d) and the tap's macOS workflow passes. |
 
 Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 `skipped`. A skipped step requires explicit user approval recorded in Evidence.
@@ -695,6 +695,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-14T19:08:24Z | PLAN-00007-STEP-07 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00007-STEP-07 - Formula update script and release step` | Begin PLAN-00007-STEP-08 |
 | 2026-09-14T19:08:24Z | PLAN-00007-STEP-08 | Started | — | Red phase |
 | 2026-09-14T19:09:25Z | PLAN-00007-STEP-08 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00007-STEP-08 - Documentation and v0.1.6 release preparation` | Begin PLAN-00007-STEP-09 |
+| 2026-09-14T19:09:25Z | PLAN-00007-STEP-09 | Started | — | Red phase |
+| 2026-09-14T19:16:08Z | PLAN-00007-STEP-09 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00007-STEP-09 - Final quality gate` | Builder hand-off |
 
 ### Deviations and blockers
 
@@ -736,14 +738,18 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-14T19:09:25Z | PLAN-00007-STEP-08 | just publish-dry-run --allow-dirty | pass | passalong-core, passalong-ssh, and passalong 0.1.6 packaged and verified |
 | 2026-09-14T19:09:25Z | PLAN-00007-STEP-08 | list timing against the Docker sshd, release build, medians of 3 | pass | 10 items: list --nocache 122 ms, list from the cache 4 ms; 100 items: 140 ms and 4 ms |
 | 2026-09-14T19:09:25Z | PLAN-00007-STEP-08 | consistency check | pass | README, usage, configuration, architecture, developer guide, and release notes match the code: list_cache default true, list_cache_check_secs 60 (10 to 86400), usable for twice the interval, list-cache.json next to serve.pid, --nocache, r and R, the 128-byte probe line, Homebrew with brew trust |
+| 2026-09-14T19:13:20Z | PLAN-00007-STEP-09 | just ci | pass | exit 0 on 884022c: fmt, clippy, links, tests, deny, publish dry run for all three crates at 0.1.6, workflow lint, Docker integration and deploy tests; coverage 92.48 % without Docker tests, 93.85 % with them |
+| 2026-09-14T19:13:20Z | PLAN-00007-STEP-09 | scope review: git diff --stat main...HEAD | pass | 33 files, all within the plan: the list cache (core cache.rs, CLI list_cache.rs, serve, list, choose), check's write timing, the Homebrew update script, docs, backlog, version 0.1.6, release notes |
+| 2026-09-14T19:13:20Z | PLAN-00007-STEP-09 | list timing against the Docker sshd (release build, medians of 3) | pass | 10 items: list --nocache 122 ms, list from the cache 4 ms; 100 items: 140 ms and 4 ms; recorded in docs/release/v0.1.6.md |
+| 2026-09-14T19:16:08Z | PLAN-00007-STEP-09 | GitHub CI run 34885452935 on 884022c | pass | success: Android build check, macOS (just check), Linux (just ci with Docker SSH tests), Linux desktop clipboard (Xvfb); 0 annotations on each job |
 
 ### Completion summary
 
-- **Implementation status:** `not-started`
-- **Completed requirements:** None
-- **Incomplete requirements:** All
+- **Implementation status:** `completed`
+- **Completed requirements:** PLAN-00007-REQ-01..REQ-13
+- **Incomplete requirements:** v0.1.6 built: serve keeps a list cache that list and choose read without connecting (--nocache, choose r/R), commands keep it current, check times its 128-byte write probe, and the Homebrew formula is on the tap branch add-passalong with scripts/update-homebrew-formula.sh and a release-workflow step. AC-10 waits for the tap push.
 - **Outstanding blockers:** None
-- **Review request:** Not ready
+- **Review request:** Ready for the user's review (release workflow step 3)
 <!-- BUILDER_WORK_LOG_END -->
 
 ## 18. Planning change log

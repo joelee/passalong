@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00006-v0.1.5"
 execution_started_at: "2026-09-14T08:16:47Z"
-execution_updated_at: "2026-09-14T08:43:10Z"
+execution_updated_at: "2026-09-14T08:46:57Z"
 execution_completed_at: null
-current_step: "PLAN-00006-STEP-07"
+current_step: "PLAN-00006-STEP-08"
 ---
 
 # Delivery Plan 00006: V0 1 5 Idle CPU And Choose TUI
@@ -630,7 +630,7 @@ STEP-04 and STEP-08.
 | PLAN-00006-STEP-04 | completed | 2026-09-14T08:29:40Z | 2026-09-14T08:32:03Z | Commit `build: complete PLAN-00006-STEP-04 - check reports serve`; `just check` green, 92.54% lines; Docker tests pass | AC-04. check::run takes the serve state (Result<Status, String>); the four checks moved into run_checks, and the serve line always follows them; app reads the pid lock through StatePaths and daemon::status. Usage, architecture, CHANGELOG updated |
 | PLAN-00006-STEP-05 | completed | 2026-09-14T08:32:28Z | 2026-09-14T08:41:30Z | Commit `build: complete PLAN-00006-STEP-05 - passalong choose`; `just check` green, 92.53% lines; `just audit` green | AC-05, AC-07, AC-08; AC-06 except the real-terminal restore (manual). ratatui 0.30 without default features, crossterm through ratatui::crossterm; commands/choose/{mod,state,view}.rs; resolve::age shared. Usage, README, architecture, developer guide (skips), CHANGELOG updated |
 | PLAN-00006-STEP-06 | completed | 2026-09-14T08:42:26Z | 2026-09-14T08:43:10Z | Commit `build: complete PLAN-00006-STEP-06 - Android build check in CI`; `just check` green, 92.53% lines; Android CI job result recorded in STEP-07 | AC-09 pending the job on the pushed branch. just android-check picks the NDK clang for API 24 and llvm-ar for ring, then cargo check --target aarch64-linux-android -p passalong-core -p passalong-ssh --no-default-features. The user asked on 2026-09-14 to keep docs/developer-guide.md current with the Android development prerequisites: a new "Android" section lists the Rust target, the NDK (r26+, SDK Manager or sdkmanager), ANDROID_NDK_HOME, supported hosts, and why ring needs the NDK |
-| PLAN-00006-STEP-07 | not-started | — | — | — | — |
+| PLAN-00006-STEP-07 | completed | 2026-09-14T08:43:49Z | 2026-09-14T08:46:57Z | Commit `build: complete PLAN-00006-STEP-07 - Documentation and v0.1.5 release preparation`; `just check` green, 92.52% lines | AC-10, AC-11. docs/release/v0.1.4.md removed (never released); docs/release/v0.1.5.md drafted covering v0.1.5 and the unreleased v0.1.4 work, with the idle measurements, tests, dependencies, and upgrade notes (coverage-full filled at the final gate); backlog v0.1.5 section removed; CHANGELOG Unreleased entries were added per step with the new command names |
 | PLAN-00006-STEP-08 | not-started | — | — | — | — |
 
 Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
@@ -653,6 +653,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-14T08:41:30Z | PLAN-00006-STEP-05 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00006-STEP-05 - passalong choose` | Begin PLAN-00006-STEP-06 |
 | 2026-09-14T08:42:26Z | PLAN-00006-STEP-06 | Started | — | Red phase |
 | 2026-09-14T08:43:10Z | PLAN-00006-STEP-06 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00006-STEP-06 - Android build check in CI` | Begin PLAN-00006-STEP-07 |
+| 2026-09-14T08:43:49Z | PLAN-00006-STEP-07 | Started | — | Red phase |
+| 2026-09-14T08:46:57Z | PLAN-00006-STEP-07 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00006-STEP-07 - Documentation and v0.1.5 release preparation` | Begin PLAN-00006-STEP-08 |
 
 ### Deviations and blockers
 
@@ -688,6 +690,12 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-14T08:43:10Z | PLAN-00006-STEP-06 | `just lint-workflows` (actionlint) with the android job | Pass | no findings |
 | 2026-09-14T08:43:10Z | PLAN-00006-STEP-06 | `just android-check` without ANDROID_NDK_HOME or ANDROID_NDK_LATEST_HOME | Exit 1 (expected) | error: set ANDROID_NDK_HOME to an Android NDK (see docs/developer-guide.md, Android); no NDK on this machine, so the check itself is proved by the CI job |
 | 2026-09-14T08:43:10Z | PLAN-00006-STEP-06 | Doc consistency; `just check` | Pass | 14 subcommands, 20 recipes (android-check documented), links ok; lines 92.53% |
+| 2026-09-14T08:46:57Z | PLAN-00006-STEP-06 | GitHub CI run 34824150711 on efb025b: job "Android build check (aarch64)" | Pass | just android-check with the runner NDK: cargo check of passalong-core and passalong-ssh for aarch64-linux-android succeeded on the first run (AC-09); Xvfb job also passed |
+| 2026-09-14T08:46:57Z | PLAN-00006-STEP-07 | Before: version and records | 0.1.4 (expected) | workspace at 0.1.4 (never released); docs/release/v0.1.4.md a draft with install-service names; backlog v0.1.5 section listed the five delivered items |
+| 2026-09-14T08:46:57Z | PLAN-00006-STEP-07 | `cargo run -p passalong -- --version` | Pass | passalong 0.1.5; Cargo.lock changed for the three workspace crates only |
+| 2026-09-14T08:46:57Z | PLAN-00006-STEP-07 | Doc consistency; v0.1.5 notes links | Pass | 14 subcommands and their flags, 20 recipes, links ok; docs/release/v0.1.5.md has absolute links only (plans pinned to v0.1.5) |
+| 2026-09-14T08:46:57Z | PLAN-00006-STEP-07 | `just publish-dry-run --allow-dirty` | Exit 0 | 3 crates packaged and verified at 0.1.5; target/package removed |
+| 2026-09-14T08:46:57Z | PLAN-00006-STEP-07 | `just check` | Exit 0 | Lines 92.52% |
 
 ### Completion summary
 

@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00007-v0.1.6"
 execution_started_at: "2026-09-14T18:19:15Z"
-execution_updated_at: "2026-09-14T18:21:10Z"
+execution_updated_at: "2026-09-14T18:25:33Z"
 execution_completed_at: null
-current_step: "PLAN-00007-STEP-02"
+current_step: "PLAN-00007-STEP-03"
 ---
 
 # Delivery Plan 00007: V0 1 6 List Cache And Homebrew
@@ -662,7 +662,7 @@ also commits in `../homebrew-oss`. Docker tests run at STEP-04 and STEP-09.
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
 | PLAN-00007-STEP-01 | completed | 2026-09-14T18:19:15Z | 2026-09-14T18:21:10Z | Commit `build: complete PLAN-00007-STEP-01 - Timed write probe`; `just check` green, 92.70% lines | AC-08. store::PROBE_BYTES = 128 (new public constant); FsStore writes probe_content (128 bytes); check times the whole probe_write call and prints probe_line; WriteProbe unchanged. Usage (example and note on latency), architecture, CHANGELOG updated |
-| PLAN-00007-STEP-02 | not-started | — | — | — | — |
+| PLAN-00007-STEP-02 | completed | 2026-09-14T18:21:28Z | 2026-09-14T18:25:33Z | Commit `build: complete PLAN-00007-STEP-02 - The list cache and its configuration`; `just check` green, 92.83% lines | AC-01, AC-02, AC-07. New public module passalong_core::cache; ServeConfig gains list_cache and list_cache_check_secs (as pull did in v0.1.2). Configuration docs (keys and the cache file) and CHANGELOG updated |
 | PLAN-00007-STEP-03 | not-started | — | — | — | — |
 | PLAN-00007-STEP-04 | not-started | — | — | — | — |
 | PLAN-00007-STEP-05 | not-started | — | — | — | — |
@@ -681,6 +681,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-14T18:19:15Z | PLAN-00007 | Plan approved (commit 4ea0c75); Builder starts on feature/00007-v0.1.6 | `docs(plan): approve PLAN-00007 - V0 1 6 List Cache And Homebrew` | Begin PLAN-00007-STEP-01 |
 | 2026-09-14T18:19:15Z | PLAN-00007-STEP-01 | Started | — | Red phase |
 | 2026-09-14T18:21:10Z | PLAN-00007-STEP-01 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00007-STEP-01 - Timed write probe` | Begin PLAN-00007-STEP-02 |
+| 2026-09-14T18:21:28Z | PLAN-00007-STEP-02 | Started | — | Red phase |
+| 2026-09-14T18:25:33Z | PLAN-00007-STEP-02 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00007-STEP-02 - The list cache and its configuration` | Begin PLAN-00007-STEP-03 |
 
 ### Deviations and blockers
 
@@ -696,6 +698,9 @@ None.
 | 2026-09-14T18:21:10Z | PLAN-00007-STEP-01 | Red: `cargo test -p passalong-core --all-features --lib store`; `cargo test -p passalong --no-run` | Exit 101 (expected) | core: probe_content and store::PROBE_BYTES not found; CLI: probe_line not found (4) |
 | 2026-09-14T18:21:10Z | PLAN-00007-STEP-01 | `cargo test -p passalong-core --all-features --lib store`; `cargo test -p passalong` | Pass | the_probe_is_probe_bytes_long; the_probe_line_shows_the_time_and_the_rate (184 ms 696 B/s, 2.0 ms 62.5 KiB/s, 0.1 ms 1.2 MiB/s, zero duration); check unit and binary tests match "wrote and removed a 128-byte probe in " |
 | 2026-09-14T18:21:10Z | PLAN-00007-STEP-01 | `just check` | Exit 0 | Lines 92.70% |
+| 2026-09-14T18:25:33Z | PLAN-00007-STEP-02 | Red: `cargo test -p passalong-core --all-features --lib` | Exit 101 (expected) | 31 errors: ListCache, CACHE_VERSION, max_age and the list_cache fields not found |
+| 2026-09-14T18:25:33Z | PLAN-00007-STEP-02 | `cargo test -p passalong-core --all-features --lib` | Pass | cache: ssh identity and none for local; save/load round trip with mode 0600 and no temporary file left; missing, invalid, newer-version files are no cache; usable only for its store within two intervals either way; refresh = 1 ReadDir + 1 OpenRead for 1 new item, drops the deleted one; failed refresh leaves the cache unchanged; apply_put/apply_delete keep newest first without duplicates; read makes a complete cache. config: defaults true/60, set false/30, 9 and 86401 rejected naming serve.list_cache_check_secs |
+| 2026-09-14T18:25:33Z | PLAN-00007-STEP-02 | `just check` | Exit 0 | Lines 92.83%; cache.rs 98.35% |
 
 ### Completion summary
 

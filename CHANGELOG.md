@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `passalong_core::cache::ListCache`: a local copy of a store's item list,
+  refreshed with one id listing plus new metadata, and the `serve.list_cache`
+  and `serve.list_cache_check_secs` settings (PLAN-00007 STEP-02).
 - `passalong check` times its write probe, now 128 bytes, and reports the
   time and the rate it makes (PLAN-00007 STEP-01).
 

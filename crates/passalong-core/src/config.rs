@@ -29,6 +29,9 @@ const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
 const DEFAULT_DROP_FOLDER: &str = "~/PassAlong";
 const DEFAULT_DOWNLOAD_DIR: &str = "~/Downloads";
 const DEFAULT_PULL_INTERVAL_MS: u64 = 5000;
+const DEFAULT_LIST_CACHE_CHECK_SECS: u64 = 60;
+const MIN_LIST_CACHE_CHECK_SECS: u64 = 10;
+const MAX_LIST_CACHE_CHECK_SECS: u64 = 86_400;
 const MIN_PULL_INTERVAL_MS: u64 = 1000;
 const DEFAULT_CLIPBOARD_POLL_INTERVAL_MS: u64 = 750;
 const DEFAULT_FILE_STABLE_WAIT_MS: u64 = 1000;
@@ -339,6 +342,11 @@ pub struct ServeConfig {
     pub pull: bool,
     /// How often pull mode checks for new items. Default: 5000 ms.
     pub pull_interval_ms: u64,
+    /// Whether `serve` keeps a local copy of the item list that `list` and
+    /// `choose` read without connecting; `ssh` backend only. Default: `true`.
+    pub list_cache: bool,
+    /// How often `serve` compares that copy with the store. Default: 60 s.
+    pub list_cache_check_secs: u64,
 }
 
 /// What `serve` does with a dropped file after sending it.
@@ -628,6 +636,8 @@ struct RawServe {
     clipboard_images: Option<bool>,
     pull: Option<bool>,
     pull_interval_ms: Option<i64>,
+    list_cache: Option<bool>,
+    list_cache_check_secs: Option<i64>,
 }
 
 impl RawConfig {
@@ -766,6 +776,14 @@ impl RawServe {
                 MIN_PULL_INTERVAL_MS,
                 MAX_INTERVAL_MS,
                 "serve.pull_interval_ms",
+            )?,
+            list_cache: self.list_cache.unwrap_or(true),
+            list_cache_check_secs: bounded(
+                self.list_cache_check_secs,
+                DEFAULT_LIST_CACHE_CHECK_SECS,
+                MIN_LIST_CACHE_CHECK_SECS,
+                MAX_LIST_CACHE_CHECK_SECS,
+                "serve.list_cache_check_secs",
             )?,
         })
     }
@@ -1497,18 +1515,22 @@ remote_path = "/srv/pa"
         assert!(cfg.serve.clipboard_images);
         assert!(!cfg.serve.pull);
         assert_eq!(cfg.serve.pull_interval_ms, 5000);
+        assert!(cfg.serve.list_cache);
+        assert_eq!(cfg.serve.list_cache_check_secs, 60);
     }
 
     #[test]
     fn download_and_pull_settings_can_be_set() {
         let text = format!(
-            "{MINIMAL_SSH}\n[client]\ndownload_dir = \"~/dl\"\n\n[serve]\nclipboard_images = false\npull = true\npull_interval_ms = 1000\n"
+            "{MINIMAL_SSH}\n[client]\ndownload_dir = \"~/dl\"\n\n[serve]\nclipboard_images = false\npull = true\npull_interval_ms = 1000\nlist_cache = false\nlist_cache_check_secs = 30\n"
         );
         let cfg = parse_ok(&text);
         assert_eq!(cfg.client.download_dir, PathBuf::from("/home/u/dl"));
         assert!(!cfg.serve.clipboard_images);
         assert!(cfg.serve.pull);
         assert_eq!(cfg.serve.pull_interval_ms, 1000);
+        assert!(!cfg.serve.list_cache);
+        assert_eq!(cfg.serve.list_cache_check_secs, 30);
     }
 
     #[test]
@@ -1523,6 +1545,16 @@ remote_path = "/srv/pa"
                 "[serve]\npull_interval_ms = 3600001",
                 "",
                 "serve.pull_interval_ms",
+            ),
+            (
+                "[serve]\nlist_cache_check_secs = 9",
+                "",
+                "serve.list_cache_check_secs",
+            ),
+            (
+                "[serve]\nlist_cache_check_secs = 86401",
+                "",
+                "serve.list_cache_check_secs",
             ),
             ("[client]\ndownload_dir = \"dl\"", "", "client.download_dir"),
             ("[client]\ndownload_dir = \"\"", "", "client.download_dir"),

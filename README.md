@@ -75,6 +75,7 @@ flowchart LR
 | `passalong load <id> [dest]` | Copy an item to `dest`; without `dest`, text goes to the clipboard and files to `~/Downloads` |
 | `passalong cat <id>` | Print an item to standard output |
 | `passalong get <id>` | Print an item's metadata (`--json` for scripts) |
+| `passalong choose` | Pick an item from a full-screen list, then load, print, show, or delete it |
 | `passalong serve` | Keep running, sending every new clipboard text and every file dropped into the drop folder (`--daemon`, `--status`, `--stop`) |
 | `passalong delete <id>...` | Delete items |
 | `passalong prune` | Delete items older than `--older-than`, keeping the newest `--keep` |

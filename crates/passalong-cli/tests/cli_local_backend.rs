@@ -544,6 +544,20 @@ fn service_install_writes_a_systemd_unit_and_service_remove_removes_it() {
 }
 
 #[tokio::test]
+async fn choose_needs_a_terminal() {
+    let sb = Sandbox::new();
+    sb.seed(&["one"]).await;
+    sb.with_config()
+        .arg("choose")
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr(predicate::str::ends_with(
+            "error: choose needs a terminal\n",
+        ));
+}
+
+#[tokio::test]
 async fn quiet_prints_nothing_but_errors_and_cat_output() {
     let sb = Sandbox::new();
     let metas = sb.seed(&["one", "two", "three"]).await;

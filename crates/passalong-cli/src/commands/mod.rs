@@ -4,6 +4,7 @@
 
 pub mod cat;
 pub mod check;
+pub mod choose;
 pub mod clipboard;
 pub mod delete;
 pub mod file;

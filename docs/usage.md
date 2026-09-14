@@ -251,6 +251,26 @@ local time and in UTC. The id works as for `load`.
 |---|---|
 | `--json` | Print the metadata as a JSON object, the same as the item's entry in `list --json` |
 
+## `passalong choose`
+
+Opens a full-screen list of the stored items, newest first, to pick one and
+act on it. It needs a terminal.
+
+| Key | Action |
+|---|---|
+| Up, Down, `k`, `j`, Page Up, Page Down, Home, End | Move |
+| `/` | Filter: type to match the id, name or preview, device, or kind, ignoring case; Enter keeps the filter, Esc clears it |
+| Enter | Load the item, as `passalong load <ID>` does: text and images go to the clipboard, files to the download directory |
+| `c` | Print the item, as `passalong cat <ID>` does |
+| `g` | Show its metadata, as `passalong get <ID>` does |
+| `d` | Delete it; asks for `y` first, then stays in the list |
+| `r` | Reload the list |
+| `q`, Esc, Ctrl-C | Quit without doing anything |
+
+Loading, printing, and showing metadata close the list first, so what they
+print stays in the terminal. With `--quiet`, nothing is printed after the
+list closes.
+
 ## `passalong delete <ID>...`
 
 Deletes items from the store and prints each deleted id. Each `ID` is a full

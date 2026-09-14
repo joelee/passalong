@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00006-v0.1.5"
 execution_started_at: "2026-09-14T08:16:47Z"
-execution_updated_at: "2026-09-14T08:32:03Z"
+execution_updated_at: "2026-09-14T08:41:30Z"
 execution_completed_at: null
-current_step: "PLAN-00006-STEP-05"
+current_step: "PLAN-00006-STEP-06"
 ---
 
 # Delivery Plan 00006: V0 1 5 Idle CPU And Choose TUI
@@ -628,7 +628,7 @@ STEP-04 and STEP-08.
 | PLAN-00006-STEP-02 | completed | 2026-09-14T08:22:51Z | 2026-09-14T08:24:43Z | Commit `build: complete PLAN-00006-STEP-02 - Idle tuning`; `just check` green, 92.48% lines | AC-02: idle after this plan is 0.00 % (no clipboard) and 0.10 % (X11 clipboard with text); step 1 of D-09 applies (at most 1 %: record and change nothing) |
 | PLAN-00006-STEP-03 | completed | 2026-09-14T08:25:01Z | 2026-09-14T08:28:58Z | Commit `build: complete PLAN-00006-STEP-03 - service-install and service-remove`; `just check` green, 92.48% lines | AC-03. commands/install_service.rs renamed to commands/service_install.rs (run for install, pub remove for removal); app::service handles both; generated unit and plist headers name service-remove; docs/service, README, usage (new service-remove section), architecture, CHANGELOG Unreleased entry rewritten |
 | PLAN-00006-STEP-04 | completed | 2026-09-14T08:29:40Z | 2026-09-14T08:32:03Z | Commit `build: complete PLAN-00006-STEP-04 - check reports serve`; `just check` green, 92.54% lines; Docker tests pass | AC-04. check::run takes the serve state (Result<Status, String>); the four checks moved into run_checks, and the serve line always follows them; app reads the pid lock through StatePaths and daemon::status. Usage, architecture, CHANGELOG updated |
-| PLAN-00006-STEP-05 | not-started | — | — | — | — |
+| PLAN-00006-STEP-05 | completed | 2026-09-14T08:32:28Z | 2026-09-14T08:41:30Z | Commit `build: complete PLAN-00006-STEP-05 - passalong choose`; `just check` green, 92.53% lines; `just audit` green | AC-05, AC-07, AC-08; AC-06 except the real-terminal restore (manual). ratatui 0.30 without default features, crossterm through ratatui::crossterm; commands/choose/{mod,state,view}.rs; resolve::age shared. Usage, README, architecture, developer guide (skips), CHANGELOG updated |
 | PLAN-00006-STEP-06 | not-started | — | — | — | — |
 | PLAN-00006-STEP-07 | not-started | — | — | — | — |
 | PLAN-00006-STEP-08 | not-started | — | — | — | — |
@@ -649,13 +649,14 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-14T08:28:58Z | PLAN-00006-STEP-03 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00006-STEP-03 - service-install and service-remove` | Begin PLAN-00006-STEP-04 |
 | 2026-09-14T08:29:40Z | PLAN-00006-STEP-04 | Started | — | Red phase |
 | 2026-09-14T08:32:03Z | PLAN-00006-STEP-04 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00006-STEP-04 - check reports serve` | Begin PLAN-00006-STEP-05 |
+| 2026-09-14T08:32:28Z | PLAN-00006-STEP-05 | Started | — | Red phase |
+| 2026-09-14T08:41:30Z | PLAN-00006-STEP-05 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00006-STEP-05 - passalong choose` | Begin PLAN-00006-STEP-06 |
 
 ### Deviations and blockers
 
 | Timestamp (UTC) | Step | Deviation or blocker | Impact | Decision required from |
 |---|---|---|---|---|
-
-None.
+| 2026-09-14T08:41:30Z | PLAN-00006-STEP-05 | The terminal guard is not covered by an automated test: it needs a real terminal. TerminalScreen uses ratatui::try_init, which enters raw mode and the alternate screen and installs a panic hook that restores the terminal, and its Drop calls ratatui::restore. Resize events redraw the list; store operations are followed by a full redraw because their log lines share the terminal. The user tries choose by hand. | AC-06 terminal restore is verified manually | User (manual check) |
 
 ### Verification results
 
@@ -677,6 +678,11 @@ None.
 | 2026-09-14T08:32:03Z | PLAN-00006-STEP-04 | `cargo test -p passalong` | Pass | 130 unit tests incl. the_serve_line_reports_the_pid_lock_without_affecting_the_result (running with and without pid, not running, unreadable; after success and after a config failure, result unchanged); 29 binary tests: check ends with "serve          off   not running", and with a serve --daemon running ends with "serve          ok    running (pid N)". First run failed one test still expecting storage write as the last line; fixed |
 | 2026-09-14T08:32:03Z | PLAN-00006-STEP-04 | `just test-integration` (Docker) | Exit 0 | check_passes_against_the_server_and_fails_on_a_wrong_host_key passes with the fifth line |
 | 2026-09-14T08:32:03Z | PLAN-00006-STEP-04 | `just check` | Exit 0 | Lines 92.54% |
+| 2026-09-14T08:41:30Z | PLAN-00006-STEP-05 | Red: `just audit` after adding ratatui, before the skips | Exit 2 (expected) | bans FAILED only on foldhash and hashbrown duplicates; advisories, licenses, sources ok |
+| 2026-09-14T08:41:30Z | PLAN-00006-STEP-05 | Red: `cargo test -p passalong --no-run` with the choose tests | Exit 101 (expected) | 51 errors: Picker, Outcome, Mode, Action, render, run_picker, perform, Screen, ActionTargets, Command::Choose not found |
+| 2026-09-14T08:41:30Z | PLAN-00006-STEP-05 | `just audit` with the two D-06 skips | Pass | advisories, bans, licenses, sources ok; deny.toml adds exactly foldhash@0.1.5 and hashbrown@0.16.1 |
+| 2026-09-14T08:41:30Z | PLAN-00006-STEP-05 | `cargo test -p passalong` | Pass | 143 unit tests: state (movement and clamping, / filter on id, name or preview, device, kind, Enter keeps and Esc clears it, Enter/c/g actions, d then y deletes and other keys keep, r reload, q/Esc/Ctrl-C quit, selection in range after remove and replace), view via TestBackend (columns, > selection, age, item count, key hints, filter, question, status lines), run_picker over a fake screen (Enter chooses Load, q quits, d y deletes from the store and the list stays open, a delete of an item removed behind its back shows "cannot delete"), perform runs load/cat/get code (clipboard, download dir, output); 30 binary tests incl. choose_needs_a_terminal. First run failed a view test that assumed the wrong sample order; fixed in the test |
+| 2026-09-14T08:41:30Z | PLAN-00006-STEP-05 | `just check`; doc consistency; release binary size | Pass | Lines 92.53% (choose/state.rs 98.51%, view.rs 100%, mod.rs 85.26%: the real terminal screen is not run in tests); 14 subcommands documented; release binary 8,791,240 to 9,098,144 bytes (+299 KiB, 3%) |
 
 ### Completion summary
 

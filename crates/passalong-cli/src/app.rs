@@ -187,6 +187,22 @@ async fn dispatch(
             };
             commands::cat::run(store.as_ref(), lookup, force, terminal, out).await
         }
+        Command::Choose => {
+            anyhow::ensure!(
+                io::stdin().is_terminal() && io::stdout().is_terminal(),
+                "choose needs a terminal"
+            );
+            let store = backends.open(config).await?;
+            let mut open_clipboard =
+                || -> Result<Box<dyn Clipboard>, ClipboardError> { clipboard_for_load() };
+            let targets = commands::choose::ActionTargets {
+                download_dir: &config.client.download_dir,
+                open_clipboard: &mut open_clipboard,
+                stdout_is_terminal: true,
+                offset: local_offset(),
+            };
+            commands::choose::run(store.as_ref(), targets, out).await
+        }
         Command::Get { id, json } => {
             let store = backends.open(config).await?;
             let (mut prompt, mut stderr) = (TerminalPrompt, io::stderr());

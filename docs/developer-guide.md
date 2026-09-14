@@ -143,6 +143,10 @@ When `just audit` reports a new duplicate:
    a `reason` naming the dependency path. Remove entries once upstream
    releases catch up; `cargo deny` warns about skips that no longer match.
 
+ratatui, the terminal UI of `passalong choose`, accounts for the
+`foldhash` and `hashbrown` skips: its layout solver `kasuari` needs
+`hashbrown` 0.16, which no ratatui feature turns off.
+
 ## Publishing
 
 Three crates are published to crates.io, in dependency order:

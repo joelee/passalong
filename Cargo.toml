@@ -31,6 +31,9 @@ mime_guess = "2.0.5"
 notify = "8.2.0"
 # PNG encoding and decoding of clipboard images.
 png = "0.18.1"
+# Terminal UI for `passalong choose`. Only the crossterm backend, which
+# ratatui re-exports as `ratatui::crossterm`.
+ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"] }
 # `ring` instead of the default `aws-lc-rs`: no cmake needed and friendlier
 # to cross-compilation (Android). RSA keys are opt-in through the `rsa`
 # feature of passalong-ssh (RUSTSEC-2023-0071 has no fixed `rsa` release).

@@ -6,7 +6,7 @@
 |---|---|---|
 | `passalong-core` | library | Configuration, item model, storage traits, clipboard trait, `serve` loop, telemetry. No CLI or terminal dependencies. |
 | `passalong-ssh` | library | SSH/SFTP storage backend (`russh`), host-key pinning. |
-| `passalong` (in `crates/passalong-cli/`) | binary `passalong` | Argument parsing, command handlers, output formatting. |
+| `passalong` (in `crates/passalong-cli/`) | binary `passalong` | Argument parsing, command handlers, output formatting, and the `choose` terminal UI (ratatui). |
 
 Future GUI and Android front-ends depend on `passalong-core` and
 `passalong-ssh` only. `passalong-core` keeps the desktop clipboard behind its
@@ -50,6 +50,7 @@ Every invocation goes through the same start-up:
 | `load` | `Store::resolve`, `Store::get`, verifies SHA-256, then writes a file or the clipboard |
 | `cat` | `Store::resolve`, `Store::get`, streams the content to standard output while verifying SHA-256 |
 | `get` | `Store::resolve`, then `Store::get_meta`; prints fields or JSON |
+| `choose` | `Store::list`, then a full-screen list (ratatui over crossterm); `d` runs `Store::delete` and `r` lists again; the chosen action runs the code of `load`, `cat`, or `get` after the terminal is restored |
 | `serve` | Runs the loop below until stopped; `--daemon`, `--status`, and `--stop` manage a background copy |
 | `delete` | Resolves every id first, then `Store::delete` for each |
 | `prune` | `Store::list`, selects items older than `--older-than` beyond the newest `--keep`, confirms, deletes, then `Store::clean_staging` |

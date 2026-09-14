@@ -114,6 +114,9 @@ pub enum Command {
     ServiceInstall(ServiceInstallArgs),
     /// Stop, disable, and remove the service `service-install` installed.
     ServiceRemove,
+    /// Pick an item from a full-screen list, then load, print, show, or
+    /// delete it.
+    Choose,
     /// Keeps text on the Linux clipboard after `load` exits (internal).
     #[command(name = "__hold-clipboard", hide = true)]
     HoldClipboard {
@@ -146,6 +149,7 @@ impl Command {
             Self::Check => "check",
             Self::ServiceInstall(_) => "service-install",
             Self::ServiceRemove => "service-remove",
+            Self::Choose => "choose",
             Self::HoldClipboard { .. } => "hold-clipboard",
         }
     }
@@ -427,6 +431,7 @@ mod tests {
             })
         );
         assert_eq!(parse(&["service-remove"]).command, Command::ServiceRemove);
+        assert_eq!(parse(&["choose"]).command, Command::Choose);
         assert!(Cli::try_parse_from(["passalong", "install-service"]).is_err());
         assert!(Cli::try_parse_from(["passalong", "service-install", "--uninstall"]).is_err());
     }
@@ -493,6 +498,7 @@ mod tests {
             Command::Check,
             Command::ServiceInstall(ServiceInstallArgs::default()),
             Command::ServiceRemove,
+            Command::Choose,
         ]
         .iter()
         .map(Command::name)
@@ -512,7 +518,8 @@ mod tests {
                 "prune",
                 "check",
                 "service-install",
-                "service-remove"
+                "service-remove",
+                "choose"
             ]
         );
     }

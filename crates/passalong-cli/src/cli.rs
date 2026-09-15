@@ -203,8 +203,15 @@ pub struct ServiceInstallArgs {
 pub struct EncryptArgs {
     /// Give this device the key of an encrypted store, by typing its six
     /// words.
-    #[arg(long)]
+    #[arg(long, conflicts_with_all = ["rotate", "recover"])]
     pub join: bool,
+    /// Replace the store's key and words, re-encrypting every item; every
+    /// other device must join again. Use it after losing a device.
+    #[arg(long, conflicts_with = "recover")]
+    pub rotate: bool,
+    /// Finish or undo a re-encryption that was interrupted.
+    #[arg(long)]
+    pub recover: bool,
 }
 
 /// Options of `passalong init`. Anything not given is asked for, or takes
@@ -264,8 +271,26 @@ mod tests {
         );
         assert_eq!(
             parse(&["encrypt", "--join"]).command,
-            Command::Encrypt(EncryptArgs { join: true })
+            Command::Encrypt(EncryptArgs {
+                join: true,
+                ..EncryptArgs::default()
+            })
         );
+        assert!(matches!(
+            parse(&["encrypt", "--rotate"]).command,
+            Command::Encrypt(EncryptArgs { rotate: true, .. })
+        ));
+        assert!(matches!(
+            parse(&["encrypt", "--recover"]).command,
+            Command::Encrypt(EncryptArgs { recover: true, .. })
+        ));
+        for pair in [
+            ["--join", "--rotate"],
+            ["--join", "--recover"],
+            ["--rotate", "--recover"],
+        ] {
+            assert!(Cli::try_parse_from(["passalong", "encrypt", pair[0], pair[1]]).is_err());
+        }
         assert_eq!(parse(&["encrypt"]).command.name(), "encrypt");
         assert!(matches!(
             parse(&["prune", "--plain", "--keep", "0"]).command,

@@ -22,6 +22,7 @@ mod admin;
 pub(crate) mod header;
 mod key_file;
 mod open;
+mod rewrite;
 
 pub use admin::{
     StoreState, change_words, fresh_start, inspect, join, plain_store, remove_plain_if_empty,
@@ -32,6 +33,7 @@ pub use key_file::{
     GitCheck, KeyFileError, SystemGit, check_key_location, load_key_file, save_key_file,
 };
 pub use open::{open_store, open_with_key};
+pub use rewrite::{RewriteKind, RewritePlan, finish, migrate, read_plan, rotate, undo};
 
 use crate::crypto::CryptoError;
 

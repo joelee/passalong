@@ -7,10 +7,15 @@
 
 use std::io::Write;
 use std::path::Path;
+use std::sync::Arc;
+
+use anyhow::Context as _;
+use passalong_core::clock::SystemClock;
 
 use passalong_core::crypto::{CryptoError, KdfParams, KeyId, Words};
 use passalong_core::encryption::{
-    self, EncryptionError, GitCheck, StoreState, check_key_location, load_key_file, save_key_file,
+    self, EncryptionError, GitCheck, RewriteKind, StoreState, check_key_location, load_key_file,
+    save_key_file,
 };
 use passalong_core::fs::RemoteFs;
 
@@ -64,6 +69,12 @@ pub async fn run(
     if args.join {
         return join(fs, keys, prompt, out).await;
     }
+    if args.recover {
+        return recover(fs, keys, prompt, out).await;
+    }
+    if args.rotate {
+        return rotate(fs, keys, prompt, out).await;
+    }
     match encryption::inspect(fs).await? {
         StoreState::Plain { items } => set_up(fs, items, keys, prompt, out).await,
         StoreState::Encrypted { key_id, .. } => change_words(fs, key_id, keys, prompt, out).await,
@@ -92,7 +103,7 @@ pub async fn set_up(
     let mut warning = WARNING.to_owned();
     if items > 0 {
         warning.push_str(&format!(
-            "The {items} {} stored now stay unencrypted, in plain/ on the server, until you remove them with `passalong prune --plain`; new items are encrypted.\n",
+            "The {items} {} stored now can be migrated, which re-encrypts each one by downloading and uploading it again, or left unencrypted in plain/ on the server until you remove them with `passalong prune --plain` (a fresh start).\n",
             items_word(items)
         ));
     }
@@ -101,9 +112,14 @@ pub async fn set_up(
         writeln!(out, "nothing was changed")?;
         return Ok(());
     }
+    let migrate = items > 0 && ask_migrate(prompt, items)?;
     let words = confirm_new_words(keys, prompt)?;
     let kdf = (keys.new_kdf)()?;
-    let key = if items == 0 {
+    let key = if migrate {
+        encryption::migrate(fs, &words, kdf, Arc::new(SystemClock))
+            .await
+            .context(STOPPED)?
+    } else if items == 0 {
         encryption::set_up(fs, &words, kdf).await?
     } else {
         encryption::fresh_start(fs, &words, kdf).await?
@@ -111,7 +127,9 @@ pub async fn set_up(
     save_key_file(keys.key_file, &key, keys.git)?;
     tracing::info!(key = %key.key_id().short(), "store encrypted");
     writeln!(out, "encrypted the store: key {}", key.key_id().short())?;
-    if items > 0 {
+    if migrate {
+        writeln!(out, "migrated {items} {}", items_word(items))?;
+    } else if items > 0 {
         writeln!(
             out,
             "{items} unencrypted {} remain in plain/; remove them with: passalong prune --plain",
@@ -153,6 +171,142 @@ pub async fn join(
         "joined the encrypted store: key {}",
         key.key_id().short()
     )?;
+    Ok(())
+}
+
+/// What a failed re-encryption says to do next.
+const STOPPED: &str =
+    "the re-encryption stopped; run `passalong encrypt --recover` to finish or undo it";
+
+/// Asks whether to migrate a store's items or start fresh.
+fn ask_migrate(prompt: &mut dyn Prompt, items: usize) -> anyhow::Result<bool> {
+    let question = format!(
+        "Migrate the {items} {} or start fresh? [migrate/fresh]",
+        items_word(items)
+    );
+    for _ in 0..ATTEMPTS {
+        match prompt
+            .ask(&question, Some("migrate"))?
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "m" | "migrate" => return Ok(true),
+            "f" | "fresh" => return Ok(false),
+            _ => prompt.show("Answer migrate or fresh.\n")?,
+        }
+    }
+    anyhow::bail!("no choice between migrate and fresh; nothing was changed")
+}
+
+/// Replaces an encrypted store's data key and words, re-encrypting every
+/// item, with this device's key as the old one.
+async fn rotate(
+    fs: &dyn RemoteFs,
+    keys: &Keys<'_>,
+    prompt: &mut dyn Prompt,
+    out: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let store_key = match encryption::inspect(fs).await? {
+        StoreState::Encrypted { key_id, .. } => key_id,
+        StoreState::Plain { .. } => return Err(EncryptionError::NotEncrypted.into()),
+        StoreState::Rewriting { started } => {
+            return Err(EncryptionError::Rewriting { started }.into());
+        }
+        StoreState::Broken => return Err(EncryptionError::HeaderMissing.into()),
+        _ => anyhow::bail!("this store's state is not known to this version of passalong"),
+    };
+    let old = match load_key_file(keys.key_file, keys.git)? {
+        Some(key) if key.key_id() == store_key => key,
+        Some(key) => {
+            return Err(EncryptionError::KeyMismatch {
+                device: key.key_id().short(),
+                store: store_key.short(),
+            }
+            .into());
+        }
+        None => return Err(EncryptionError::NoKey.into()),
+    };
+    prompt.show(
+        "Rotating replaces the store's key and words and re-encrypts every item. Every other device then stops working with this store until it joins again with the new words.\n",
+    )?;
+    if !prompt.confirm("Rotate the store's key?")? {
+        writeln!(out, "nothing was changed")?;
+        return Ok(());
+    }
+    let words = confirm_new_words(keys, prompt)?;
+    let key = encryption::rotate(fs, &old, &words, (keys.new_kdf)()?, Arc::new(SystemClock))
+        .await
+        .context(STOPPED)?;
+    save_key_file(keys.key_file, &key, keys.git)?;
+    tracing::info!(key = %key.key_id().short(), "store key rotated");
+    writeln!(
+        out,
+        "rotated the store's key: {} replaces {}; every other device must run `passalong encrypt --join` with the new words",
+        key.key_id().short(),
+        old.key_id().short()
+    )?;
+    Ok(())
+}
+
+/// Finishes or undoes an interrupted re-encryption.
+async fn recover(
+    fs: &dyn RemoteFs,
+    keys: &Keys<'_>,
+    prompt: &mut dyn Prompt,
+    out: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let Some(plan) = encryption::read_plan(fs).await? else {
+        return match encryption::undo(fs).await {
+            Ok(()) => {
+                writeln!(out, "released a re-encryption lock that had not started")?;
+                Ok(())
+            }
+            Err(_) => {
+                writeln!(out, "no re-encryption to recover")?;
+                Ok(())
+            }
+        };
+    };
+    let what = match plan.kind {
+        RewriteKind::Migrate => "encrypting",
+        RewriteKind::Rotate => "moving to a new key",
+    };
+    prompt.show(&format!(
+        "A re-encryption started at {}: {what} the store's {} {}.\n",
+        plan.started_at,
+        plan.items,
+        items_word(plan.items)
+    ))?;
+    let answer = prompt.ask("Finish it, or undo it? [finish/undo]", Some("finish"))?;
+    match answer.trim().to_ascii_lowercase().as_str() {
+        "f" | "finish" => {
+            let new = ask_words(prompt, "The new six words shown when it started")?;
+            let device = load_key_file(keys.key_file, keys.git)?;
+            let old_words = if plan.kind == RewriteKind::Rotate
+                && device.as_ref().map(|key| key.key_id().to_string()) != plan.from_key
+            {
+                Some(ask_words(prompt, "The store's old six words")?)
+            } else {
+                None
+            };
+            let key = encryption::finish(
+                fs,
+                &new,
+                device.as_ref(),
+                old_words.as_ref(),
+                Arc::new(SystemClock),
+            )
+            .await?;
+            save_key_file(keys.key_file, &key, keys.git)?;
+            writeln!(out, "finished: the store's key is {}", key.key_id().short())?;
+        }
+        "u" | "undo" => {
+            encryption::undo(fs).await?;
+            writeln!(out, "undone: the store is as it was before")?;
+        }
+        _ => anyhow::bail!("answer finish or undo; nothing was changed"),
+    }
     Ok(())
 }
 
@@ -287,6 +441,16 @@ mod tests {
                 new_kdf: quick,
             }
         }
+        async fn run_with(
+            &self,
+            args: EncryptArgs,
+            new_words: fn() -> Result<Words, CryptoError>,
+            prompt: &mut ScriptedPrompt,
+        ) -> anyhow::Result<String> {
+            let mut out = Vec::new();
+            run(&args, &self.fs(), &self.keys(new_words), prompt, &mut out).await?;
+            Ok(String::from_utf8(out).unwrap())
+        }
         async fn run(
             &self,
             join: bool,
@@ -295,7 +459,10 @@ mod tests {
         ) -> anyhow::Result<String> {
             let mut out = Vec::new();
             run(
-                &EncryptArgs { join },
+                &EncryptArgs {
+                    join,
+                    ..EncryptArgs::default()
+                },
                 &self.fs(),
                 &self.keys(new_words),
                 prompt,
@@ -381,12 +548,12 @@ mod tests {
                 .unwrap();
             rig.store.clock.advance(1);
         }
-        let mut prompt = ScriptedPrompt::new(true, ["yes", W1]);
+        let mut prompt = ScriptedPrompt::new(true, ["yes", "fresh", W1]);
         let out = rig.run(false, w1, &mut prompt).await.unwrap();
         assert!(
             prompt
                 .shown()
-                .contains("The 2 items stored now stay unencrypted")
+                .contains("The 2 items stored now can be migrated")
         );
         assert!(
             out.contains("2 unencrypted items remain in plain/"),
@@ -509,5 +676,177 @@ mod tests {
                 .unwrap_err();
             assert!(err.to_string().contains("re-encrypted"), "{err}");
         }
+    }
+
+    async fn seed(rig: &Rig, texts: &[&str]) {
+        for text in texts {
+            rig.store
+                .store
+                .put(NewItem::text("box"), bytes(text.as_bytes()))
+                .await
+                .unwrap();
+            rig.store.clock.advance(1);
+        }
+    }
+
+    fn args(rotate: bool, recover: bool) -> EncryptArgs {
+        EncryptArgs {
+            rotate,
+            recover,
+            ..EncryptArgs::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn a_store_with_items_is_migrated_by_default() {
+        let rig = Rig::new();
+        seed(&rig, &["one", "two"]).await;
+        let mut prompt = ScriptedPrompt::new(true, ["yes", "", W1]);
+        let out = rig.run(false, w1, &mut prompt).await.unwrap();
+        assert!(out.contains("migrated 2 items"), "{out}");
+        let key = rig.saved_key().unwrap();
+        assert_eq!(
+            encryption::inspect(&rig.fs()).await.unwrap(),
+            StoreState::Encrypted {
+                key_id: key.key_id(),
+                plain_left: 0
+            }
+        );
+        let store = encryption::open_with_key(
+            rig.fs(),
+            Some(key),
+            rig.store.clock.clone(),
+            Box::new(passalong_core::random::StdRandom::new()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(store.list().await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn rotating_replaces_this_device_s_key() {
+        let rig = Rig::new();
+        let err = rig
+            .run_with(
+                args(true, false),
+                w2,
+                &mut ScriptedPrompt::new(true, ["yes", W2]),
+            )
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("not encrypted"), "{err}");
+        let old = encryption::set_up(&rig.fs(), &w1().unwrap(), quick().unwrap())
+            .await
+            .unwrap();
+        let err = rig
+            .run_with(
+                args(true, false),
+                w2,
+                &mut ScriptedPrompt::new(true, ["yes", W2]),
+            )
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("encrypt --join"), "{err}");
+        save_key_file(&rig.key_file(), &old, &rig.git).unwrap();
+        let out = rig
+            .run_with(
+                args(true, false),
+                w2,
+                &mut ScriptedPrompt::new(true, ["no"]),
+            )
+            .await
+            .unwrap();
+        assert_eq!(out, "nothing was changed\n");
+        let mut prompt = ScriptedPrompt::new(true, ["yes", W2]);
+        let out = rig
+            .run_with(args(true, false), w2, &mut prompt)
+            .await
+            .unwrap();
+        let new = rig.saved_key().unwrap();
+        assert_ne!(new.key_id(), old.key_id());
+        assert!(out.contains("encrypt --join"), "{out}");
+        assert_eq!(
+            encryption::join(&rig.fs(), &w2().unwrap())
+                .await
+                .unwrap()
+                .key_id(),
+            new.key_id()
+        );
+    }
+
+    /// A migration of one item cut before its new header was put in place.
+    async fn cut_migration(rig: &Rig) {
+        seed(rig, &["kept"]).await;
+        let fs = passalong_core::testing::FaultyFs::new(rig.fs());
+        fs.fail_nth(passalong_core::testing::FsOp::Rename, 3);
+        assert!(
+            encryption::migrate(
+                &fs,
+                &w1().unwrap(),
+                quick().unwrap(),
+                rig.store.clock.clone()
+            )
+            .await
+            .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn an_interrupted_migration_is_finished_or_undone() {
+        let rig = Rig::new();
+        let out = rig
+            .run_with(
+                args(false, true),
+                w1,
+                &mut ScriptedPrompt::new(true, Vec::<&str>::new()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(out, "no re-encryption to recover\n");
+        cut_migration(&rig).await;
+        let err = rig
+            .run(
+                false,
+                w1,
+                &mut ScriptedPrompt::new(true, Vec::<&str>::new()),
+            )
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("encrypt --recover"), "{err}");
+        let mut prompt = ScriptedPrompt::new(true, ["", W1]);
+        let out = rig
+            .run_with(args(false, true), w1, &mut prompt)
+            .await
+            .unwrap();
+        assert!(
+            prompt.shown().contains("encrypting the store's 1 item"),
+            "{}",
+            prompt.shown()
+        );
+        let key = rig.saved_key().unwrap();
+        assert_eq!(
+            out,
+            format!("finished: the store's key is {}\n", key.key_id().short())
+        );
+        assert!(matches!(
+            encryption::inspect(&rig.fs()).await.unwrap(),
+            StoreState::Encrypted { .. }
+        ));
+
+        let other = Rig::new();
+        cut_migration(&other).await;
+        let out = other
+            .run_with(
+                args(false, true),
+                w1,
+                &mut ScriptedPrompt::new(true, ["undo"]),
+            )
+            .await
+            .unwrap();
+        assert_eq!(out, "undone: the store is as it was before\n");
+        assert_eq!(
+            encryption::inspect(&other.fs()).await.unwrap(),
+            StoreState::Plain { items: 1 }
+        );
     }
 }

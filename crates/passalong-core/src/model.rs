@@ -103,6 +103,12 @@ pub struct ContentDigest {
 }
 
 impl ContentDigest {
+    /// The digest of content with this SHA-256 and length, as recorded in
+    /// an item's metadata.
+    pub fn new(sha256: [u8; 32], size: u64) -> Self {
+        Self { sha256, size }
+    }
+
     /// The full SHA-256 as 64 lowercase hex digits.
     pub fn sha256_hex(&self) -> String {
         hex::encode(self.sha256)

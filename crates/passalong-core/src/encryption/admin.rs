@@ -91,7 +91,7 @@ pub async fn inspect<F: RemoteFs + ?Sized>(fs: &F) -> Result<StoreState, StoreEr
 }
 
 /// The error for a store in a state the operation cannot start from.
-fn refuse(state: StoreState) -> StoreError {
+pub(super) fn refuse(state: StoreState) -> StoreError {
     match state {
         StoreState::Plain { .. } => EncryptionError::NotEncrypted.into(),
         StoreState::Encrypted { .. } => EncryptionError::AlreadyEncrypted.into(),

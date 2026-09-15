@@ -132,6 +132,64 @@ impl<F: RemoteFs> FsStore<F> {
         Ok(())
     }
 
+    /// The id `meta`'s item gets in this store: its creation time, and this
+    /// store's content key for its SHA-256.
+    pub(crate) fn id_for(&self, meta: &ItemMeta) -> Result<ItemId, StoreError> {
+        let sha256 = decode_array(&meta.sha256)
+            .map_err(|reason| corrupt(&meta.id, format!("sha256: {reason}")))?;
+        let key = self.keyed(&ContentDigest::new(sha256, meta.size));
+        Ok(ItemId::new(meta.created_at, key)?)
+    }
+
+    /// Stores another store's item, with its metadata and creation time,
+    /// under the id [`FsStore::id_for`] gives it, and returns its metadata
+    /// here. An item already stored under that id is left as it is. The
+    /// content must match `meta`'s SHA-256 and size.
+    pub(crate) async fn import(
+        &self,
+        meta: &ItemMeta,
+        content: BoxRead,
+    ) -> Result<ItemMeta, StoreError> {
+        let id = self.id_for(meta)?;
+        let target = self.item_dir(&id)?;
+        if self.fs.stat(&target).await?.is_some() {
+            return self.read_meta(&id).await;
+        }
+        let tmp = self.tmp_dir()?;
+        self.fs.create_dir_all(&self.items_dir()?).await?;
+        self.fs.create_dir_all(&tmp).await?;
+        let token = self
+            .rng
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .next_u64();
+        let staging = tmp.join(&format!("{token:016x}"))?;
+        self.fs.create_dir_all(&staging).await?;
+        let result = async {
+            let (digest, _, salt) = self
+                .write_content(content, &staging.join(CONTENT_FILE)?)
+                .await?;
+            if digest.sha256_hex() != meta.sha256 || digest.size() != meta.size {
+                return Err(corrupt(&meta.id, "its content does not match its SHA-256"));
+            }
+            let copy = ItemMeta {
+                id: id.clone(),
+                ..meta.clone()
+            };
+            self.write_meta(&staging.join(META_FILE)?, &copy, salt)
+                .await?;
+            match self.fs.rename(&staging, &target).await {
+                Ok(()) | Err(FsError::AlreadyExists(_)) => Ok(copy),
+                Err(err) => Err(err.into()),
+            }
+        }
+        .await;
+        if let Err(err) = self.fs.remove_dir_all(&staging).await {
+            tracing::warn!(path = %staging, error = %err, "could not remove staging directory");
+        }
+        result
+    }
+
     /// Warns, in a sealed store opened through its header, while plaintext
     /// items from before a fresh start remain in `plain/items/`.
     async fn remind_plain_left(&self) {

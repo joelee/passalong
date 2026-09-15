@@ -45,6 +45,13 @@ All notable changes to this project are documented here. The format follows
   offers encryption for an empty store and joins an encrypted one; `check`
   gains an `encryption` line; `list` warns while unencrypted items remain
   (PLAN-00008 STEP-06).
+- `encrypt` offers to migrate a store's items, re-encrypting each one, as
+  well as a fresh start; `encrypt --rotate` replaces the store's key and
+  words and re-encrypts every item, so a lost device is shut out; and
+  `encrypt --recover` finishes or undoes an interrupted re-encryption. The
+  re-encryption holds a lock (`.rewrite/`), keeps each item's time and
+  metadata, checks every copy before the new key takes over, and resumes
+  without uploading anything twice (PLAN-00008 STEP-07).
 
 ## v0.1.6 - 2026-09-14T21:14:49Z
 

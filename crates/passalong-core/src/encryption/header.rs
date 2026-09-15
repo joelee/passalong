@@ -157,7 +157,15 @@ pub(crate) fn header_path() -> Result<RemotePath, FsError> {
 /// [`EncryptionError::Header`] for a header that cannot be parsed, and the
 /// filesystem's error otherwise.
 pub async fn read_header<F: RemoteFs + ?Sized>(fs: &F) -> Result<Option<StoreHeader>, StoreError> {
-    let reader = match fs.open_read(&header_path()?).await {
+    read_header_in(fs, &encryption_dir()?).await
+}
+
+/// Reads the header file in the folder `dir`: `None` when there is none.
+pub(crate) async fn read_header_in<F: RemoteFs + ?Sized>(
+    fs: &F,
+    dir: &RemotePath,
+) -> Result<Option<StoreHeader>, StoreError> {
+    let reader = match fs.open_read(&dir.join(HEADER_FILE)?).await {
         Ok(reader) => reader,
         Err(FsError::NotFound(_)) => return Ok(None),
         Err(err) => return Err(err.into()),
@@ -169,6 +177,26 @@ pub async fn read_header<F: RemoteFs + ?Sized>(fs: &F) -> Result<Option<StoreHea
         .await
         .map_err(|err| invalid(format!("reading it failed: {err}")))?;
     Ok(Some(StoreHeader::parse(&bytes)?))
+}
+
+/// Writes `header` into the folder `dir`, creating it.
+pub(crate) async fn write_header_in<F: RemoteFs + ?Sized>(
+    fs: &F,
+    dir: &RemotePath,
+    header: &StoreHeader,
+) -> Result<(), StoreError> {
+    fs.create_dir_all(dir).await?;
+    let path = dir.join(HEADER_FILE)?;
+    let mut writer = fs.open_write(&path).await?;
+    writer
+        .write_all(&header.to_json())
+        .await
+        .map_err(|err| FsError::from_io(&path, err))?;
+    writer
+        .shutdown()
+        .await
+        .map_err(|err| FsError::from_io(&path, err))?;
+    Ok(())
 }
 
 /// Writes `header` into a new folder under `v2/tmp/`, returning the folder.

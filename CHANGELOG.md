@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## v0.2.0 - 2026-09-15T16:46:38Z
+
 ### Added
 
 - `just test-compat` runs the released v0.1.6 binary against the layout of

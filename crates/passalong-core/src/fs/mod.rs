@@ -338,6 +338,39 @@ impl<T: RemoteFs + ?Sized> RemoteFs for Box<T> {
     }
 }
 
+/// A shared filesystem is a filesystem, so a store can be built on one
+/// that other code keeps using.
+#[async_trait]
+impl<T: RemoteFs + ?Sized> RemoteFs for std::sync::Arc<T> {
+    async fn create_dir_all(&self, path: &RemotePath) -> Result<(), FsError> {
+        (**self).create_dir_all(path).await
+    }
+    async fn read_dir(&self, path: &RemotePath) -> Result<Vec<DirEntry>, FsError> {
+        (**self).read_dir(path).await
+    }
+    async fn open_read(&self, path: &RemotePath) -> Result<BoxRead, FsError> {
+        (**self).open_read(path).await
+    }
+    async fn open_write(&self, path: &RemotePath) -> Result<BoxWrite, FsError> {
+        (**self).open_write(path).await
+    }
+    async fn rename(&self, from: &RemotePath, to: &RemotePath) -> Result<(), FsError> {
+        (**self).rename(from, to).await
+    }
+    async fn remove_dir_all(&self, path: &RemotePath) -> Result<(), FsError> {
+        (**self).remove_dir_all(path).await
+    }
+    async fn stat(&self, path: &RemotePath) -> Result<Option<Metadata>, FsError> {
+        (**self).stat(path).await
+    }
+    async fn create_dir(&self, path: &RemotePath) -> Result<(), FsError> {
+        (**self).create_dir(path).await
+    }
+    async fn remove_file(&self, path: &RemotePath) -> Result<(), FsError> {
+        (**self).remove_file(path).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

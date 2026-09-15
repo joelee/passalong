@@ -145,11 +145,6 @@ pub(crate) fn encryption_dir() -> Result<RemotePath, FsError> {
     RemotePath::new(ENCRYPTION_DIR)
 }
 
-/// `encryption/header.json`.
-pub(crate) fn header_path() -> Result<RemotePath, FsError> {
-    encryption_dir()?.join(HEADER_FILE)
-}
-
 /// Reads the store header: `None` when the store has none.
 ///
 /// # Errors

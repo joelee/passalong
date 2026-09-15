@@ -399,6 +399,114 @@ impl<F: RemoteFs> RemoteFs for FaultyFs<F> {
 }
 
 #[derive(Debug, Default)]
+struct PauseState {
+    calls: HashMap<FsOp, usize>,
+    at: Option<(FsOp, usize)>,
+}
+
+/// [`RemoteFs`] wrapper that holds one chosen call until the test lets it
+/// go, for running two operations in a set order.
+#[derive(Debug, Default)]
+pub struct PausingFs<F> {
+    inner: F,
+    state: Mutex<PauseState>,
+    reached: tokio::sync::Notify,
+    released: tokio::sync::Notify,
+}
+
+impl<F> PausingFs<F> {
+    /// Wraps `inner`; nothing is held until [`PausingFs::pause_at`].
+    pub fn new(inner: F) -> Self {
+        Self {
+            inner,
+            state: Mutex::default(),
+            reached: tokio::sync::Notify::new(),
+            released: tokio::sync::Notify::new(),
+        }
+    }
+
+    /// Holds the `nth` call of `op`, counting from 1 from now, before it
+    /// runs.
+    pub fn pause_at(&self, op: FsOp, nth: usize) {
+        let mut state = self.state.lock().expect("pause state lock");
+        state.calls.clear();
+        state.at = Some((op, nth));
+    }
+
+    /// Waits until the held call arrives.
+    pub async fn reached(&self) {
+        self.reached.notified().await;
+    }
+
+    /// Lets the held call run.
+    pub fn release(&self) {
+        self.released.notify_one();
+    }
+
+    async fn hold(&self, op: FsOp) {
+        let held = {
+            let mut state = self.state.lock().expect("pause state lock");
+            let call = state.calls.entry(op).or_insert(0);
+            *call += 1;
+            let key = (op, *call);
+            state.at == Some(key)
+        };
+        if held {
+            self.reached.notify_one();
+            self.released.notified().await;
+        }
+    }
+}
+
+#[async_trait]
+impl<F: RemoteFs> RemoteFs for PausingFs<F> {
+    async fn create_dir_all(&self, path: &RemotePath) -> Result<(), FsError> {
+        self.hold(FsOp::CreateDirAll).await;
+        self.inner.create_dir_all(path).await
+    }
+
+    async fn read_dir(&self, path: &RemotePath) -> Result<Vec<DirEntry>, FsError> {
+        self.hold(FsOp::ReadDir).await;
+        self.inner.read_dir(path).await
+    }
+
+    async fn open_read(&self, path: &RemotePath) -> Result<BoxRead, FsError> {
+        self.hold(FsOp::OpenRead).await;
+        self.inner.open_read(path).await
+    }
+
+    async fn open_write(&self, path: &RemotePath) -> Result<BoxWrite, FsError> {
+        self.hold(FsOp::OpenWrite).await;
+        self.inner.open_write(path).await
+    }
+
+    async fn rename(&self, from: &RemotePath, to: &RemotePath) -> Result<(), FsError> {
+        self.hold(FsOp::Rename).await;
+        self.inner.rename(from, to).await
+    }
+
+    async fn remove_dir_all(&self, path: &RemotePath) -> Result<(), FsError> {
+        self.hold(FsOp::RemoveDirAll).await;
+        self.inner.remove_dir_all(path).await
+    }
+
+    async fn stat(&self, path: &RemotePath) -> Result<Option<Metadata>, FsError> {
+        self.hold(FsOp::Stat).await;
+        self.inner.stat(path).await
+    }
+
+    async fn create_dir(&self, path: &RemotePath) -> Result<(), FsError> {
+        self.hold(FsOp::CreateDir).await;
+        self.inner.create_dir(path).await
+    }
+
+    async fn remove_file(&self, path: &RemotePath) -> Result<(), FsError> {
+        self.hold(FsOp::RemoveFile).await;
+        self.inner.remove_file(path).await
+    }
+}
+
+#[derive(Debug, Default)]
 struct MockClipboardState {
     reads: VecDeque<Result<Option<String>, ClipboardError>>,
     current: Option<String>,

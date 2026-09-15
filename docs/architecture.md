@@ -204,6 +204,17 @@ client can publish from it any more. For stores passalong 0.2.0 encrypted,
 `check` and `list` report what remains there, `prune --plain` removes it,
 and a sealed store's `clean_staging` removes entries past the staging age.
 
+**Sends while the key changes.** A sealed store reads the header's key id
+before every `put`, `delete`, and `list_ids`, and again once `put` has
+published its item; the header's size and time are not trusted, since two
+keys under the same settings give headers of the same size, and SFTP gives
+times in whole seconds. A rotation takes the lock before it moves the items
+aside and removes it only after the new header is in place, so a send that
+raced it finds the lock or the new key at that last check. It then takes
+its item back, unless the rotation already took it along, and fails; `serve`
+keeps the file and sends it again once this device has joined with the new
+words, and the copy already moved along makes that second send a no-op.
+
 A sealed store opened this way re-checks, before `put`, `delete`, and
 `list_ids`, that no re-encryption started and that the header still names
 its key, so a device with a rotated-out key stops writing.

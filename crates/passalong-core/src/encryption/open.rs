@@ -10,8 +10,8 @@
 //! | none of it | a key | refused: the store is not encrypted |
 //!
 //! A sealed store opened here also checks, before every `put`, `delete`,
-//! and `list_ids`, that no re-encryption started and that the header still
-//! names its key; it re-reads the header only when the header file changed.
+//! and `list_ids`, and again once `put` has published its item, that no
+//! change of encryption started and that the header still names its key.
 //! A plaintext store checks before the same calls that no lock and no part
 //! of an encrypted layout appeared since.
 
@@ -20,7 +20,6 @@ use std::sync::Arc;
 use tokio::io::AsyncReadExt;
 
 use super::admin::{Layout, classify};
-use super::header::header_path;
 use super::{EncryptionError, REWRITE_DIR, SystemGit, load_key_file};
 use crate::clock::{Clock, SystemClock};
 use crate::config::Config;
@@ -75,13 +74,9 @@ pub async fn open_with_key<F: RemoteFs + 'static>(
         }
         .into());
     }
-    let found = fs
-        .stat(&header_path()?)
-        .await?
-        .ok_or(EncryptionError::HeaderMissing)?;
     tracing::debug!(key = %header.key_id().short(), "opened an encrypted store");
     let store = FsStore::sealed(fs, clock, rng, Sealer::new(key));
-    Ok(Box::new(store.guarded(found.size, found.modified)))
+    Ok(Box::new(store.guarded()))
 }
 
 /// When the re-encryption in progress started, from `.rewrite/plan.json`.
@@ -401,5 +396,52 @@ mod tests {
             store.put(NewItem::text("box"), text(b"x")).await,
             Err(StoreError::Encryption(EncryptionError::HeaderMissing))
         ));
+    }
+
+    #[tokio::test]
+    async fn a_new_key_is_found_even_when_the_header_keeps_its_size_and_time() {
+        let fx = Fixture::new();
+        let key = DataKey::generate().unwrap();
+        fx.encrypt(&key).await;
+        let store = fx.open(Some(&key)).await.unwrap();
+        let kept = store
+            .put(NewItem::text("box"), text(b"one"))
+            .await
+            .unwrap()
+            .meta;
+        // Another key under the same settings: same size. SFTP gives times
+        // in whole seconds, so the same time is plausible too.
+        let path = fx.dir.path().join("encryption/header.json");
+        let before = std::fs::metadata(&path).unwrap();
+        let other = quick_header(&DataKey::generate().unwrap()).to_json();
+        assert_eq!(other.len() as u64, before.len());
+        std::fs::write(&path, other).unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(before.modified().unwrap())
+            .unwrap();
+        let after = std::fs::metadata(&path).unwrap();
+        assert_eq!(
+            (after.len(), after.modified().unwrap()),
+            (before.len(), before.modified().unwrap())
+        );
+        for result in [
+            store
+                .put(NewItem::text("box"), text(b"two"))
+                .await
+                .map(|_| ()),
+            store.delete(&kept.id).await.map(|_| ()),
+            store.list_ids().await.map(|_| ()),
+        ] {
+            assert!(
+                matches!(
+                    result,
+                    Err(StoreError::Encryption(EncryptionError::KeyChanged))
+                ),
+                "{result:?}"
+            );
+        }
     }
 }

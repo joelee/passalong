@@ -38,9 +38,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00009-v0.2.1"
 execution_started_at: "2026-09-15T20:39:50Z"
-execution_updated_at: "2026-09-15T21:14:29Z"
+execution_updated_at: "2026-09-15T21:23:12Z"
 execution_completed_at: null
-current_step: "PLAN-00009-STEP-05"
+current_step: "PLAN-00009-STEP-06"
 ---
 
 # Delivery Plan 00009: V0 2 1 Windows And Review Fixes
@@ -762,7 +762,7 @@ STEP-12.
 | PLAN-00009-STEP-02 | completed | 2026-09-15T20:50:24Z | 2026-09-15T21:02:33Z | `cargo test --workspace --all-features` green; SFTP Docker suite 14/14 | New `encryption/header_change.rs`; `restore_header` |
 | PLAN-00009-STEP-03 | completed | 2026-09-15T21:02:33Z | 2026-09-15T21:08:39Z | Workspace tests, SFTP Docker suite 15/15, `just test-compat` green | `admin::classify` shared by `inspect` and `open_with_key`; `FsStore::plain_guarded` |
 | PLAN-00009-STEP-04 | completed | 2026-09-15T21:08:39Z | 2026-09-15T21:14:29Z | Workspace tests green; `just links` ok | `encryption::{Leftovers, leftovers, remove_leftovers}` |
-| PLAN-00009-STEP-05 | not-started | — | — | — | — |
+| PLAN-00009-STEP-05 | completed | 2026-09-15T21:14:29Z | 2026-09-15T21:23:12Z | Workspace tests; SFTP Docker suite 16/16 | `check_key` reads the header each call; post-publish re-check and take-back; `PausingFs`; `RemoteFs for Arc<T>` |
 | PLAN-00009-STEP-06 | not-started | — | — | — | — |
 | PLAN-00009-STEP-07 | not-started | — | — | — | — |
 | PLAN-00009-STEP-08 | not-started | — | — | — | — |
@@ -783,6 +783,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T21:02:33Z | STEP-02 | Completed: set-up, fresh start, and change of words run under the journal (new kinds `set-up`, `fresh-start`, `words`), with their headers staged inside the journal folder; `finish` and `undo` dispatch on the journal kind; `encrypt --recover` finishes or undoes header changes, and restores a broken store from a header v0.2.0 left in `v2/tmp/` once the words unlock it and its key opens the items; nothing to recover on a broken store is now an error | Tests `a_set_up_cut_anywhere_…`, `a_fresh_start_cut_anywhere_…`, `a_change_of_words_cut_anywhere_…` (every call and every write cut), `a_change_of_words_waits_for_a_rewrite`, `a_header_0_2_0_left_aside_is_restored_…`; CLI `an_interrupted_change_of_words_is_finished_or_undone`, `a_store_without_its_header_is_restored_with_its_words` | STEP-03 |
 | 2026-09-15T21:08:39Z | STEP-03 | Completed: one classifier; `encryption/` without a header, a header beside an `items/` folder, and a stop file without a header are all `Broken`; plaintext handles opened through `open_with_key` refuse `put`, `delete`, and `list_ids` once a lock, `encryption/`, or the stop file appears; `restore_header` also repairs a header beside an `items/` folder; architecture table updated | Tests `an_encrypted_layout_arriving_in_any_order_never_opens_as_plaintext` (every arrival order and prefix, marker scan), `an_opened_plaintext_store_stops_writing_once_it_is_being_encrypted`, `parts_of_an_encrypted_layout_are_broken_never_plain`, `a_header_beside_an_items_folder_is_repaired_…`, SFTP `an_encryption_folder_without_its_header_is_never_plaintext_over_sftp` | STEP-04 |
 | 2026-09-15T21:14:29Z | STEP-04 | Completed: migration, fresh start, and set-up remove the plaintext `tmp/` once the stop file is in place; `Leftovers` counts `tmp/` entries and staged journals (D-15's `check` report); `check` and `list` report them, `prune --plain` removes them (`--dry-run` only reports), and a sealed store's `clean_staging` also clears aged `tmp/` entries; usage and architecture docs updated | Tests `a_migration_leaves_no_plaintext_staging`, `a_set_up_or_fresh_start_leaves_no_plaintext_staging` (marker scans), `leftovers_are_counted_and_removed_on_an_encrypted_store`, `delete_probe_and_staging_use_v2_tmp`, CLI `leftovers_of_cut_short_uploads_go_with_prune_plain`, check line test, `a_fresh_start_leaves_plaintext_that_list_mentions_and_prune_plain_removes` | STEP-05 |
+| 2026-09-15T21:23:12Z | STEP-05 | Completed: the stat cache is gone and the guard reads the header's key id before every `put`, `delete`, and `list_ids`; `put` checks again after its publishing rename and takes its item back on failure (a `NotFound` means a rotation took it along); the uploader already treated these as retryable store failures and keeps the local file; architecture note on the fencing argument | Tests `a_send_held_across_a_rotation_never_succeeds_under_the_old_key` (held while writing, before publishing, after publishing), `a_new_key_is_found_even_when_the_header_keeps_its_size_and_time`, `a_file_sent_across_a_rotation_is_kept_for_the_retry` (`after_send = "delete"`), SFTP `a_send_held_across_a_rotation_fails_instead_of_using_the_old_key_over_sftp` | STEP-06 |
 
 ### Deviations and blockers
 
@@ -797,6 +798,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T21:02:33Z | STEP-02 | A set-up whose `items/` gains items after the emptiness check (an old client writing meanwhile) now moves them to `plain/items/` like a fresh start, instead of failing part-way; undoing a set-up does not recreate an empty `items/` folder it removed | Safer outcome; the undo test compares the store tree, which has no empty `items/` in the template | None |
 | 2026-09-15T21:08:39Z | STEP-03 | D-11 makes a header beside an `items/` folder `Broken`, but no step repaired that state, so `encrypt --recover` would have had nothing to offer. `restore_header` now handles it: once the words unlock the header, the folder's items move to `plain/items/` (reported and prunable) and the stop file is written | Closes a dead end the plan left open; no API change beyond `restore_header`'s behaviour | None |
 | 2026-09-15T21:08:39Z | STEP-03 | A header that is present but cannot be parsed still yields `EncryptionError::Header` rather than `Broken`; it was already refused, never plaintext, and the error names what is wrong | None | None |
+| 2026-09-15T21:23:12Z | STEP-05 | No change to `serve/upload.rs` code was needed: every store error except a local read failure was already retried with the local file kept. `RemoteFs for Arc<T>` was added (additive API) so tests can hold calls of a store opened through `open_with_key`. The `list --nocache` timing gate is measured at STEP-12; `list` does not run the guard, so this step does not change it | None | None |
+| 2026-09-15T21:23:12Z | STEP-05 | In an empty store a raced send fails before the post-publish check, because the rotation left no `v2/items/` to publish into; still a retryable failure with nothing published under the old key. The uploader test accepts any store failure; the SFTP test stores an item first so it exercises the take-back | Test expectation only | None |
 | 2026-09-15T21:14:29Z | STEP-04 | `prune --plain` removes the leftovers without a separate confirmation (they are cut-short staging, not items); `--dry-run` only reports them. `clean_staging` clears aged `tmp/` entries for every sealed store, not only one opened through its header, because no sealed store stages there | Behaviour detail within D-12 | None |
 
 ### Verification results
@@ -812,6 +815,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T21:08:39Z | STEP-03 | fmt, clippy `-D warnings`, `cargo test --workspace --all-features` | Pass | Core 293 passed, CLI 190 passed |
 | 2026-09-15T21:08:39Z | STEP-03 | SFTP Docker suite; `just test-compat` | Pass | 15 passed; compat 2 passed |
 | 2026-09-15T21:14:29Z | STEP-04 | fmt, clippy `-D warnings`, `cargo test --workspace --all-features`, `just links` | Pass | Core 296 passed, CLI 191 passed; 40 Markdown files |
+| 2026-09-15T21:23:12Z | STEP-05 | fmt, clippy `-D warnings`, `cargo test --workspace --all-features`, `just links` | Pass | Core 299 passed, CLI 191 passed |
+| 2026-09-15T21:23:12Z | STEP-05 | SFTP Docker suite | Pass after fixing the new test's expectation (first run: 1 failed, see deviations) | 16 passed |
 
 ### Completion summary
 

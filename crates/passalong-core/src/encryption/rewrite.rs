@@ -663,6 +663,89 @@ pub(crate) mod tests {
         false
     }
 
+    /// Where a send is held while another client rotates the store's key:
+    /// calls counted from when the hold is set, after the store is open.
+    const HOLDS: [(FsOp, usize, &str); 3] = [
+        (FsOp::OpenWrite, 1, "while its content is written"),
+        (FsOp::Rename, 1, "just before it is published"),
+        // The first stat is the check before the send; the second, the
+        // check after publishing.
+        (FsOp::Stat, 2, "just after it is published"),
+    ];
+
+    #[tokio::test]
+    async fn a_send_held_across_a_rotation_never_succeeds_under_the_old_key() {
+        use crate::testing::PausingFs;
+        for (op, nth, at) in HOLDS {
+            let dir = TempDir::new().unwrap();
+            let (old, originals) = sealed_items(dir.path()).await;
+            let paused = Arc::new(PausingFs::new(LocalFs::new(dir.path())));
+            let store = open_with_key(
+                Arc::clone(&paused),
+                Some(old.clone()),
+                clock(),
+                Box::new(StdRandom::new()),
+            )
+            .await
+            .unwrap();
+            paused.pause_at(op, nth);
+            let send = store.put(NewItem::text("box"), text(b"raced"));
+            let rotation = async {
+                tokio::time::timeout(std::time::Duration::from_secs(10), paused.reached())
+                    .await
+                    .unwrap_or_else(|_| panic!("{at}: the send never reached its hold"));
+                if op == FsOp::Stat {
+                    let published = std::fs::read_dir(dir.path().join("v2/items"))
+                        .unwrap()
+                        .count();
+                    assert_eq!(published, originals.len() + 1, "{at}");
+                }
+                let new = rotate(
+                    &LocalFs::new(dir.path()),
+                    &old,
+                    &words(W2),
+                    quick(),
+                    clock(),
+                )
+                .await
+                .unwrap();
+                paused.release();
+                new
+            };
+            let (sent, new) = tokio::join!(send, rotation);
+            assert!(
+                matches!(
+                    sent,
+                    Err(StoreError::Encryption(
+                        EncryptionError::KeyChanged | EncryptionError::Rewriting { .. }
+                    ))
+                ),
+                "{at}: {sent:?}"
+            );
+            // Every item left opens under the new key.
+            let reopened = open(dir.path(), &new).await.unwrap();
+            for id in reopened.list_ids().await.unwrap() {
+                reopened
+                    .get_meta(&id)
+                    .await
+                    .unwrap_or_else(|err| panic!("{at}: {id}: {err}"));
+            }
+            // Sent again, it is stored under the new key, once.
+            reopened
+                .put(NewItem::text("box"), text(b"raced"))
+                .await
+                .unwrap();
+            let raced = reopened
+                .list()
+                .await
+                .unwrap()
+                .into_iter()
+                .filter(|meta| meta.size == 5)
+                .count();
+            assert_eq!(raced, 1, "{at}");
+        }
+    }
+
     #[tokio::test]
     async fn a_migration_leaves_no_plaintext_staging() {
         let dir = TempDir::new().unwrap();

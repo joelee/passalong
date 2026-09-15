@@ -60,9 +60,9 @@ pub struct FsStore<F> {
     clock: Arc<dyn Clock>,
     rng: Mutex<Box<dyn RandomSource>>,
     sealer: Option<Sealer>,
-    /// The size and modification time of the header file last checked, for
-    /// a sealed store opened through its header.
-    guard: Option<Mutex<(u64, Option<DateTime<Utc>>)>>,
+    /// Whether a sealed store opened through its header checks that the
+    /// header still names its key.
+    guard: bool,
     /// Whether a plaintext store checks that it is still plaintext.
     plain_guard: bool,
 }
@@ -76,7 +76,7 @@ impl<F: RemoteFs> FsStore<F> {
             clock,
             rng: Mutex::new(rng),
             sealer: None,
-            guard: None,
+            guard: false,
             plain_guard: false,
         }
     }
@@ -93,7 +93,7 @@ impl<F: RemoteFs> FsStore<F> {
             clock,
             rng: Mutex::new(rng),
             sealer: Some(sealer),
-            guard: None,
+            guard: false,
             plain_guard: false,
         }
     }
@@ -136,20 +136,22 @@ impl<F: RemoteFs> FsStore<F> {
     }
 
     /// Makes a sealed store check, before every `put`, `delete`, and
-    /// `list_ids`, that no re-encryption started and that the store header,
-    /// last seen with this `size` and `modified` time, still names its key.
-    pub(crate) fn guarded(mut self, size: u64, modified: Option<DateTime<Utc>>) -> Self {
-        self.guard = Some(Mutex::new((size, modified)));
+    /// `list_ids`, and again once `put` has published its item, that no
+    /// change of encryption started and that the store header still names
+    /// its key.
+    pub(crate) fn guarded(mut self) -> Self {
+        self.guard = true;
         self
     }
 
-    /// The check [`FsStore::guarded`] describes; the header is re-read only
-    /// when its file changed.
+    /// The check [`FsStore::guarded`] or [`FsStore::plain_guarded`]
+    /// describes. The header is read every time: its size and modification
+    /// time cannot tell two keys apart.
     async fn check_key(&self) -> Result<(), StoreError> {
         if self.plain_guard {
             return self.check_plain().await;
         }
-        let (Some(guard), Some(sealer)) = (&self.guard, &self.sealer) else {
+        let (true, Some(sealer)) = (self.guard, &self.sealer) else {
             return Ok(());
         };
         if self
@@ -160,22 +162,47 @@ impl<F: RemoteFs> FsStore<F> {
         {
             return Err(EncryptionError::Rewriting { started: None }.into());
         }
-        let path = crate::encryption::header::header_path()?;
-        let Some(found) = self.fs.stat(&path).await? else {
-            return Err(EncryptionError::HeaderMissing.into());
-        };
-        let seen = (found.size, found.modified);
-        if *guard.lock().unwrap_or_else(PoisonError::into_inner) == seen {
-            return Ok(());
-        }
         let header = read_header(&self.fs)
             .await?
             .ok_or(EncryptionError::HeaderMissing)?;
         if header.key_id() != sealer.key_id() {
             return Err(EncryptionError::KeyChanged.into());
         }
-        *guard.lock().unwrap_or_else(PoisonError::into_inner) = seen;
         Ok(())
+    }
+
+    /// Takes back the item `id` this client just published, after the
+    /// store's encryption changed under it. An item a re-encryption already
+    /// took into its source is not there to take back: it is re-encrypted
+    /// with the rest.
+    async fn retract(&self, id: &ItemId) {
+        let token = self
+            .rng
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .next_u64();
+        let (Ok(item), Ok(tmp)) = (self.item_dir(id), self.tmp_dir()) else {
+            return;
+        };
+        let Ok(grave) = tmp.join(&format!("retracted-{id}-{token:016x}")) else {
+            return;
+        };
+        match self.fs.rename(&item, &grave).await {
+            Ok(()) => {
+                tracing::info!(id = %id, "took back an item published while the store's key changed");
+                if let Err(err) = self.fs.remove_dir_all(&grave).await {
+                    tracing::warn!(path = %grave, error = %err, "could not remove a taken-back item");
+                }
+            }
+            Err(FsError::NotFound(_)) => {
+                tracing::debug!(id = %id, "the item went into a re-encryption");
+            }
+            Err(err) => tracing::warn!(
+                id = %id,
+                error = %err,
+                "could not take back an item published while the store's key changed"
+            ),
+        }
     }
 
     /// The id `meta`'s item gets in this store: its creation time, and this
@@ -240,7 +267,7 @@ impl<F: RemoteFs> FsStore<F> {
     /// items from before a fresh start remain in `plain/items/`, or uploads
     /// cut short before encryption remain in the plaintext `tmp/`.
     async fn remind_plain_left(&self) {
-        if self.guard.is_none() {
+        if !self.guard {
             return;
         }
         if let Ok(dir) = RemotePath::new(PLAIN_DIR).and_then(|plain| plain.join(ITEMS_DIR))
@@ -530,6 +557,13 @@ impl<F: RemoteFs> FsStore<F> {
         let target = items.join(meta.id.as_str())?;
         match self.fs.rename(staging, &target).await {
             Ok(()) => {
+                // A change of key that began while the item was staged
+                // shows now. The item may be sealed under the old key, so
+                // it is taken back and the send fails, to be retried.
+                if let Err(err) = self.check_key().await {
+                    self.retract(&meta.id).await;
+                    return Err(err);
+                }
                 tracing::info!(id = %meta.id, size = meta.size, kind = ?meta.kind, "item stored");
                 Ok(PutOutcome {
                     meta,

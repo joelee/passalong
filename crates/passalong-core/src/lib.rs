@@ -15,6 +15,7 @@ pub mod download;
 pub mod encryption;
 pub mod fs;
 pub mod model;
+mod owner_only;
 pub mod random;
 pub mod retention;
 pub mod serve;

@@ -301,8 +301,26 @@ fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
         options.mode(0o600);
     }
     let mut file = options.open(path)?;
+    // Private before it holds the previews.
+    #[cfg(windows)]
+    crate::owner_only::restrict(path, false)?;
     file.write_all(bytes)?;
     file.sync_all()
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+
+    #[test]
+    fn the_saved_cache_is_private() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("list-cache.json");
+        ListCache::new("s plain".into(), Utc::now(), Vec::new())
+            .save(&path)
+            .unwrap();
+        assert!(crate::owner_only::only_owner(&path).unwrap());
+    }
 }
 
 #[cfg(test)]

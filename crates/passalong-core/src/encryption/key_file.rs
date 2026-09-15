@@ -34,7 +34,7 @@ pub enum KeyFileError {
         message: String,
     },
     /// Group or others can read the file.
-    #[error("{path} can be read by other users; run `chmod 600 {path}`")]
+    #[error("{path} can be read by other users; run `{}`", permission_fix(.path))]
     Permissions {
         /// The key file.
         path: String,
@@ -142,6 +142,15 @@ impl GitCheck for SystemGit {
     }
 }
 
+/// The command that makes the key file at `path` private again.
+fn permission_fix(path: &str) -> String {
+    if cfg!(windows) {
+        format!("icacls \"{path}\" /inheritance:r /grant:r \"%USERNAME%\":F")
+    } else {
+        format!("chmod 600 {path}")
+    }
+}
+
 fn shown(path: &Path) -> String {
     path.display().to_string()
 }
@@ -170,6 +179,8 @@ fn physical(path: &Path) -> PathBuf {
     let mut missing = Vec::new();
     loop {
         if let Ok(real) = fs::canonicalize(existing) {
+            #[cfg(windows)]
+            let real = without_verbatim(real);
             return missing
                 .iter()
                 .rev()
@@ -182,6 +193,16 @@ fn physical(path: &Path) -> PathBuf {
             }
             _ => return absolute,
         }
+    }
+}
+
+/// `\\?\C:\x`, as Windows canonicalises paths, as `C:\x`, which git
+/// understands.
+#[cfg(windows)]
+fn without_verbatim(path: PathBuf) -> PathBuf {
+    match path.to_str().and_then(|text| text.strip_prefix(r"\\?\")) {
+        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => PathBuf::from(rest),
+        _ => path,
     }
 }
 
@@ -263,7 +284,14 @@ pub fn load_key_file(path: &Path, git: &dyn GitCheck) -> Result<Option<DataKey>,
             return Err(KeyFileError::Permissions { path: shown(path) });
         }
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        let _ = metadata;
+        if !crate::owner_only::only_owner(path).map_err(|err| io_error(path, &err))? {
+            return Err(KeyFileError::Permissions { path: shown(path) });
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
     let _ = metadata;
     check_git(path, git)?;
     let text = Zeroizing::new(fs::read_to_string(path).map_err(|err| io_error(path, &err))?);
@@ -317,7 +345,14 @@ pub fn check_key_location(path: &Path, git: &dyn GitCheck) -> Result<(), KeyFile
     check_git(path, git)
 }
 
+/// Creates `dir` and its missing parents, private to their owner. Folders
+/// that exist already are left as they are.
 fn create_private_dirs(dir: &Path) -> io::Result<()> {
+    let missing: Vec<PathBuf> = dir
+        .ancestors()
+        .take_while(|folder| !folder.as_os_str().is_empty() && !folder.exists())
+        .map(Path::to_path_buf)
+        .collect();
     let mut builder = fs::DirBuilder::new();
     builder.recursive(true);
     #[cfg(unix)]
@@ -325,7 +360,14 @@ fn create_private_dirs(dir: &Path) -> io::Result<()> {
         use std::os::unix::fs::DirBuilderExt;
         builder.mode(0o700);
     }
-    builder.create(dir)
+    builder.create(dir)?;
+    #[cfg(windows)]
+    for folder in &missing {
+        crate::owner_only::restrict(folder, true)?;
+    }
+    #[cfg(not(windows))]
+    let _ = missing;
+    Ok(())
 }
 
 fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
@@ -337,8 +379,50 @@ fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
         options.mode(0o600);
     }
     let mut file = options.open(path)?;
+    // Private before it holds the key.
+    #[cfg(windows)]
+    crate::owner_only::restrict(path, false)?;
     file.write_all(bytes)?;
     file.sync_all()
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    /// Outside a git work tree git is never asked.
+    struct NoGit;
+
+    impl GitCheck for NoGit {
+        fn is_ignored(&self, _repo: &Path, _path: &Path) -> io::Result<bool> {
+            panic!("git was asked outside a work tree")
+        }
+    }
+
+    #[test]
+    fn a_saved_key_is_private_and_refused_once_others_may_read_it() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("keys").join("store.key");
+        let key = DataKey::generate().unwrap();
+        save_key_file(&path, &key, &NoGit).unwrap();
+        assert!(crate::owner_only::only_owner(&path).unwrap());
+        assert!(crate::owner_only::only_owner(&dir.path().join("keys")).unwrap());
+        let loaded = load_key_file(&path, &NoGit).unwrap().unwrap();
+        assert_eq!(loaded.key_id(), key.key_id());
+
+        // Give the Users group read access.
+        let status = Command::new("icacls")
+            .arg(&path)
+            .args(["/grant", "*S-1-5-32-545:(R)"])
+            .stdout(Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let err = load_key_file(&path, &NoGit).unwrap_err();
+        assert!(matches!(err, KeyFileError::Permissions { .. }), "{err}");
+        assert!(err.to_string().contains("icacls"), "{err}");
+    }
 }
 
 #[cfg(all(test, unix))]

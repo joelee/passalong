@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use super::header::encryption_dir;
 use super::header_change::run_change;
-use super::journal::HeaderChangeKind;
+use super::journal::{HeaderChangeKind, count_staged, sweep_staged};
 use super::open::rewrite_started;
 use super::rewrite::fold;
 use super::{
@@ -96,6 +96,95 @@ fn items_path() -> RemotePath {
 
 fn plain_path() -> RemotePath {
     RemotePath::new(PLAIN_DIR).expect("a valid path")
+}
+
+/// `tmp/`, where a plaintext store stages uploads and deletions.
+pub(super) fn plain_tmp() -> RemotePath {
+    RemotePath::new("tmp").expect("a valid path")
+}
+
+/// What an encrypted store holds but no longer uses;
+/// `passalong prune --plain` removes it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Leftovers {
+    /// Entries of `tmp/`, the plaintext staging: uploads and deletions cut
+    /// short before encryption, which may hold plaintext.
+    pub plaintext_staging: usize,
+    /// Journals staged for locks that were never taken.
+    pub staged_journals: usize,
+}
+
+impl Leftovers {
+    /// Whether there is nothing to remove.
+    pub fn is_empty(&self) -> bool {
+        self.plaintext_staging == 0 && self.staged_journals == 0
+    }
+
+    /// Leftovers of `n` entries of plaintext staging.
+    pub(crate) fn plaintext(n: usize) -> Self {
+        Self {
+            plaintext_staging: n,
+            staged_journals: 0,
+        }
+    }
+}
+
+impl std::fmt::Display for Leftovers {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut parts = Vec::new();
+        if self.plaintext_staging > 0 {
+            let n = self.plaintext_staging;
+            let noun = if n == 1 { "leftover" } else { "leftovers" };
+            parts.push(format!("{n} unencrypted {noun} of cut-short uploads"));
+        }
+        if self.staged_journals > 0 {
+            let n = self.staged_journals;
+            let noun = if n == 1 { "journal" } else { "journals" };
+            parts.push(format!("{n} unused {noun}"));
+        }
+        if parts.is_empty() {
+            return f.write_str("no leftovers");
+        }
+        f.write_str(&parts.join(", "))
+    }
+}
+
+/// Counts an encrypted store's [`Leftovers`].
+///
+/// # Errors
+///
+/// The refusal for a store that is not encrypted, and the filesystem's
+/// error.
+pub async fn leftovers<F: RemoteFs + ?Sized>(fs: &F) -> Result<Leftovers, StoreError> {
+    match inspect(fs).await? {
+        StoreState::Encrypted { .. } => count_leftovers(fs).await,
+        other => Err(refuse(other)),
+    }
+}
+
+async fn count_leftovers<F: RemoteFs + ?Sized>(fs: &F) -> Result<Leftovers, StoreError> {
+    let plaintext_staging = match fs.read_dir(&plain_tmp()).await {
+        Ok(entries) => entries.len(),
+        Err(FsError::NotFound(_)) => 0,
+        Err(err) => return Err(err.into()),
+    };
+    Ok(Leftovers {
+        plaintext_staging,
+        staged_journals: count_staged(fs).await?,
+    })
+}
+
+/// Removes an encrypted store's [`Leftovers`], and returns what it found.
+///
+/// # Errors
+///
+/// As [`leftovers`].
+pub async fn remove_leftovers<F: RemoteFs + ?Sized>(fs: &F) -> Result<Leftovers, StoreError> {
+    let found = leftovers(fs).await?;
+    fs.remove_dir_all(&plain_tmp()).await?;
+    sweep_staged(fs).await?;
+    Ok(found)
 }
 
 /// The plaintext items a fresh start kept, as a store of their own, for
@@ -210,7 +299,9 @@ pub async fn fresh_start<F: RemoteFs + ?Sized>(
 
 /// Makes way for the stop file and writes it: an empty `items/` is
 /// removed, and one holding items moves to `plain/items/`; once more when a
-/// client before v0.2.0 recreated `items/` in between.
+/// client before v0.2.0 recreated `items/` in between. Then the plaintext
+/// staging `tmp/` goes: with the stop file in place, nothing staged there
+/// can be published any more.
 pub(super) async fn stop_old_clients<F: RemoteFs + ?Sized>(fs: &F) -> Result<(), StoreError> {
     clear_items(fs).await?;
     if let Err(err) = write_stop_file(fs).await {
@@ -220,6 +311,7 @@ pub(super) async fn stop_old_clients<F: RemoteFs + ?Sized>(fs: &F) -> Result<(),
         clear_items(fs).await?;
         write_stop_file(fs).await?;
     }
+    fs.remove_dir_all(&plain_tmp()).await?;
     Ok(())
 }
 
@@ -411,6 +503,33 @@ mod tests {
             inspect(&fs).await.unwrap(),
             StoreState::Rewriting { started: None }
         );
+    }
+
+    #[tokio::test]
+    async fn leftovers_are_counted_and_removed_on_an_encrypted_store() {
+        let dir = TempDir::new().unwrap();
+        let fs = LocalFs::new(dir.path());
+        assert!(is(
+            leftovers(&fs).await.unwrap_err(),
+            &EncryptionError::NotEncrypted
+        ));
+        set_up(&fs, &words(W1), quick()).await.unwrap();
+        assert!(leftovers(&fs).await.unwrap().is_empty());
+        // What passalong 0.2.0 kept: an upload and a deletion cut short
+        // before encryption, and a journal staged for a lock never taken.
+        std::fs::create_dir_all(dir.path().join("tmp/0123")).unwrap();
+        std::fs::write(dir.path().join("tmp/0123/content"), "plaintext").unwrap();
+        std::fs::create_dir_all(dir.path().join("tmp/deleted-x")).unwrap();
+        std::fs::create_dir(dir.path().join(".rewrite-00ff")).unwrap();
+        let found = leftovers(&fs).await.unwrap();
+        assert_eq!((found.plaintext_staging, found.staged_journals), (2, 1));
+        assert_eq!(
+            found.to_string(),
+            "2 unencrypted leftovers of cut-short uploads, 1 unused journal"
+        );
+        assert_eq!(remove_leftovers(&fs).await.unwrap(), found);
+        assert!(leftovers(&fs).await.unwrap().is_empty());
+        assert!(!dir.path().join("tmp").exists());
     }
 
     #[tokio::test]

@@ -1322,27 +1322,36 @@ async fn a_fresh_start_leaves_plaintext_that_list_mentions_and_prune_plain_remov
     let key = fresh_start(&LocalFs::new(sb.path("store")), &words, kdf)
         .await
         .unwrap();
+    // An upload passalong 0.2.0 left in the plaintext staging.
+    std::fs::create_dir_all(sb.path("store/tmp/cut-short")).unwrap();
     let key_file = sb.save_key(&key);
     sb.with_key_file(&key_file)
         .arg("list")
         .assert()
         .success()
-        .stderr(predicate::str::contains("2 unencrypted items remain"));
+        .stderr(predicate::str::contains("2 unencrypted items remain"))
+        .stderr(predicate::str::contains(
+            "1 unencrypted leftover of cut-short uploads remains",
+        ));
     sb.with_key_file(&key_file)
         .arg("check")
         .assert()
         .success()
         .stdout(predicate::str::contains(format!(
-            "on (key {}); 2 unencrypted items remain",
+            "on (key {}); 2 unencrypted items remain from before encryption; 1 unencrypted leftover of cut-short uploads",
             key.key_id().short()
         )));
     sb.with_key_file(&key_file)
         .args(["prune", "--plain", "--keep", "0", "--yes"])
         .assert()
         .success()
+        .stdout(predicate::str::contains(
+            "removed 1 unencrypted leftover of cut-short uploads",
+        ))
         .stdout(predicate::str::contains("deleted 2 items"))
         .stdout(predicate::str::contains("removed plain/"));
     assert!(!sb.path("store/plain").exists());
+    assert!(!sb.path("store/tmp").exists());
     sb.with_key_file(&key_file)
         .arg("list")
         .assert()

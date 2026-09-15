@@ -29,8 +29,8 @@ mod open;
 mod rewrite;
 
 pub use admin::{
-    StoreState, change_words, fresh_start, inspect, join, plain_store, remove_plain_if_empty,
-    set_up,
+    Leftovers, StoreState, change_words, fresh_start, inspect, join, leftovers, plain_store,
+    remove_leftovers, remove_plain_if_empty, set_up,
 };
 pub use header::{StoreHeader, create_header, read_header, replace_header, write_stop_file};
 pub use header_change::restore_header;

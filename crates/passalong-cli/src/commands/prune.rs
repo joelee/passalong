@@ -123,12 +123,8 @@ pub async fn run_plain(
     offset: FixedOffset,
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
-    match encryption::inspect(fs).await? {
-        StoreState::Encrypted { plain_left: 0, .. } => {
-            writeln!(out, "no unencrypted items remain")?;
-            return Ok(());
-        }
-        StoreState::Encrypted { .. } => {}
+    let plain_left = match encryption::inspect(fs).await? {
+        StoreState::Encrypted { plain_left, .. } => plain_left,
         StoreState::Plain { .. } => anyhow::bail!(
             "the store is not encrypted: `--plain` prunes the unencrypted items an encrypted store kept from before; use `passalong prune` without it"
         ),
@@ -137,6 +133,19 @@ pub async fn run_plain(
         }
         StoreState::Broken => return Err(EncryptionError::HeaderMissing.into()),
         _ => anyhow::bail!("this store's state is not known to this version of passalong"),
+    };
+    let left = encryption::leftovers(fs).await?;
+    if !left.is_empty() {
+        if options.dry_run {
+            writeln!(out, "would remove {left}")?;
+        } else {
+            encryption::remove_leftovers(fs).await?;
+            writeln!(out, "removed {left}")?;
+        }
+    }
+    if plain_left == 0 {
+        writeln!(out, "no unencrypted items remain")?;
+        return Ok(());
     }
     run(
         &encryption::plain_store(fs),
@@ -430,6 +439,40 @@ mod plain_tests {
             prune(&fs, &keep(0)).await.unwrap(),
             "no unencrypted items remain\n"
         );
+    }
+
+    #[tokio::test]
+    async fn leftovers_of_cut_short_uploads_go_with_prune_plain() {
+        let ts = TestStore::new();
+        let fs = LocalFs::new(ts.dir.path());
+        let kdf = KdfParams {
+            m_kib: 64,
+            t: 1,
+            p: 1,
+            salt: [2; KDF_SALT_LEN],
+        };
+        encryption::set_up(
+            &fs,
+            &Words::parse("zoom zoom zoom zoom zoom zoom").unwrap(),
+            kdf,
+        )
+        .await
+        .unwrap();
+        std::fs::create_dir_all(ts.dir.path().join("tmp/cut-short")).unwrap();
+        let dry = PruneOptions {
+            dry_run: true,
+            ..keep(0)
+        };
+        assert_eq!(
+            prune(&fs, &dry).await.unwrap(),
+            "would remove 1 unencrypted leftover of cut-short uploads\nno unencrypted items remain\n"
+        );
+        assert!(ts.dir.path().join("tmp").exists());
+        assert_eq!(
+            prune(&fs, &keep(0)).await.unwrap(),
+            "removed 1 unencrypted leftover of cut-short uploads\nno unencrypted items remain\n"
+        );
+        assert!(!ts.dir.path().join("tmp").exists());
     }
 
     #[tokio::test]

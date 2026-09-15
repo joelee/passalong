@@ -53,7 +53,7 @@ Every invocation goes through the same start-up:
 | `choose` | `Store::list`, then a full-screen list (ratatui over crossterm); `g` shows `Store::get_meta` in a dialog, `d` runs `Store::delete` and lists again, and `r` lists again; Enter and `c` run the code of `load` or `cat` after the terminal is restored; log records are held while the list is open and written when it closes |
 | `serve` | Runs the loop below until stopped; `--daemon`, `--status`, and `--stop` manage a background copy |
 | `delete` | Resolves every id first, then `Store::delete` for each |
-| `prune` | `Store::list`, selects items older than `--older-than` beyond the newest `--keep`, confirms, deletes, then `Store::clean_staging`; with `--plain`, the same on the plaintext store in `plain/` |
+| `prune` | `Store::list`, selects items older than `--older-than` beyond the newest `--keep`, confirms, deletes, then `Store::clean_staging`; with `--plain`, the same on the plaintext store in `plain/`, after removing the encryption leftovers (the plaintext `tmp/` and unused journals) |
 | `init` | Fetches the server host key without authenticating, asks you to confirm its fingerprint, writes the config file, then opens the store's filesystem as a connection test and inspects its encryption: offers to encrypt an empty store and joins an encrypted one |
 | `encrypt` | Opens the store's filesystem and inspects it: encrypts a plaintext store (set-up, fresh start, or migration), or changes an encrypted store's words; `--join`, `--rotate`, and `--recover` as in [usage](usage.md) |
 | `check` | Loads the config, opens the backend's filesystem, inspects its encryption against this device's key, opens the store, `Store::list_ids`, then `Store::probe_write`, printing one line per step, then reads `serve`'s pid lock |
@@ -154,7 +154,7 @@ cannot write into:
 ├── encryption/header.json   the wrapped data key (a folder: renames never replace files)
 ├── items                    a file saying the store is encrypted, where old clients expect a folder
 ├── v2/items/<id>/{content,meta.json}
-├── v2/tmp/                  staging, and the header while it is replaced
+├── v2/tmp/                  staging for uploads and deletions
 ├── plain/items/             after a fresh start: the earlier items, unencrypted
 └── .rewrite/                only during a migration or rotation: lock and journal
 ```
@@ -197,6 +197,12 @@ without the rest counts as broken, never as plaintext. A plaintext store,
 once open, checks before every `put`, `delete`, and `list_ids` that no
 lock and no part of an encrypted layout appeared since, so it never adds
 plaintext to a store another device is encrypting.
+
+Encrypting also removes the plaintext staging `tmp/` once the stop file is
+in place: uploads and deletions cut short there may hold plaintext, and no
+client can publish from it any more. For stores passalong 0.2.0 encrypted,
+`check` and `list` report what remains there, `prune --plain` removes it,
+and a sealed store's `clean_staging` removes entries past the staging age.
 
 A sealed store opened this way re-checks, before `put`, `delete`, and
 `list_ids`, that no re-encryption started and that the header still names

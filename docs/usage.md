@@ -374,7 +374,7 @@ is required:
 | `--keep <N>` | Always keep the newest `N` items. |
 | `--dry-run` | Show what would be deleted, then stop. |
 | `--yes` | Delete without asking. Required when not running in a terminal. |
-| `--plain` | Prune the unencrypted items a fresh start left in `plain/`, instead of the store's items; `plain/` is removed once empty. |
+| `--plain` | Prune the unencrypted items a fresh start left in `plain/`, instead of the store's items; `plain/` is removed once empty. It also removes what passalong 0.2.0 left behind when it encrypted a store: uploads and deletions cut short before encryption, still unencrypted in `tmp/`, and unused journals. `check` and `list` report both. |
 
 With both options, an item survives if either protects it:
 `prune --older-than 30d --keep 20` deletes items older than 30 days but

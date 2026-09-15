@@ -234,6 +234,16 @@ pub(super) async fn release_lock<F: RemoteFs + ?Sized>(fs: &F) -> Result<(), Sto
     Ok(())
 }
 
+/// Counts journals staged for locks that were never taken.
+pub(super) async fn count_staged<F: RemoteFs + ?Sized>(fs: &F) -> Result<usize, StoreError> {
+    Ok(fs
+        .read_dir(&RemotePath::root())
+        .await?
+        .iter()
+        .filter(|entry| entry.is_dir && entry.name.starts_with(STAGING_PREFIX))
+        .count())
+}
+
 /// Removes journals staged by locks that were never taken.
 pub(super) async fn sweep_staged<F: RemoteFs + ?Sized>(fs: &F) -> Result<(), StoreError> {
     for entry in fs.read_dir(&RemotePath::root()).await? {

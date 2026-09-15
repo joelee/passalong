@@ -19,7 +19,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::clock::Clock;
 use crate::crypto::{self, CHUNK_LEN, CONTENT_SALT_LEN, KeyId, SealedMeta, Sealer, read_full};
-use crate::encryption::{ENCRYPTION_DIR, EncryptionError, PLAIN_DIR, REWRITE_DIR, read_header};
+use crate::encryption::{
+    ENCRYPTION_DIR, EncryptionError, Leftovers, PLAIN_DIR, REWRITE_DIR, read_header,
+};
 use crate::fs::{BoxRead, FsError, RemoteFs, RemotePath};
 use crate::model::{
     ContentDigest, ContentHasher, ContentKey, ItemId, ItemKind, ItemMeta, NewItem, preview_of,
@@ -235,29 +237,43 @@ impl<F: RemoteFs> FsStore<F> {
     }
 
     /// Warns, in a sealed store opened through its header, while plaintext
-    /// items from before a fresh start remain in `plain/items/`.
+    /// items from before a fresh start remain in `plain/items/`, or uploads
+    /// cut short before encryption remain in the plaintext `tmp/`.
     async fn remind_plain_left(&self) {
         if self.guard.is_none() {
             return;
         }
-        let Ok(dir) = RemotePath::new(PLAIN_DIR).and_then(|plain| plain.join(ITEMS_DIR)) else {
-            return;
-        };
-        let Ok(entries) = self.fs.read_dir(&dir).await else {
-            return;
-        };
-        let n = entries
-            .iter()
-            .filter(|entry| entry.is_dir && ItemId::parse(&entry.name).is_ok())
-            .count();
-        if n > 0 {
-            let (items, them) = if n == 1 {
-                ("item remains", "it")
+        if let Ok(dir) = RemotePath::new(PLAIN_DIR).and_then(|plain| plain.join(ITEMS_DIR))
+            && let Ok(entries) = self.fs.read_dir(&dir).await
+        {
+            let n = entries
+                .iter()
+                .filter(|entry| entry.is_dir && ItemId::parse(&entry.name).is_ok())
+                .count();
+            if n > 0 {
+                let (items, them) = if n == 1 {
+                    ("item remains", "it")
+                } else {
+                    ("items remain", "them")
+                };
+                tracing::warn!(
+                    "{n} unencrypted {items} from before encryption; remove {them} with `passalong prune --plain`"
+                );
+            }
+        }
+        if let Ok(tmp) = RemotePath::new(TMP_DIR)
+            && let Ok(entries) = self.fs.read_dir(&tmp).await
+            && !entries.is_empty()
+        {
+            let n = entries.len();
+            let (verb, them) = if n == 1 {
+                ("remains", "it")
             } else {
-                ("items remain", "them")
+                ("remain", "them")
             };
             tracing::warn!(
-                "{n} unencrypted {items} from before encryption; remove {them} with `passalong prune --plain`"
+                "{} {verb} from before encryption; remove {them} with `passalong prune --plain`",
+                Leftovers::plaintext(n)
             );
         }
     }
@@ -755,18 +771,37 @@ impl<F: RemoteFs> Store for FsStore<F> {
     }
 
     async fn clean_staging(&self, older_than: Duration) -> Result<usize, StoreError> {
-        let tmp = self.tmp_dir()?;
-        let entries = match self.fs.read_dir(&tmp).await {
-            Ok(entries) => entries,
-            Err(FsError::NotFound(_)) => return Ok(0),
-            Err(err) => return Err(err.into()),
-        };
         // An age too large to subtract means nothing can be that old.
         let Some(cutoff) = TimeDelta::from_std(older_than)
             .ok()
             .and_then(|age| self.clock.now().checked_sub_signed(age))
         else {
             return Ok(0);
+        };
+        let mut removed = self.clean_dir(&self.tmp_dir()?, cutoff).await?;
+        // A sealed store never stages in the plaintext `tmp/`; what is
+        // there was cut short before encryption.
+        if self.sealer.is_some() {
+            removed += self.clean_dir(&RemotePath::new(TMP_DIR)?, cutoff).await?;
+        }
+        if removed > 0 {
+            tracing::info!("removed {removed} stale staging directories");
+        }
+        Ok(removed)
+    }
+}
+
+impl<F: RemoteFs> FsStore<F> {
+    /// Removes the folders in `tmp` last changed before `cutoff`.
+    async fn clean_dir(
+        &self,
+        tmp: &RemotePath,
+        cutoff: DateTime<Utc>,
+    ) -> Result<usize, StoreError> {
+        let entries = match self.fs.read_dir(tmp).await {
+            Ok(entries) => entries,
+            Err(FsError::NotFound(_)) => return Ok(0),
+            Err(err) => return Err(err.into()),
         };
         let mut removed = 0;
         for entry in entries.into_iter().filter(|entry| entry.is_dir) {
@@ -777,9 +812,6 @@ impl<F: RemoteFs> Store for FsStore<F> {
                 tracing::debug!(path = %path, "removed stale staging directory");
                 removed += 1;
             }
-        }
-        if removed > 0 {
-            tracing::info!("removed {removed} stale staging directories");
         }
         Ok(removed)
     }
@@ -1978,14 +2010,15 @@ mod sealed_tests {
         assert!(fx.entries("v2/tmp").is_empty());
 
         std::fs::create_dir_all(fx.path("v2/tmp/stale")).unwrap();
+        // Left in the plaintext staging before encryption: cleaned too.
         std::fs::create_dir_all(fx.path("tmp/plain-leftover")).unwrap();
         fx.clock.advance(400 * 24 * 3600);
         assert_eq!(
             store.clean_staging(Duration::from_secs(60)).await.unwrap(),
-            1
+            2
         );
         assert!(fx.entries("v2/tmp").is_empty());
-        assert_eq!(fx.entries("tmp"), ["plain-leftover"]);
+        assert!(fx.entries("tmp").is_empty());
     }
 
     #[tokio::test]

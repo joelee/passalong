@@ -26,7 +26,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncReadExt;
 
-use super::admin::refuse;
+use super::admin::{plain_tmp, refuse};
 use super::header::{encryption_dir, read_header_in, write_header_in};
 use super::header_change::{finish_change, install, revert};
 use super::journal::{
@@ -406,6 +406,11 @@ async fn run<F: RemoteFs + ?Sized>(
         fold(fs, &original, &moved).await?;
         write_stop_file(fs).await?;
     }
+    if kind == RewriteKind::Migrate {
+        // With the stop file in place, nothing staged in the plaintext
+        // `tmp/` can be published any more.
+        fs.remove_dir_all(&plain_tmp()).await?;
+    }
 
     let source_fs = SubFs::new(fs, under_rewrite(SOURCE)?);
     let rng = || Box::new(StdRandom::new());
@@ -624,6 +629,51 @@ pub(crate) mod tests {
             }
         }
         found
+    }
+
+    /// Bytes that mark plaintext a test left where encryption must remove it.
+    pub(crate) const MARKER: &[u8] = b"staged-plaintext-4c7";
+
+    /// Fills the plaintext staging of the store at `root` with an upload and
+    /// a deletion cut short, both holding [`MARKER`].
+    pub(crate) fn seed_staging(root: &Path) {
+        for (dir, file) in [("tmp/0123", "content"), ("tmp/deleted-abc", "meta.json")] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+            std::fs::write(root.join(dir).join(file), MARKER).unwrap();
+        }
+    }
+
+    /// Whether any file below `root` holds [`MARKER`].
+    pub(crate) fn holds_marker(root: &Path) -> bool {
+        let mut pending = vec![root.to_path_buf()];
+        while let Some(dir) = pending.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    pending.push(path);
+                } else if std::fs::read(&path)
+                    .unwrap()
+                    .windows(MARKER.len())
+                    .any(|w| w == MARKER)
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    #[tokio::test]
+    async fn a_migration_leaves_no_plaintext_staging() {
+        let dir = TempDir::new().unwrap();
+        let originals = plain_items(dir.path()).await;
+        seed_staging(dir.path());
+        let key = migrate(&LocalFs::new(dir.path()), &words(W1), quick(), clock())
+            .await
+            .unwrap();
+        assert!(!dir.path().join("tmp").exists());
+        assert!(!holds_marker(dir.path()));
+        assert_holds(dir.path(), &key, &originals).await;
     }
 
     pub(crate) fn copy_tree(from: &Path, to: &Path) {

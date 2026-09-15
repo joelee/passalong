@@ -179,6 +179,12 @@ async fn encryption_status(
                         "; {plain_left} unencrypted {items} from before encryption"
                     ));
                 }
+                let left = encryption::leftovers(fs)
+                    .await
+                    .map_err(|err| err.to_string())?;
+                if !left.is_empty() {
+                    detail.push_str(&format!("; {left}"));
+                }
                 Ok(("ok", detail))
             }
         },
@@ -593,6 +599,8 @@ mod tests {
         let key = encryption::fresh_start(&fs, &Words::parse(WORDS).unwrap(), quick())
             .await
             .unwrap();
+        // An upload passalong 0.2.0 left in the plaintext staging.
+        std::fs::create_dir_all(dir.path().join("tmp/cut-short")).unwrap();
         let keys = TempDir::new().unwrap();
         let key_file = keys.path().join("store.key");
         save_key_file(&key_file, &key, &SystemGit::new()).unwrap();
@@ -608,7 +616,7 @@ mod tests {
         result.unwrap();
         assert!(
             out.contains(&format!(
-                "encryption     ok    on (key {}); 1 unencrypted item remains from before encryption\n",
+                "encryption     ok    on (key {}); 1 unencrypted item remains from before encryption; 1 unencrypted leftover of cut-short uploads\n",
                 key.key_id().short()
             )),
             "{out}"

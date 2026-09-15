@@ -409,6 +409,19 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_set_up_or_fresh_start_leaves_no_plaintext_staging() {
+        use crate::encryption::rewrite::tests::{holds_marker, seed_staging};
+        for change in [Change::SetUp, Change::Fresh] {
+            let dir = TempDir::new().unwrap();
+            change.template(dir.path()).await;
+            seed_staging(dir.path());
+            change.apply(&LocalFs::new(dir.path())).await.unwrap();
+            assert!(!dir.path().join("tmp").exists(), "{change:?}");
+            assert!(!holds_marker(dir.path()), "{change:?}");
+        }
+    }
+
+    #[tokio::test]
     async fn a_change_of_words_waits_for_a_rewrite() {
         let dir = TempDir::new().unwrap();
         sealed_items(dir.path()).await;

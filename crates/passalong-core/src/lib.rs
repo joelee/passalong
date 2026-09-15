@@ -12,6 +12,7 @@ pub mod clock;
 pub mod config;
 pub mod crypto;
 pub mod download;
+pub mod encryption;
 pub mod fs;
 pub mod model;
 pub mod random;

@@ -1,5 +1,7 @@
 /target/
 .env
+# Key files of encrypted stores: never commit one.
+*.key
 tests/docker/keys/
 *.profraw
 lcov.info

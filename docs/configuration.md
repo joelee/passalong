@@ -36,6 +36,7 @@ Unknown keys are rejected, and every error names the offending key or line.
 |---|---|---|---|
 | `device_name` | string | host name | Name recorded on every item this device sends |
 | `log_level` | string | `info` | `error`, `warning`, `info`, `verbose`, or `debug` (see Logging) |
+| `key_file` | path | `store.key` beside the default config file | Where this device keeps an encrypted store's key: `$XDG_CONFIG_HOME/passalong/store.key`, or `~/.config/passalong/store.key`; there is no default when neither `XDG_CONFIG_HOME` nor `HOME` is set. Must be absolute after `~` expansion. It is written with mode 0600, and refused if other users can read it or if it is inside a git work tree that does not ignore it |
 | `download_dir` | path | `~/Downloads` | Where `load` puts file items when no destination is given, created if missing; pull mode writes here only if it exists. Must be absolute after `~` expansion |
 
 ### `[server]`

@@ -17,6 +17,10 @@ All notable changes to this project are documented here. The format follows
   that rejects truncated, reordered, or extended content, and six-word
   passphrases from the EFF large word list (CC BY 4.0; see `NOTICE`)
   (PLAN-00008 STEP-02).
+- `client.key_file` (default `store.key` beside the default config file)
+  and the key file behind it: written with mode 0600 through a temporary
+  file, and refused when other users can read it or when it is inside a git
+  work tree that does not ignore it (PLAN-00008 STEP-03).
 
 ## v0.1.6 - 2026-09-14T21:14:49Z
 

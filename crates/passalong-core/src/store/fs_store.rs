@@ -13,13 +13,13 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use chrono::TimeDelta;
+use chrono::{DateTime, TimeDelta, Utc};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::clock::Clock;
 use crate::crypto::{self, CHUNK_LEN, CONTENT_SALT_LEN, KeyId, SealedMeta, Sealer, read_full};
-use crate::encryption::EncryptionError;
+use crate::encryption::{EncryptionError, REWRITE_DIR, read_header};
 use crate::fs::{BoxRead, FsError, RemoteFs, RemotePath};
 use crate::model::{
     ContentDigest, ContentHasher, ContentKey, ItemId, ItemKind, ItemMeta, NewItem, preview_of,
@@ -58,6 +58,9 @@ pub struct FsStore<F> {
     clock: Arc<dyn Clock>,
     rng: Mutex<Box<dyn RandomSource>>,
     sealer: Option<Sealer>,
+    /// The size and modification time of the header file last checked, for
+    /// a sealed store opened through its header.
+    guard: Option<Mutex<(u64, Option<DateTime<Utc>>)>>,
 }
 
 impl<F: RemoteFs> FsStore<F> {
@@ -69,6 +72,7 @@ impl<F: RemoteFs> FsStore<F> {
             clock,
             rng: Mutex::new(rng),
             sealer: None,
+            guard: None,
         }
     }
 
@@ -84,7 +88,48 @@ impl<F: RemoteFs> FsStore<F> {
             clock,
             rng: Mutex::new(rng),
             sealer: Some(sealer),
+            guard: None,
         }
+    }
+
+    /// Makes a sealed store check, before every `put`, `delete`, and
+    /// `list_ids`, that no re-encryption started and that the store header,
+    /// last seen with this `size` and `modified` time, still names its key.
+    pub(crate) fn guarded(mut self, size: u64, modified: Option<DateTime<Utc>>) -> Self {
+        self.guard = Some(Mutex::new((size, modified)));
+        self
+    }
+
+    /// The check [`FsStore::guarded`] describes; the header is re-read only
+    /// when its file changed.
+    async fn check_key(&self) -> Result<(), StoreError> {
+        let (Some(guard), Some(sealer)) = (&self.guard, &self.sealer) else {
+            return Ok(());
+        };
+        if self
+            .fs
+            .stat(&RemotePath::new(REWRITE_DIR)?)
+            .await?
+            .is_some()
+        {
+            return Err(EncryptionError::Rewriting { started: None }.into());
+        }
+        let path = crate::encryption::header::header_path()?;
+        let Some(found) = self.fs.stat(&path).await? else {
+            return Err(EncryptionError::HeaderMissing.into());
+        };
+        let seen = (found.size, found.modified);
+        if *guard.lock().unwrap_or_else(PoisonError::into_inner) == seen {
+            return Ok(());
+        }
+        let header = read_header(&self.fs)
+            .await?
+            .ok_or(EncryptionError::HeaderMissing)?;
+        if header.key_id() != sealer.key_id() {
+            return Err(EncryptionError::KeyChanged.into());
+        }
+        *guard.lock().unwrap_or_else(PoisonError::into_inner) = seen;
+        Ok(())
     }
 
     /// The underlying filesystem.
@@ -366,6 +411,7 @@ impl<F: RemoteFs> Store for FsStore<F> {
     }
 
     async fn put(&self, item: NewItem, content: BoxRead) -> Result<PutOutcome, StoreError> {
+        self.check_key().await?;
         let items = self.items_dir()?;
         let tmp = self.tmp_dir()?;
         self.fs.create_dir_all(&items).await?;
@@ -393,6 +439,7 @@ impl<F: RemoteFs> Store for FsStore<F> {
     }
 
     async fn list_ids(&self) -> Result<Vec<ItemId>, StoreError> {
+        self.check_key().await?;
         self.item_ids().await
     }
 
@@ -517,6 +564,7 @@ impl<F: RemoteFs> Store for FsStore<F> {
     }
 
     async fn delete(&self, id: &ItemId) -> Result<ItemMeta, StoreError> {
+        self.check_key().await?;
         let meta = match self.read_meta(id).await {
             Err(StoreError::Fs(FsError::NotFound(_))) => {
                 return Err(StoreError::NotFound(id.to_string()));

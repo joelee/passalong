@@ -17,6 +17,11 @@ use passalong_core::testing::ManualClock;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
+use passalong_core::crypto::{DataKey, KdfParams, Words, wrap};
+use passalong_core::encryption::{
+    StoreHeader, SystemGit, create_header, save_key_file, write_stop_file,
+};
+
 struct Sandbox {
     dir: TempDir,
 }
@@ -1177,4 +1182,112 @@ async fn desktop_loaded_image_survives_load_exiting() {
     let mut clipboard = ArboardClipboard::new().unwrap();
     assert_eq!(clipboard.read_image().unwrap(), Some(image));
     clipboard.write_text("released").unwrap();
+}
+
+impl Sandbox {
+    /// A config for the local backend whose device key is `key_file`.
+    fn with_key_file(&self, key_file: &std::path::Path) -> Command {
+        let path = self.path("cfg/keyed.toml");
+        let text = format!(
+            "[client]\ndevice_name = \"test-box\"\nkey_file = \"{}\"\n\n[server]\nkind = \"local\"\n\n[server.local]\npath = \"{}\"\n\n[serve]\ndrop_folder = \"{}\"\n",
+            key_file.display(),
+            self.path("store").display(),
+            self.path("drop").display()
+        );
+        std::fs::write(&path, text).unwrap();
+        let mut cmd = self.cmd();
+        cmd.arg("--config").arg(path);
+        cmd
+    }
+
+    /// Encrypts the empty store under `key`, as `passalong encrypt` does,
+    /// with fast key-derivation settings.
+    async fn encrypt(&self, key: &DataKey) {
+        let fs = LocalFs::new(self.path("store"));
+        let kdf = KdfParams {
+            m_kib: 64,
+            t: 1,
+            p: 1,
+            salt: [5; 16],
+        };
+        let words = Words::parse("abacus zoom abdomen abacus zoom abdomen").unwrap();
+        let header = StoreHeader::new(wrap(key, &words, kdf).unwrap());
+        create_header(&fs, &header).await.unwrap();
+        write_stop_file(&fs).await.unwrap();
+    }
+
+    fn save_key(&self, key: &DataKey) -> PathBuf {
+        let path = self.path("home/.config/passalong/store.key");
+        save_key_file(&path, key, &SystemGit::new()).unwrap();
+        path
+    }
+}
+
+#[tokio::test]
+async fn an_encrypted_store_refuses_a_device_without_its_key() {
+    let sb = Sandbox::new();
+    sb.encrypt(&DataKey::generate().unwrap()).await;
+    sb.with_config()
+        .arg("list")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("encrypt --join"));
+    sb.with_config()
+        .args(["clipboard", "--stdin"])
+        .write_stdin("never stored")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("encrypt --join"));
+    assert!(!sb.path("store/v2/items").exists());
+
+    let other = sb.save_key(&DataKey::generate().unwrap());
+    sb.with_key_file(&other)
+        .arg("list")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("is not the store's key"));
+}
+
+#[tokio::test]
+async fn a_device_with_the_key_uses_the_encrypted_store() {
+    let sb = Sandbox::new();
+    let key = DataKey::generate().unwrap();
+    sb.encrypt(&key).await;
+    let key_file = sb.save_key(&key);
+
+    let out = sb
+        .with_key_file(&key_file)
+        .args(["clipboard", "--stdin"])
+        .write_stdin("sealed through the binary")
+        .assert()
+        .success();
+    let id = String::from_utf8(out.get_output().stdout.clone())
+        .unwrap()
+        .trim()
+        .to_owned();
+    sb.with_key_file(&key_file)
+        .arg("list")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&id));
+    sb.with_key_file(&key_file)
+        .args(["cat", &id])
+        .assert()
+        .success()
+        .stdout("sealed through the binary");
+    assert!(sb.path(&format!("store/v2/items/{id}/content")).is_file());
+    let raw = std::fs::read(sb.path(&format!("store/v2/items/{id}/content"))).unwrap();
+    assert!(!raw.windows(6).any(|w| w == b"sealed"));
+}
+
+#[tokio::test]
+async fn a_device_with_a_key_refuses_a_plaintext_store() {
+    let sb = Sandbox::new();
+    sb.seed(&["plain item"]).await;
+    let key_file = sb.save_key(&DataKey::generate().unwrap());
+    sb.with_key_file(&key_file)
+        .arg("list")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("the store is not encrypted"));
 }

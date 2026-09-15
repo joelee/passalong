@@ -8,13 +8,11 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
 
-use crate::clock::SystemClock;
 use crate::config::Config;
-use crate::fs::{FsError, LocalFs};
-use crate::random::StdRandom;
-use crate::store::{FsStore, Store, StoreError};
+use crate::encryption;
+use crate::fs::{FsError, LocalFs, RemoteFs};
+use crate::store::{Store, StoreError};
 
 /// The future a [`BackendOpener`] returns.
 pub type BackendFuture<'a> =
@@ -23,10 +21,24 @@ pub type BackendFuture<'a> =
 /// Opens one kind of backend from the full configuration.
 pub type BackendOpener = fn(&Config) -> BackendFuture<'_>;
 
+/// The future an [`FsOpener`] returns.
+pub type FsFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<Box<dyn RemoteFs>, StoreError>> + Send + 'a>>;
+
+/// Opens the filesystem of one kind of file-like backend. The registry
+/// builds the store on it as the store's header says
+/// ([`encryption::open_store`]), so encryption works on every such backend.
+pub type FsOpener = fn(&Config) -> FsFuture<'_>;
+
 /// The backends available to this program, by `server.kind`.
+///
+/// A file-like backend registers an [`FsOpener`]; any other backend
+/// registers a [`BackendOpener`] and opens its store itself, without
+/// encryption.
 #[derive(Clone, Default)]
 pub struct BackendRegistry {
     openers: BTreeMap<String, BackendOpener>,
+    fs_openers: BTreeMap<String, FsOpener>,
 }
 
 impl BackendRegistry {
@@ -38,28 +50,65 @@ impl BackendRegistry {
     /// A registry with the backends built into `passalong-core`: `local`.
     pub fn with_builtin() -> Self {
         let mut registry = Self::empty();
-        registry.register("local", local_opener);
+        registry.register_fs("local", local_fs_opener);
         registry
     }
 
-    /// Registers `opener` for `kind`, replacing any earlier one.
+    /// Registers `opener` for `kind`, replacing any earlier opener.
     pub fn register(&mut self, kind: &str, opener: BackendOpener) {
+        self.fs_openers.remove(kind);
         self.openers.insert(kind.to_owned(), opener);
+    }
+
+    /// Registers the filesystem `opener` of a file-like backend for `kind`,
+    /// replacing any earlier opener.
+    pub fn register_fs(&mut self, kind: &str, opener: FsOpener) {
+        self.openers.remove(kind);
+        self.fs_openers.insert(kind.to_owned(), opener);
     }
 
     /// The registered kinds, sorted.
     pub fn kinds(&self) -> Vec<&str> {
-        self.openers.keys().map(String::as_str).collect()
+        let mut kinds: Vec<&str> = self
+            .openers
+            .keys()
+            .chain(self.fs_openers.keys())
+            .map(String::as_str)
+            .collect();
+        kinds.sort_unstable();
+        kinds
     }
 
-    /// Opens the backend named by `server.kind`.
+    /// Opens the backend named by `server.kind`; a file-like one as its
+    /// store header says.
     ///
     /// # Errors
     ///
     /// [`StoreError::UnsupportedBackend`] when no backend is registered for
-    /// the kind, otherwise whatever the backend's opener returns.
+    /// the kind, [`StoreError::Encryption`] when the store is refused, and
+    /// otherwise whatever the backend's opener returns.
     pub async fn open(&self, config: &Config) -> Result<Box<dyn Store>, StoreError> {
-        match self.openers.get(&config.server.kind) {
+        let kind = &config.server.kind;
+        if let Some(opener) = self.fs_openers.get(kind) {
+            let fs = opener(config).await?;
+            return encryption::open_store(fs, config).await;
+        }
+        match self.openers.get(kind) {
+            Some(opener) => opener(config).await,
+            None => Err(StoreError::UnsupportedBackend(kind.clone())),
+        }
+    }
+
+    /// Opens the filesystem of the file-like backend named by
+    /// `server.kind`, for commands that change a store's layout, such as
+    /// `encrypt`.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::UnsupportedBackend`] when no file-like backend is
+    /// registered for the kind, and otherwise the opener's error.
+    pub async fn open_fs(&self, config: &Config) -> Result<Box<dyn RemoteFs>, StoreError> {
+        match self.fs_openers.get(&config.server.kind) {
             Some(opener) => opener(config).await,
             None => Err(StoreError::UnsupportedBackend(config.server.kind.clone())),
         }
@@ -74,8 +123,7 @@ impl fmt::Debug for BackendRegistry {
     }
 }
 
-/// Opens the backend named by `server.kind` using only the built-in
-/// backends ([`BackendRegistry::with_builtin`]).
+/// Opens the store `config` names with the built-in backends only.
 ///
 /// # Errors
 ///
@@ -84,11 +132,12 @@ pub async fn open_store(config: &Config) -> Result<Box<dyn Store>, StoreError> {
     BackendRegistry::with_builtin().open(config).await
 }
 
-fn local_opener(config: &Config) -> BackendFuture<'_> {
-    Box::pin(open_local(config))
+fn local_fs_opener(config: &Config) -> FsFuture<'_> {
+    Box::pin(async move { Ok(Box::new(open_local_fs(config).await?) as Box<dyn RemoteFs>) })
 }
 
-async fn open_local(config: &Config) -> Result<Box<dyn Store>, StoreError> {
+/// The `local` backend's filesystem, creating its root if needed.
+async fn open_local_fs(config: &Config) -> Result<LocalFs, StoreError> {
     let local =
         config.server.local.as_ref().ok_or_else(|| {
             StoreError::Config("the `server.local` section is missing".to_owned())
@@ -96,11 +145,7 @@ async fn open_local(config: &Config) -> Result<Box<dyn Store>, StoreError> {
     tokio::fs::create_dir_all(&local.path)
         .await
         .map_err(|err| FsError::from_io(local.path.display(), err))?;
-    Ok(Box::new(FsStore::new(
-        LocalFs::new(&local.path),
-        Arc::new(SystemClock),
-        Box::new(StdRandom::new()),
-    )))
+    Ok(LocalFs::new(&local.path))
 }
 
 #[cfg(test)]
@@ -191,6 +236,47 @@ mod tests {
             StoreError::UnsupportedBackend(kind) => assert_eq!(kind, "ssh"),
             other => panic!("unexpected {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn a_filesystem_backend_opens_through_the_store_header() {
+        let dir = TempDir::new().unwrap();
+        let cfg = config(&format!(
+            "[server]\nkind = \"local\"\n[server.local]\npath = \"{}\"\n",
+            dir.path().display()
+        ));
+        let registry = BackendRegistry::with_builtin();
+        assert!(registry.open_fs(&cfg).await.is_ok());
+        std::fs::write(dir.path().join("items"), "stop").unwrap();
+        assert!(matches!(
+            registry.open(&cfg).await.err().unwrap(),
+            StoreError::Encryption(crate::encryption::EncryptionError::HeaderMissing)
+        ));
+        match BackendRegistry::empty().open_fs(&cfg).await {
+            Err(StoreError::UnsupportedBackend(kind)) => assert_eq!(kind, "local"),
+            _ => panic!("an empty registry opened a filesystem"),
+        }
+    }
+
+    fn fs_stub(_: &Config) -> FsFuture<'_> {
+        Box::pin(async { Err(StoreError::Backend("fs stub opened".into())) })
+    }
+
+    #[tokio::test]
+    async fn registering_a_kind_again_replaces_its_opener_of_either_sort() {
+        let mut registry = BackendRegistry::empty();
+        registry.register_fs("x", fs_stub);
+        registry.register("x", stub);
+        assert_eq!(registry.kinds(), ["x"]);
+        let cfg = config("[server]\nkind = \"x\"\n");
+        assert!(
+            matches!(registry.open(&cfg).await.err().unwrap(), StoreError::Backend(m) if m == "stub opened")
+        );
+        registry.register_fs("x", fs_stub);
+        assert_eq!(registry.kinds(), ["x"]);
+        assert!(
+            matches!(registry.open(&cfg).await.err().unwrap(), StoreError::Backend(m) if m == "fs stub opened")
+        );
     }
 
     #[tokio::test]

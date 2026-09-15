@@ -28,6 +28,15 @@ All notable changes to this project are documented here. The format follows
   complete rather than corrupt, for stores in synced folders. `RemoteFs`
   gains `create_dir` (exclusive) and `remove_file`, and `Store` gains
   `key_id` and `content_key` (PLAN-00008 STEP-04).
+- Every store now opens as its header, `encryption/header.json`, says:
+  plaintext as before, sealed with this device's key, or refused with the
+  command that fixes it (`encrypt --join` without the key or with another
+  one, `encrypt --recover` while items are re-encrypted or the header is
+  missing, and a refusal for a key with a plaintext store). A store opened
+  sealed stops writing when its key changes or a re-encryption starts.
+  `BackendRegistry` gains `register_fs` and `open_fs`, and `local` and `ssh`
+  register their filesystems; `just test-compat` now also proves v0.1.6
+  cannot write into a real encrypted store (PLAN-00008 STEP-05).
 
 ## v0.1.6 - 2026-09-14T21:14:49Z
 

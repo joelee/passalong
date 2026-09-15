@@ -13,12 +13,17 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Output;
+use std::sync::Arc;
 
 use assert_cmd::Command;
+use passalong_core::clock::SystemClock;
+use passalong_core::crypto::{DataKey, KdfParams, Sealer, Words, wrap};
+use passalong_core::encryption::{STOP_TEXT, StoreHeader, create_header, write_stop_file};
+use passalong_core::fs::LocalFs;
+use passalong_core::model::NewItem;
+use passalong_core::random::StdRandom;
+use passalong_core::store::{FsStore, Store};
 use tempfile::TempDir;
-
-/// Text of the `items` file in an encrypted store.
-const STOP_TEXT: &str = "This store is encrypted. Upgrade to passalong 0.2.0 or later.\n";
 const CLIPBOARD_MARKER: &str = "compat-marker-clipboard-7f3a19";
 const FILE_MARKER: &str = "compat-marker-file-91c2e4";
 
@@ -188,4 +193,64 @@ fn compat_v016_cannot_write_into_a_store_whose_items_is_a_file() {
             "v0.1.6 left files in tmp/"
         );
     }
+}
+
+/// Encrypts a new store at `root` with the library, as `passalong encrypt`
+/// does, and stores one item holding `text`.
+fn encrypted_store(root: &Path, text: &str) {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let fs = LocalFs::new(root);
+        let key = DataKey::generate().unwrap();
+        let words = Words::generate().unwrap();
+        let wrapped = wrap(&key, &words, KdfParams::generate().unwrap()).unwrap();
+        create_header(&fs, &StoreHeader::new(wrapped))
+            .await
+            .unwrap();
+        write_stop_file(&fs).await.unwrap();
+        let store = FsStore::sealed(
+            fs,
+            Arc::new(SystemClock),
+            Box::new(StdRandom::new()),
+            Sealer::new(key),
+        );
+        store
+            .put(
+                NewItem::text("compat"),
+                Box::new(std::io::Cursor::new(text.as_bytes().to_vec())),
+            )
+            .await
+            .unwrap();
+    });
+}
+
+#[test]
+#[ignore = "needs the v0.1.6 binary in PASSALONG_COMPAT_BIN; run `just test-compat`"]
+fn compat_v016_cannot_write_into_an_encrypted_store() {
+    let sb = Sandbox::new();
+    let existing = "compat-existing-item-5d21";
+    encrypted_store(&sb.path("store"), existing);
+
+    assert_old_client_is_refused(&sb);
+
+    for (path, bytes) in files_below(&sb.path("store")) {
+        assert!(
+            !contains(&bytes, existing),
+            "{} holds an existing item's plaintext",
+            path.display()
+        );
+    }
+    let names: Vec<String> = std::fs::read_dir(sb.path("store"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    assert!(
+        names
+            .iter()
+            .all(|name| ["encryption", "items", "tmp", "v2"].contains(&name.as_str())),
+        "unexpected entries in the store root: {names:?}"
+    );
 }

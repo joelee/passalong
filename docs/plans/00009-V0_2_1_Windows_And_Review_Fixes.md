@@ -38,9 +38,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00009-v0.2.1"
 execution_started_at: "2026-09-15T20:39:50Z"
-execution_updated_at: "2026-09-15T22:31:32Z"
+execution_updated_at: "2026-09-15T23:03:16Z"
 execution_completed_at: null
-current_step: "PLAN-00009-STEP-09"
+current_step: "PLAN-00009-STEP-10"
 ---
 
 # Delivery Plan 00009: V0 2 1 Windows And Review Fixes
@@ -766,8 +766,8 @@ STEP-12.
 | PLAN-00009-STEP-06 | completed | 2026-09-15T21:23:12Z | 2026-09-15T21:42:22Z | Workspace tests green; `just links` ok | `ListCache::identity_for`; pull `Handled::{Done, Later}` |
 | PLAN-00009-STEP-07 | completed | 2026-09-15T21:42:22Z | 2026-09-15T21:49:37Z | Every `just ci` recipe exits 0; line coverage 93.64 % (`check`) and 94.80 % (`coverage-full`) | Review fixes complete (STEP-01..07) |
 | PLAN-00009-STEP-08 | completed | 2026-09-15T21:49:37Z | 2026-09-15T22:31:32Z | CI run 35030924237 green on all five jobs; Windows: 547 passed, 0 failed, 31 ignored (Docker and compat) across 15 test binaries | AC-15, AC-16, AC-18; five iterations 26bf4f3..f535b4d |
-| PLAN-00009-STEP-09 | not-started | — | — | — | — |
-| PLAN-00009-STEP-10 | not-started | — | — | — | — |
+| PLAN-00009-STEP-09 | completed | 2026-09-15T22:31:32Z | 2026-09-15T23:03:16Z | CI run 35033403605 green on all five jobs; Windows: 554 passed, 0 failed, 31 ignored across 15 test binaries, including the real `icacls` tests | AC-17; three pushes e47898e, b088450, 280eecd |
+| PLAN-00009-STEP-10 | in-progress | 2026-09-15T23:03:16Z | — | — | — |
 | PLAN-00009-STEP-11 | not-started | — | — | — | — |
 | PLAN-00009-STEP-12 | not-started | — | — | — | — |
 
@@ -795,6 +795,10 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T22:26:00Z | STEP-08 | Iteration 4 result, run 35030307597: Linux, macOS, Xvfb, Android green; on Windows clippy passed and every test binary ran: CLI unit 184/184, SSH 21/21, `serve_local` 12/12, core 296/298, `cli_local_backend` 28/31, and the link-check and release-tag script tests failed because `bash` on the runner resolves to WSL without a distribution. The other failures were test-side: paths joined with `/` inside one component, `File::open` on a folder, a Windows path in an unquoted `.env` value, and the list cache looked for under the Unix state folder | `gh run view --job 104587018937 --log-failed` | Iteration 5 |
 | 2026-09-15T22:26:00Z | STEP-08 | Iteration 5 pushed as f535b4d (with the README installation commit dd20343, made at the user's request): the script tests Unix-only, and those four tests fixed. Local: 592 tests passed, core Windows clippy clean | — | Windows job result |
 | 2026-09-15T22:31:32Z | STEP-08 | Iteration 5 result, run 35030924237: all five jobs green. Windows builds, lints (`-D warnings`), and tests the workspace: 547 passed, 0 failed, 31 ignored across 15 test binaries. Completed: Windows config, key, state, and `~` locations; Windows-safe file names; the `windows` CI job and `just windows-check`; the journal closes its file before renaming its folder; Windows docs in configuration and developer guide | `gh run view --job 104588981601 --log` | STEP-09 |
+| 2026-09-15T22:55:55Z | STEP-09 | Pushed as e47898e: `owner_only` (the `whoami` and `icacls` parsers, with tests on every platform; `restrict` and `only_owner` on Windows); the key file and its new folders restricted before the key is written, and loaded only when its owner alone may open it, with the `icacls` fix command in the error; the list cache restricted before it is written. Run 35031804654: Linux, macOS, Xvfb, Android green; Windows 6 failures, all where a file or folder was checked right after `restrict` | `gh run view --job 104591770341 --log-failed` | Iteration 1 |
+| 2026-09-15T22:55:55Z | STEP-09 | Iteration 1 pushed as b088450: the failing tests print what `whoami` and `icacls` report. Run 35032941151 showed the parser was right, but after `icacls /inheritance:r /grant:r *SID:F` the runner still listed `NT AUTHORITY\SYSTEM` and `BUILTIN\Administrators`, now as entries of the file's own: the inherited entries were copied, not dropped | `gh api repos/joelee/passalong/actions/jobs/104595397753/logs` | Iteration 2 |
+| 2026-09-15T22:55:55Z | STEP-09 | Iteration 2 pushed as 280eecd: `restrict` lists the entries after the grant, removes every account but the current user with `icacls /remove:g` (by name, or `*SID` for one Windows could not name), and fails unless the user alone is left. Local: core Windows clippy clean, `owner_only` tests pass | — | Windows job result |
+| 2026-09-15T23:03:16Z | STEP-09 | Iteration 2 result, run 35033403605: all five jobs green; Windows 554 passed, 0 failed, 31 ignored. Completed: a saved key file, its new folders, and the list cache are open to their owner alone on Windows; a key file others may read is refused with the `icacls` command that fixes it; `check` reports it the same way | `a_saved_key_is_private_and_refused_once_others_may_read_it`, `the_saved_cache_is_private`, `the_identity_names_this_device_s_key`, `owner_only::tests::*` | STEP-10 |
 
 ### Deviations and blockers
 
@@ -817,6 +821,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T21:49:37Z | STEP-07 | On Windows `fs::canonicalize` returns `\\?\` paths, which `git -C` may not accept; the Windows CI job (STEP-08) is where this is checked | Risk noted for STEP-08 | None |
 | 2026-09-15T22:03:10Z | STEP-08 | The SSH and CLI crates can only be built for Windows on the CI runner, so STEP-08 needs pushed commits to iterate: it is recorded as several `build: PLAN-00009-STEP-08 - …` commits, and the step's last commit carries the `build: complete PLAN-00009-STEP-08` message. `ConfigOrigin` and `SearchRoots` have no `#[non_exhaustive]`, so Windows reuses the existing origins (`HomeConfig` for `%APPDATA%`, `System` for `%ProgramData%`) instead of new variants. When `APPDATA`, `LOCALAPPDATA`, or `USERPROFILE` is unset, the Unix rules apply; real Windows always sets them, so Git Bash's `HOME` still moves nothing (D-05 intent kept) | Commit granularity; API kept semver-compatible | None |
 | 2026-09-15T22:31:32Z | STEP-08 | Carried into STEP-10: Windows file locks are mandatory, so while `serve` holds the pid lock another process cannot read the pid or `ready` from the same file; the two pid-lock tests are Unix-only until STEP-10 changes how the pid is recorded. Unix-only by nature: the systemd and launchd rendering tests and the bash script tests (Homebrew formula, link check, release tag). Path checks on config values now require a root rather than a drive (`has_root`, identical on Unix), so a `\path` on the current drive is accepted on Windows | Scope of STEP-10; small behaviour detail on Windows | None |
+| 2026-09-15T23:03:16Z | STEP-09 | No `AclTool` trait: the parsing (`parse_whoami`, `parse_icacls`, `only`, `removal_name`) is pure functions tested on every platform, and the Windows runner runs the real `whoami` and `icacls`, so a fake tool would have tested nothing more. Files are restricted right after they are created and before anything is written into them, not after writing. A failed restriction fails the save, for the list cache too: the refresh loop already logs a failed save once and keeps the last good file, so no separate warning path was added | Design detail; the cache is never written readable by others | None |
+| 2026-09-15T23:03:16Z | STEP-09 | On GitHub's runner, `icacls /inheritance:r /grant:r` kept the inherited entries as entries of the file's own instead of dropping them. `restrict` now removes every remaining account but the current user, then checks; the documented fix command for users (`/inheritance:r /grant:r "%USERNAME%":F`) is unchanged and is part of the real-machine check (AC-22) | Two more CI iterations; `restrict` runs `icacls` three or more times | None |
 | 2026-09-15T21:14:29Z | STEP-04 | `prune --plain` removes the leftovers without a separate confirmation (they are cut-short staging, not items); `--dry-run` only reports them. `clean_staging` clears aged `tmp/` entries for every sealed store, not only one opened through its header, because no sealed store stages there | Behaviour detail within D-12 | None |
 
 ### Verification results
@@ -840,6 +846,9 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T21:49:37Z | STEP-07 | `just ci`, run recipe by recipe: `check`, `audit`, `lint-workflows`, `test-integration`, `test-compat`, `test-deploy`, `coverage-full`, `publish-dry-run --allow-dirty` (the tree held this step's uncommitted work) | Pass: every recipe exit 0 | Lines 93.64 % (`check`), 94.80 % (`coverage-full`); 24 Docker integration tests passed; advisories, bans, licenses, sources ok; 40 Markdown files |
 | 2026-09-15T22:31:32Z | STEP-08 | Local before each push: `cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo clippy --target x86_64-pc-windows-msvc -p passalong-core --all-targets --all-features -- -D warnings`, `cargo test --workspace --all-features`, `just links`, `just lint-workflows` | Pass | 592 tests passed on Linux |
 | 2026-09-15T22:31:32Z | STEP-08 | CI run 35030924237 on f535b4d | Pass: Linux (`just ci`), macOS, Xvfb, Android, Windows | Windows 547 passed, 0 failed, 31 ignored |
+| 2026-09-15T23:03:16Z | STEP-09 | Local before each push: fmt, clippy `-D warnings` on Linux, core clippy for `x86_64-pc-windows-msvc`, `cargo test --workspace --all-features` | Pass | — |
+| 2026-09-15T23:03:16Z | STEP-09 | CI runs 35031804654 (e47898e) and 35032941151 (b088450) | Fail on Windows only: 6 owner-only tests (see execution log) | Linux, macOS, Xvfb, Android green |
+| 2026-09-15T23:03:16Z | STEP-09 | CI run 35033403605 on 280eecd | Pass: Linux (`just ci`), macOS, Xvfb, Android, Windows | Windows 554 passed, 0 failed, 31 ignored |
 
 ### Completion summary
 

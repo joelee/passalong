@@ -202,6 +202,62 @@ pub enum FsOp {
 struct FaultState {
     calls: HashMap<FsOp, usize>,
     failing: HashSet<(FsOp, usize)>,
+    /// Bytes each chosen `open_write` call's writer takes before failing.
+    cuts: HashMap<usize, usize>,
+}
+
+mod cut_writer {
+    use std::io;
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+
+    use tokio::io::AsyncWrite;
+
+    use crate::fs::BoxWrite;
+
+    /// A writer that takes `left` more bytes, then fails every write and
+    /// its shutdown: a write cut short part-way.
+    pub(super) struct CutWriter {
+        pub(super) inner: BoxWrite,
+        pub(super) left: usize,
+    }
+
+    fn cut() -> io::Error {
+        io::Error::other("injected write failure")
+    }
+
+    impl AsyncWrite for CutWriter {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            if self.left == 0 {
+                return Poll::Ready(Err(cut()));
+            }
+            let this = &mut *self;
+            let n = buf.len().min(this.left);
+            match Pin::new(&mut this.inner).poll_write(cx, &buf[..n]) {
+                Poll::Ready(Ok(written)) => {
+                    this.left -= written;
+                    Poll::Ready(Ok(written))
+                }
+                other => other,
+            }
+        }
+
+        fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.inner).poll_flush(cx)
+        }
+
+        fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            // The bytes taken reach the file; the caller still sees a failure.
+            match Pin::new(&mut self.inner).poll_shutdown(cx) {
+                Poll::Ready(_) => Poll::Ready(Err(cut())),
+                Poll::Pending => Poll::Pending,
+            }
+        }
+    }
 }
 
 /// [`RemoteFs`] wrapper that fails chosen calls, for testing error paths
@@ -243,6 +299,17 @@ impl<F> FaultyFs<F> {
         state.failing.extend((1..=times).map(|i| (op, done + i)));
     }
 
+    /// Makes the `nth` [`RemoteFs::open_write`] call (counting from 1)
+    /// return a writer that takes `after` bytes and then fails every write
+    /// and its shutdown, as when a connection drops part-way through.
+    pub fn cut_nth_write(&self, nth: usize, after: usize) {
+        self.state
+            .lock()
+            .expect("fault state lock")
+            .cuts
+            .insert(nth, after);
+    }
+
     /// How many times `op` has been called.
     pub fn calls(&self, op: FsOp) -> usize {
         self.state
@@ -254,7 +321,8 @@ impl<F> FaultyFs<F> {
             .unwrap_or(0)
     }
 
-    fn check(&self, op: FsOp, path: &RemotePath) -> Result<(), FsError> {
+    /// Counts a call of `op`, fails it when chosen, and returns its number.
+    fn check(&self, op: FsOp, path: &RemotePath) -> Result<usize, FsError> {
         let mut state = self.state.lock().expect("fault state lock");
         let call = state.calls.entry(op).or_insert(0);
         *call += 1;
@@ -265,7 +333,7 @@ impl<F> FaultyFs<F> {
                 message: format!("injected {op:?} failure"),
             });
         }
-        Ok(())
+        Ok(key.1)
     }
 }
 
@@ -287,8 +355,21 @@ impl<F: RemoteFs> RemoteFs for FaultyFs<F> {
     }
 
     async fn open_write(&self, path: &RemotePath) -> Result<BoxWrite, FsError> {
-        self.check(FsOp::OpenWrite, path)?;
-        self.inner.open_write(path).await
+        let call = self.check(FsOp::OpenWrite, path)?;
+        let writer = self.inner.open_write(path).await?;
+        let cut = self
+            .state
+            .lock()
+            .expect("fault state lock")
+            .cuts
+            .remove(&call);
+        Ok(match cut {
+            Some(left) => Box::new(cut_writer::CutWriter {
+                inner: writer,
+                left,
+            }),
+            None => writer,
+        })
     }
 
     async fn rename(&self, from: &RemotePath, to: &RemotePath) -> Result<(), FsError> {

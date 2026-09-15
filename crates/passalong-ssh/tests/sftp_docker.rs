@@ -454,9 +454,10 @@ async fn a_cut_migration_is_finished_and_a_cut_rotation_undone_over_sftp() {
     }
     let clock = Arc::new(SystemClock);
 
-    // Renames: the source, two items, then the header swap, which fails.
+    // Renames: the lock, the source, two items, then the header swap, which
+    // fails.
     let faulty = FaultyFs::new(&fs);
-    faulty.fail_nth(FsOp::Rename, 4);
+    faulty.fail_nth(FsOp::Rename, 5);
     assert!(
         encryption::migrate(&faulty, &words(W1), quick(), clock.clone())
             .await
@@ -473,8 +474,9 @@ async fn a_cut_migration_is_finished_and_a_cut_rotation_undone_over_sftp() {
     );
     assert_eq!(store.list().await.unwrap().len(), 2);
 
+    // The same, with the old header moved aside first.
     let faulty = FaultyFs::new(&fs);
-    faulty.fail_nth(FsOp::Rename, 4);
+    faulty.fail_nth(FsOp::Rename, 5);
     assert!(
         encryption::rotate(&faulty, &key, &words(W2), quick(), clock)
             .await

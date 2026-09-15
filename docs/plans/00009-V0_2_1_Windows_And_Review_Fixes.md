@@ -33,14 +33,14 @@ confidence: medium                # high | medium | low
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; Delivery Planner initializes them.
-implementation_status: not-started # not-started | in-progress | blocked | completed | abandoned
-builder_agent: null
-builder_model: null
-execution_branch: null
-execution_started_at: null
-execution_updated_at: null
+implementation_status: in-progress # not-started | in-progress | blocked | completed | abandoned
+builder_agent: "Claude Code"
+builder_model: "anthropic/claude-opus-5"
+execution_branch: "feature/00009-v0.2.1"
+execution_started_at: "2026-09-15T20:39:50Z"
+execution_updated_at: "2026-09-15T20:50:24Z"
 execution_completed_at: null
-current_step: null
+current_step: "PLAN-00009-STEP-02"
 ---
 
 # Delivery Plan 00009: V0 2 1 Windows And Review Fixes
@@ -758,7 +758,7 @@ STEP-12.
 
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
-| PLAN-00009-STEP-01 | not-started | — | — | — | — |
+| PLAN-00009-STEP-01 | completed | 2026-09-15T20:39:50Z | 2026-09-15T20:50:24Z | `cargo test --workspace --all-features` green; SFTP `a_cut_migration_is_finished_and_a_cut_rotation_undone_over_sftp` green | New `encryption/journal.rs`; `FaultyFs::cut_nth_write` |
 | PLAN-00009-STEP-02 | not-started | — | — | — | — |
 | PLAN-00009-STEP-03 | not-started | — | — | — | — |
 | PLAN-00009-STEP-04 | not-started | — | — | — | — |
@@ -778,18 +778,25 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 
 | Timestamp (UTC) | Step | Event | Evidence or reference | Next action |
 |---|---|---|---|---|
+| 2026-09-15T20:39:50Z | STEP-01 | Started after approval commit 8f63bf7 | — | Journal module |
+| 2026-09-15T20:50:24Z | STEP-01 | Completed: journal written whole into `.rewrite-<token>/` and renamed to `.rewrite/`; `Journal`/`read_journal`/`HeaderChange` added; `finish` and `undo` claim `.rewrite/recovery/` and give it up on failure; a lock without a whole journal is released only when it holds nothing else; CLI `recover` refuses a running recovery and offers take-over of one older than 10 minutes; public signatures unchanged | Tests `the_lock_appears_only_with_a_whole_journal`, `a_lock_without_a_whole_journal_is_released_only_when_nothing_moved`, `two_recoveries_never_run_at_once`, `journal::tests::*`, CLI `a_lock_without_a_whole_journal_…`, `a_running_recovery_is_refused`, `a_stopped_recovery_is_taken_over_after_a_yes` | STEP-02 |
 
 ### Deviations and blockers
 
 | Timestamp (UTC) | Step | Deviation or blocker | Impact | Decision required from |
 |---|---|---|---|---|
-
-None
+| 2026-09-15T20:50:24Z | STEP-01 | The regression tests were written together with the fix, not run first against the old code. The old failure (`read_plan` returning an error for an empty or truncated `plan.json`, which `finish` and `undo` propagated) is established by reading `rewrite.rs` at 255b734, as REV-00002-MED-01 describes | None on the result; the tests assert the fixed behaviour | None |
+| 2026-09-15T20:50:24Z | STEP-01 | Neither backend renames atomically: `LocalFs` and `SftpFs` check for the target first. The lock stays exclusive because the staged journal folder is never empty, and renaming a folder onto a non-empty folder fails on POSIX and OpenSSH's sftp-server. The builder stop condition (a rename replacing an existing `.rewrite`) did not trigger | Documented in `journal.rs` | None |
+| 2026-09-15T20:50:24Z | STEP-01 | The lock adds one rename, so the cut points of three existing tests moved by one (CLI `cut_migration` 3→4, SFTP cut migration and rotation 4→5); their intent (cut at the header swap) is unchanged | Test-only | None |
+| 2026-09-15T20:50:24Z | STEP-01 | `check` reporting leftover `.rewrite-*` folders (D-15) moves to STEP-04, where `check` changes; recovery and the end of every rewrite already remove them | Scheduling only | None |
 
 ### Verification results
 
 | Timestamp (UTC) | Step | Command or check | Result | Evidence |
 |---|---|---|---|---|
+| 2026-09-15T20:50:24Z | STEP-01 | `cargo fmt --all`; `cargo clippy --workspace --all-targets --all-features -- -D warnings` | Pass | Exit 0 |
+| 2026-09-15T20:50:24Z | STEP-01 | `cargo test --workspace --all-features` | Pass | Core 284 passed, CLI 188 passed, all suites 0 failed |
+| 2026-09-15T20:50:24Z | STEP-01 | `just _with-sshd "cargo test -p passalong-ssh --test sftp_docker -- --ignored a_cut_migration"` | Pass | 1 passed |
 
 ### Completion summary
 

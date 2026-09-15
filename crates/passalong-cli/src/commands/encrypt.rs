@@ -10,14 +10,14 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use passalong_core::clock::SystemClock;
+use passalong_core::clock::{Clock, SystemClock};
 
 use passalong_core::crypto::{CryptoError, KdfParams, KeyId, Words};
 use passalong_core::encryption::{
-    self, EncryptionError, GitCheck, RewriteKind, StoreState, check_key_location, load_key_file,
-    save_key_file,
+    self, EncryptionError, GitCheck, Journal, REWRITE_DIR, RewriteKind, StoreState,
+    check_key_location, load_key_file, save_key_file,
 };
-use passalong_core::fs::RemoteFs;
+use passalong_core::fs::{RemoteFs, RemotePath};
 
 use crate::cli::EncryptArgs;
 use crate::prompt::Prompt;
@@ -256,17 +256,37 @@ async fn recover(
     prompt: &mut dyn Prompt,
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
-    let Some(plan) = encryption::read_plan(fs).await? else {
-        return match encryption::undo(fs).await {
-            Ok(()) => {
-                writeln!(out, "released a re-encryption lock that had not started")?;
-                Ok(())
-            }
-            Err(_) => {
-                writeln!(out, "no re-encryption to recover")?;
-                Ok(())
-            }
-        };
+    if fs.stat(&RemotePath::new(REWRITE_DIR)?).await?.is_none() {
+        writeln!(out, "no re-encryption to recover")?;
+        return Ok(());
+    }
+    if let Some(marker) = encryption::recovery_in_progress(fs).await? {
+        let started = marker
+            .started
+            .map(|at| at.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+        if !marker.is_stale(SystemClock.now()) {
+            return Err(EncryptionError::Recovering { started }.into());
+        }
+        prompt.show(&format!(
+            "A recovery started at {} and has not finished; it most likely stopped.\n",
+            started.as_deref().unwrap_or("an unknown time")
+        ))?;
+        if !prompt.confirm("Take it over?")? {
+            writeln!(out, "nothing was changed")?;
+            return Ok(());
+        }
+        encryption::release_recovery(fs).await?;
+    }
+    let plan = match encryption::read_journal(fs).await? {
+        Some(Journal::Rewrite(plan)) => plan,
+        None | Some(Journal::Unreadable { .. }) => {
+            encryption::undo(fs).await?;
+            writeln!(out, "released a re-encryption lock that had not started")?;
+            return Ok(());
+        }
+        Some(_) => anyhow::bail!(
+            "this change to the store is not known to this version of passalong; nothing was changed"
+        ),
     };
     let what = match plan.kind {
         RewriteKind::Migrate => "encrypting",
@@ -778,7 +798,8 @@ mod tests {
     async fn cut_migration(rig: &Rig) {
         seed(rig, &["kept"]).await;
         let fs = passalong_core::testing::FaultyFs::new(rig.fs());
-        fs.fail_nth(passalong_core::testing::FsOp::Rename, 3);
+        // Renames: the lock, the source, the item, then the header.
+        fs.fail_nth(passalong_core::testing::FsOp::Rename, 4);
         assert!(
             encryption::migrate(
                 &fs,
@@ -848,5 +869,84 @@ mod tests {
             encryption::inspect(&other.fs()).await.unwrap(),
             StoreState::Plain { items: 1 }
         );
+    }
+
+    fn recover_args() -> EncryptArgs {
+        args(false, true)
+    }
+
+    #[tokio::test]
+    async fn a_lock_without_a_whole_journal_is_released_only_when_nothing_moved() {
+        let rig = Rig::new();
+        let lock = rig.store.dir.path().join(".rewrite");
+        std::fs::create_dir(&lock).unwrap();
+        std::fs::write(lock.join("plan.json"), "").unwrap();
+        let out = rig
+            .run_with(
+                recover_args(),
+                w1,
+                &mut ScriptedPrompt::new(true, Vec::<&str>::new()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(out, "released a re-encryption lock that had not started\n");
+        assert!(!lock.exists());
+
+        std::fs::create_dir_all(lock.join("source/items")).unwrap();
+        std::fs::write(lock.join("plan.json"), "{\"kind\":").unwrap();
+        let err = rig
+            .run_with(
+                recover_args(),
+                w1,
+                &mut ScriptedPrompt::new(true, Vec::<&str>::new()),
+            )
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("nothing was changed"), "{err}");
+        assert!(lock.join("source/items").is_dir());
+    }
+
+    #[tokio::test]
+    async fn a_running_recovery_is_refused() {
+        let rig = Rig::new();
+        cut_migration(&rig).await;
+        std::fs::create_dir(rig.store.dir.path().join(".rewrite/recovery")).unwrap();
+        let err = rig
+            .run_with(
+                recover_args(),
+                w1,
+                &mut ScriptedPrompt::new(true, Vec::<&str>::new()),
+            )
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("is running (since "), "{err}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_stopped_recovery_is_taken_over_after_a_yes() {
+        let rig = Rig::new();
+        cut_migration(&rig).await;
+        let marker = rig.store.dir.path().join(".rewrite/recovery");
+        std::fs::create_dir(&marker).unwrap();
+        let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        std::fs::File::open(&marker)
+            .unwrap()
+            .set_modified(hour_ago)
+            .unwrap();
+        let out = rig
+            .run_with(recover_args(), w1, &mut ScriptedPrompt::new(true, ["no"]))
+            .await
+            .unwrap();
+        assert_eq!(out, "nothing was changed\n");
+        assert!(marker.exists());
+        let mut prompt = ScriptedPrompt::new(true, ["yes", "undo"]);
+        let out = rig.run_with(recover_args(), w1, &mut prompt).await.unwrap();
+        assert!(
+            prompt.shown().contains("has not finished"),
+            "{}",
+            prompt.shown()
+        );
+        assert_eq!(out, "undone: the store is as it was before\n");
     }
 }

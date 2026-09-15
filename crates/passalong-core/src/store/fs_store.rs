@@ -1376,10 +1376,7 @@ mod tests {
         let dir = fx.path("tmp").join(name);
         std::fs::create_dir_all(&dir).unwrap();
         let when = FixedClockAt::minus(T, age_secs);
-        std::fs::File::open(&dir)
-            .unwrap()
-            .set_modified(when)
-            .unwrap();
+        crate::testing::set_modified(&dir, when).unwrap();
     }
 
     struct FixedClockAt;

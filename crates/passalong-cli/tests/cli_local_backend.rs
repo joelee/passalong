@@ -206,7 +206,8 @@ fn config_can_come_from_dotenv_in_the_working_directory() {
     let config = sb.config();
     std::fs::write(
         sb.path("work/.env"),
-        format!("PASSALONG_CONFIG_FILE={}\n", config.display()),
+        // Single quotes keep a Windows path's backslashes.
+        format!("PASSALONG_CONFIG_FILE='{}'\n", config.display()),
     )
     .unwrap();
     sb.cmd().arg("list").assert().success().stdout("no items\n");
@@ -647,7 +648,7 @@ fn load_without_a_destination_downloads_files_into_downloads() {
     std::fs::write(&source, b"%PDF-1.7").unwrap();
     let out = sb.with_config().arg("file").arg(&source).assert().success();
     let id = String::from_utf8(out.get_output().stdout.clone()).unwrap();
-    let target = sb.path("home/Downloads/notes.pdf");
+    let target = sb.path("home").join("Downloads").join("notes.pdf");
     sb.with_config()
         .args(["load", id.trim()])
         .assert()
@@ -905,6 +906,9 @@ async fn list_prints_a_fresh_cache_without_connecting_and_nocache_connects() {
     .unwrap();
     let cache = if cfg!(target_os = "macos") {
         sb.path("home/Library/Application Support/passalong/list-cache.json")
+    } else if cfg!(windows) {
+        // The sandbox's LOCALAPPDATA.
+        sb.path("home/AppData/Local/passalong/list-cache.json")
     } else {
         sb.path("home/.local/state/passalong/list-cache.json")
     };
@@ -996,6 +1000,9 @@ fn serve_daemon_starts_reports_refuses_a_second_copy_and_stops() {
     }
     let cache = if cfg!(target_os = "macos") {
         sb.path("home/Library/Application Support/passalong/list-cache.json")
+    } else if cfg!(windows) {
+        // The sandbox's LOCALAPPDATA.
+        sb.path("home/AppData/Local/passalong/list-cache.json")
     } else {
         sb.path("home/.local/state/passalong/list-cache.json")
     };

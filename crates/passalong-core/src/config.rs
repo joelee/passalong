@@ -1111,14 +1111,18 @@ mod tests {
                 working_dir: self.cwd.clone(),
             }
         }
+        // Joined part by part, so each path reads as locate prints it.
         fn xdg_file(&self) -> PathBuf {
-            self.xdg.join("passalong/config.toml")
+            self.xdg.join("passalong").join("config.toml")
         }
         fn home_file(&self) -> PathBuf {
-            self.home.join(".config/passalong/config.toml")
+            self.home
+                .join(".config")
+                .join("passalong")
+                .join("config.toml")
         }
         fn etc_file(&self) -> PathBuf {
-            self.etc.join("passalong/config.toml")
+            self.etc.join("passalong").join("config.toml")
         }
         fn cwd_file(&self) -> PathBuf {
             self.cwd.join("config.toml")

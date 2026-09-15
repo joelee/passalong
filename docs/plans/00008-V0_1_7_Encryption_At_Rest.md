@@ -8,10 +8,10 @@ tags:
   - claude-code
 type: delivery-plan
 plan_id: "PLAN-00008"
-plan_status: draft                 # draft | approved | cancelled
+plan_status: approved              # draft | approved | cancelled
 plan_kind: initial                 # initial | superseding
 created_at: "2026-09-15T08:24:15Z"
-approved_at: null
+approved_at: "2026-09-15T13:52:43Z"
 planner_agent: "Claude Code"
 planner_model: "anthropic/claude-opus-5"
 triggered_by: user                 # user | agent:<agent-name>
@@ -27,7 +27,7 @@ requirements_count: 15
 steps_count: 11
 acceptance_criteria_count: 22
 blocking_decisions: 0
-build_ready: false
+build_ready: true
 web_research_used: true
 confidence: medium                # high | medium | low
 
@@ -45,7 +45,7 @@ current_step: null
 
 # Delivery Plan 00008: V0 1 7 Encryption At Rest
 
-> [!abstract] Plan status: `draft`
+> [!abstract] Plan status: `approved`
 > Deliver `passalong` v0.2.0 (renumbered from v0.1.7; D-20): optional client-side encryption of everything a
 > store holds, for both the `ssh` and `local` backends. A random data key,
 > wrapped by six generated words through Argon2id, seals item content and
@@ -54,7 +54,7 @@ current_step: null
 > data key can be rotated to lock out a lost device; an existing store can be
 > migrated or started fresh. STEP-01 first proves that v0.1.6 clients cannot
 > write plaintext into an encrypted store, the condition the user set for
-> accepting IDEA-00001. No blocking decision remains; awaiting user review.
+> accepting IDEA-00001. No blocking decision remains; approved by the user at 2026-09-15T13:52:43Z; Builder-ready.
 
 ## 1. Objective and outcome
 
@@ -1105,6 +1105,7 @@ None
 |---|---|---|---|---|
 | 2026-09-15T08:24:15Z | draft | Plan created from IDEA-00001 r04 | User asked to plan v0.1.7 and authorised planning from r04 | User |
 | 2026-09-15T13:39:50Z | draft | Release renumbered to v0.2.0 (D-20): version, release notes, backlog and README roadmap (Windows and S3 to v0.2.1). Added D-21, REQ-15, and AC-22 for `#[non_exhaustive]` public types. Branch renamed to `feature/00008-v0.2.0`; `baseline_branch` updated | Breaking changes in this release; user decisions of 2026-09-15 | User |
+| 2026-09-15T13:52:43Z | approved | Plan approved | User approval ("I approve PLAN-00008") | User |
 
 ## 19. External references
 

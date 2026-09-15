@@ -218,7 +218,8 @@ $ echo "from a script" | passalong clipboard --stdin
 ```
 
 `--stdin` reads the text from standard input instead, which also works
-without a desktop session. A clipboard with neither text nor an image, or
+without a desktop session. In PowerShell the same is
+`"from a script" | passalong clipboard --stdin`. A clipboard with neither text nor an image, or
 only whitespace, is refused with `error: clipboard is empty`. Sending text that is already stored prints the
 existing item's id and stores nothing new.
 
@@ -280,6 +281,11 @@ nothing added, so it can be piped or redirected:
 passalong cat 2cf2 | wc -l
 passalong cat 8f3a > report.pdf
 ```
+
+In PowerShell, redirecting or piping binary content like this needs
+PowerShell 7.4 or later. Windows PowerShell 5.1 re-encodes what passes
+through `|` and `>`, which corrupts anything that is not text; there, use
+`passalong load 8f3a report.pdf` instead. Text is fine in either.
 
 At the default log level nothing is written to standard error on success;
 the "item printed" record appears from `--log-level verbose`.

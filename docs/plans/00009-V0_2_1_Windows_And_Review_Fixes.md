@@ -38,9 +38,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00009-v0.2.1"
 execution_started_at: "2026-09-15T20:39:50Z"
-execution_updated_at: "2026-09-15T23:09:27Z"
+execution_updated_at: "2026-09-15T23:15:24Z"
 execution_completed_at: null
-current_step: "PLAN-00009-STEP-11"
+current_step: "PLAN-00009-STEP-12"
 ---
 
 # Delivery Plan 00009: V0 2 1 Windows And Review Fixes
@@ -768,8 +768,8 @@ STEP-12.
 | PLAN-00009-STEP-08 | completed | 2026-09-15T21:49:37Z | 2026-09-15T22:31:32Z | CI run 35030924237 green on all five jobs; Windows: 547 passed, 0 failed, 31 ignored (Docker and compat) across 15 test binaries | AC-15, AC-16, AC-18; five iterations 26bf4f3..f535b4d |
 | PLAN-00009-STEP-09 | completed | 2026-09-15T22:31:32Z | 2026-09-15T23:03:16Z | CI run 35033403605 green on all five jobs; Windows: 554 passed, 0 failed, 31 ignored across 15 test binaries, including the real `icacls` tests | AC-17; three pushes e47898e, b088450, 280eecd |
 | PLAN-00009-STEP-10 | completed | 2026-09-15T23:03:16Z | 2026-09-15T23:09:27Z | CI run 35034025495 green on all five jobs; Windows: 567 passed, 0 failed, 32 ignored, plus the CI-only Run key and scheduler test | AC-19, AC-20; one push, 483a083 |
-| PLAN-00009-STEP-11 | in-progress | 2026-09-15T23:09:27Z | — | — | — |
-| PLAN-00009-STEP-12 | not-started | — | — | — | — |
+| PLAN-00009-STEP-11 | completed | 2026-09-15T23:09:27Z | 2026-09-15T23:15:24Z | `cargo semver-checks`: no semver update required for `passalong-core` and `passalong-ssh` (196 checks each); `just lint-workflows`, `just links`, `just audit` (with the Windows target) pass; workspace tests 607 passed, 0 failed | AC-21 (workflow part), AC-24, AC-26 |
+| PLAN-00009-STEP-12 | in-progress | 2026-09-15T23:15:24Z | — | — | — |
 
 Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 `skipped`. A skipped step requires explicit user approval recorded in Evidence.
@@ -800,6 +800,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T22:55:55Z | STEP-09 | Iteration 2 pushed as 280eecd: `restrict` lists the entries after the grant, removes every account but the current user with `icacls /remove:g` (by name, or `*SID` for one Windows could not name), and fails unless the user alone is left. Local: core Windows clippy clean, `owner_only` tests pass | — | Windows job result |
 | 2026-09-15T23:03:16Z | STEP-09 | Iteration 2 result, run 35033403605: all five jobs green; Windows 554 passed, 0 failed, 31 ignored. Completed: a saved key file, its new folders, and the list cache are open to their owner alone on Windows; a key file others may read is refused with the `icacls` command that fixes it; `check` reports it the same way | `a_saved_key_is_private_and_refused_once_others_may_read_it`, `the_saved_cache_is_private`, `the_identity_names_this_device_s_key`, `owner_only::tests::*` | STEP-10 |
 | 2026-09-15T23:09:27Z | STEP-10 | Pushed as 483a083: `serve --daemon` on Windows starts the background copy through PowerShell's `Start-Process`, hidden and inheriting no handles, the copy opens the log itself, and a copy that exits during start-up is caught through `tasklist`; `serve --stop` leaves `serve.stop`, which `serve` checks every second; the pid lock holder also writes `serve.state`, readable while the pid file is locked; `service-install` writes the Run key (refused over 260 characters), or with `--scheduler` a log-on task from UTF-16 XML, and `service-remove` removes whichever exists; `ServiceManager` gains `query`; usage, configuration, and architecture docs, a docs/service task template, and the windowless-launcher backlog item. Run 35034025495: all five jobs green on the first push | `serve_daemon_starts_reports_refuses_a_second_copy_and_stops_on_windows`, `windows_service_install_and_remove_use_the_run_key_and_task_scheduler`, `a_stop_request_stops_serve_and_is_taken`, `only_one_holder_of_the_pid_lock` (now on Windows too), the Run key and scheduler fake-manager tests, `the_docs_task_is_the_task_service_install_registers`, `windows_arguments_are_quoted_only_when_needed` | STEP-11 |
+| 2026-09-15T23:15:24Z | STEP-11 | Completed: the Release workflow builds `x86_64-pc-windows-msvc` on `windows-latest` and uploads `passalong-<v>-x86_64-pc-windows-msvc.zip` (exe, LICENSE, README.md) and its `.sha256` in shasum's format; version 0.2.1 in `[workspace.package]` and the inter-crate requirements; `cargo deny` checks the Windows target; README (Windows install, PowerShell), usage (PowerShell 7.4+ piping), architecture (every change under the lock and journal, the single-admin rule, the durability limit), developer guide (release assets, deny targets), CHANGELOG Unreleased, draft `docs/release/v0.2.1.md`, and the backlog (v0.2.1 items removed) | `cargo semver-checks -p passalong-core -p passalong-ssh --baseline-version 0.2.0`; `just lint-workflows`; `just links`; `just audit` | STEP-12 |
 
 ### Deviations and blockers
 
@@ -826,6 +827,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T23:03:16Z | STEP-09 | On GitHub's runner, `icacls /inheritance:r /grant:r` kept the inherited entries as entries of the file's own instead of dropping them. `restrict` now removes every remaining account but the current user, then checks; the documented fix command for users (`/inheritance:r /grant:r "%USERNAME%":F`) is unchanged and is part of the real-machine check (AC-22) | Two more CI iterations; `restrict` runs `icacls` three or more times | None |
 | 2026-09-15T23:09:27Z | STEP-10 | The background copy is not started with `DETACHED_PROCESS`/`CREATE_NO_WINDOW` as D-07 and the step's components say. std's `Command` always passes every inheritable handle to the child (`CommandExt::inherit_handles` is nightly-only), so the copy would hold the caller's output pipe open: a script reading `serve --daemon`'s output, and `service-install` starting it through `output()`, would wait until `serve` stopped. PowerShell's `Start-Process` (ShellExecute, no inheritance) starts it with a hidden console instead. The copy then has no redirected standard error, so it writes its log records to the log file itself (`logs::to_file`), including its final error. The start timeout is 15 s on Windows, to cover PowerShell's start-up; Unix keeps 5 s | Behaviour of D-07 kept (no visible window from the background copy); costs about a second of PowerShell start-up | None |
 | 2026-09-15T23:09:27Z | STEP-10 | The Windows lock is mandatory, so the lock holder also writes `serve.state` beside the pid file, and `--status` reads it when the pid file cannot be read. The Run key and scheduler integration test changes the user's registry and tasks, so it is `#[ignore]`d and a dedicated step of the CI `windows` job runs it. `docs/service/passalong-serve-task.xml` is a hand-install template, and a unit test keeps it equal to the generated task | Design details | None |
+| 2026-09-15T23:15:24Z | STEP-11 | `deny.toml` was not among the step's components. Shipping Windows means `cargo deny` must check its target, which found:<br>• `clipboard-win` and `error-code`, arboard's Windows clipboard backend and the only way to the clipboard there, under BSL-1.0, now allowed. It is permissive and OSI-approved, and binaries need no notice. This is a change to the licence policy, reported to the user.<br>• A second `windows-sys` (0.60, through arboard), given a `skip` entry.<br>Four tests that pin the version string (`--version` twice, and `VERSION` in both libraries) now expect 0.2.1. The architecture paragraph on changing encryption still described set-up and word changes as unlocked, from before STEP-02, and was rewritten | Licence policy widened by one permissive licence, for Windows only | User may veto BSL-1.0 |
 | 2026-09-15T21:14:29Z | STEP-04 | `prune --plain` removes the leftovers without a separate confirmation (they are cut-short staging, not items); `--dry-run` only reports them. `clean_staging` clears aged `tmp/` entries for every sealed store, not only one opened through its header, because no sealed store stages there | Behaviour detail within D-12 | None |
 
 ### Verification results
@@ -854,6 +856,9 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T23:03:16Z | STEP-09 | CI run 35033403605 on 280eecd | Pass: Linux (`just ci`), macOS, Xvfb, Android, Windows | Windows 554 passed, 0 failed, 31 ignored |
 | 2026-09-15T23:09:27Z | STEP-10 | Local before the push: fmt, clippy `-D warnings` on Linux, `cargo test -p passalong --all-features`, `just links`, `just lint-workflows` | Pass | CLI unit tests 202 passed |
 | 2026-09-15T23:09:27Z | STEP-10 | CI run 35034025495 on 483a083 | Pass: Linux (`just ci`), macOS, Xvfb, Android, Windows (including the `--ignored windows_service_` step) | Windows 567 passed, 0 failed, 32 ignored |
+| 2026-09-15T23:15:24Z | STEP-11 | `cargo semver-checks -p passalong-core -p passalong-ssh --baseline-version 0.2.0` | Pass: "no semver update required" for both | 196 checks pass, 58 skip, per crate |
+| 2026-09-15T23:15:24Z | STEP-11 | `just lint-workflows`; `just links`; `just audit` with `x86_64-pc-windows-msvc` in the targets | Pass | advisories, bans, licenses, sources ok |
+| 2026-09-15T23:15:24Z | STEP-11 | fmt, clippy `-D warnings`, `cargo test --workspace --all-features --no-fail-fast` | Pass after updating the four version-pinned tests (first run: 4 failed, see deviations) | 607 passed, 0 failed, 33 ignored |
 
 ### Completion summary
 

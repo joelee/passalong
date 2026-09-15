@@ -230,8 +230,9 @@ an RSA key under it.
 ## Duplicate dependencies
 
 `cargo deny` rejects a crate that appears in two versions, so a new
-duplicate is a decision instead of an accident. It checks the four
-supported targets: Linux and macOS on x86_64 and aarch64. Each duplicate
+duplicate is a decision instead of an accident. It checks the five
+supported targets: Linux and macOS on x86_64 and aarch64, and Windows on
+x86_64. Each duplicate
 that cannot be avoided today has a `skip` entry in `deny.toml` naming the
 older version and which dependency needs it.
 
@@ -292,8 +293,9 @@ The steps, and who does each, are in the "Release workflow" section of
 
 5. The workflow runs `scripts/check-release-tag.sh` again, which fails
    unless the tag matches the workspace version and the release records are
-   final. It then runs `cargo publish --dry-run` and builds Linux x86_64 and macOS
-   arm64 binaries with SHA-256 files. Publishing waits until a maintainer
+   final. It then runs `cargo publish --dry-run` and builds the binaries,
+   each with a SHA-256 file: `.tar.gz` archives for Linux x86_64 and macOS
+   arm64, and a `.zip` for Windows x86_64. Publishing waits until a maintainer
    approves the pending `release` deployment on the run's page. The workflow
    then publishes the three crates to crates.io, and only once that succeeds
    creates the GitHub release from `docs/release/vX.Y.Z.md` and attaches the

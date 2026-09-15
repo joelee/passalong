@@ -4,10 +4,6 @@ Future work not covered by an active plan. Completed items are removed.
 
 ## @joelee road map for next releases
 
-### v0.2.1
-- **Windows support**
-- Evaluate and action Review `00002`
-
 ### v0.2.2
 - **Amazon S3 support** for `serve`
 - **Check encrypted stores on a cloud-synced folder** (PLAN-00008 AC-21,
@@ -39,7 +35,6 @@ Future work not covered by an active plan. Completed items are removed.
   Their config sections must be added to the core configuration module.
 - **Android client and desktop GUI** on top of `passalong-core` and
   `passalong-ssh`.
-- **Windows support.**
 - **A windowless Windows launcher** (PLAN-00009 D-07). The Task Scheduler
   task from `service-install --scheduler` runs `serve` in the foreground,
   so its console window stays open while it runs. A small `windows`

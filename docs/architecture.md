@@ -156,7 +156,7 @@ cannot write into:
 ├── v2/items/<id>/{content,meta.json}
 ├── v2/tmp/                  staging for uploads and deletions
 ├── plain/items/             after a fresh start: the earlier items, unencrypted
-└── .rewrite/                only during a migration or rotation: lock and journal
+└── .rewrite/                only while encryption changes: lock and journal
 ```
 
 **Keys.** A store has one random 256-bit data key. The header holds it
@@ -219,17 +219,44 @@ A sealed store opened this way re-checks, before `put`, `delete`, and
 `list_ids`, that no re-encryption started and that the header still names
 its key, so a device with a rotated-out key stops writing.
 
-**Changing encryption.** Set-up writes the stop file before the header;
-changing the words re-wraps the data key and swaps the header folder,
-rewriting no item. Migration and rotation share one journalled engine:
-take `.rewrite/` exclusively, write the plan and the new header there, move
-the source items into `.rewrite/source/` in one rename, seal each item into
-`v2/items/` under an id computed from its recorded SHA-256 (so a resumed run
-skips what is already there), read every copy back and compare its SHA-256,
-swap the header, and remove the source and then the lock. `encrypt
---recover` finishes the run or undoes it as long as the new header is not
-yet in place. Pull mode starts afresh when the store's key changes, and the
-list cache's identity names the key.
+**Changing encryption.** Every change runs under one lock, `.rewrite/`:
+set-up, a fresh start, a change of words, a migration, and a rotation. The
+journal (`plan.json`, the new header in `header/`, and for a change of
+words the current one in `old-header/`) is written whole into
+`.rewrite-<random>/` and then renamed to `.rewrite/`. The rename is the
+lock: both backends refuse to rename onto an existing folder, so a second
+change fails, and a cut-short start leaves either no lock or a whole
+journal. Set-up writes the stop file before the header. A change of words
+re-wraps the data key and swaps the header folder, rewriting no item.
+Migration and rotation also move the source items into `.rewrite/source/` in
+one rename. They then seal each item into `v2/items/` under an id computed
+from its recorded SHA-256, so a resumed run skips what is already there,
+and read every copy back to compare its SHA-256. Last they swap the header
+and remove the source and then the lock. A rotation's replaced header moves
+into `.rewrite/previous/`, so every header move stays inside the lock.
+
+`encrypt --recover` reads the journal's kind and finishes the change or
+undoes it; undoing is possible as long as the new header is not yet in
+place. A recovery first creates `.rewrite/recovery/`, so two never run at
+once; one found older than 10 minutes is offered for take-over. Pull mode
+starts afresh when the store's key changes, and the list cache's identity
+names the key.
+
+**One device changes encryption at a time.** On one filesystem, and over
+SFTP, the lock excludes a second change. A synced folder is different: two
+devices can each take `.rewrite/` in their own copy before either copy
+syncs, and the service then keeps one or makes conflicted copies. Run
+`encrypt` and `encrypt --recover` on one device, while the others are idle
+and in sync, and wait for its changes to sync before encrypting from another.
+
+**Interrupted clients, not lost writes.** The journal and the order of the
+steps cover a client that stops at any point: killed, cut off, or out of
+power. They assume that a write or rename the storage has acknowledged
+stays done. passalong asks for no flush to disk, except for its own key file
+and list cache. If the storage host loses power, or a synced folder loses
+an update, an acknowledged step can be undone. `encrypt --recover` repairs
+the states an interrupted client leaves, not every state such a loss can
+leave. Keep the words, and back up the store if it matters.
 
 Storing an item works like this:
 

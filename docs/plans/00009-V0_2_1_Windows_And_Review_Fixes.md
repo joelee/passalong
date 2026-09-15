@@ -38,9 +38,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00009-v0.2.1"
 execution_started_at: "2026-09-15T20:39:50Z"
-execution_updated_at: "2026-09-15T20:50:24Z"
+execution_updated_at: "2026-09-15T21:02:33Z"
 execution_completed_at: null
-current_step: "PLAN-00009-STEP-02"
+current_step: "PLAN-00009-STEP-03"
 ---
 
 # Delivery Plan 00009: V0 2 1 Windows And Review Fixes
@@ -759,7 +759,7 @@ STEP-12.
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
 | PLAN-00009-STEP-01 | completed | 2026-09-15T20:39:50Z | 2026-09-15T20:50:24Z | `cargo test --workspace --all-features` green; SFTP `a_cut_migration_is_finished_and_a_cut_rotation_undone_over_sftp` green | New `encryption/journal.rs`; `FaultyFs::cut_nth_write` |
-| PLAN-00009-STEP-02 | not-started | — | — | — | — |
+| PLAN-00009-STEP-02 | completed | 2026-09-15T20:50:24Z | 2026-09-15T21:02:33Z | `cargo test --workspace --all-features` green; SFTP Docker suite 14/14 | New `encryption/header_change.rs`; `restore_header` |
 | PLAN-00009-STEP-03 | not-started | — | — | — | — |
 | PLAN-00009-STEP-04 | not-started | — | — | — | — |
 | PLAN-00009-STEP-05 | not-started | — | — | — | — |
@@ -780,6 +780,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 |---|---|---|---|---|
 | 2026-09-15T20:39:50Z | STEP-01 | Started after approval commit 8f63bf7 | — | Journal module |
 | 2026-09-15T20:50:24Z | STEP-01 | Completed: journal written whole into `.rewrite-<token>/` and renamed to `.rewrite/`; `Journal`/`read_journal`/`HeaderChange` added; `finish` and `undo` claim `.rewrite/recovery/` and give it up on failure; a lock without a whole journal is released only when it holds nothing else; CLI `recover` refuses a running recovery and offers take-over of one older than 10 minutes; public signatures unchanged | Tests `the_lock_appears_only_with_a_whole_journal`, `a_lock_without_a_whole_journal_is_released_only_when_nothing_moved`, `two_recoveries_never_run_at_once`, `journal::tests::*`, CLI `a_lock_without_a_whole_journal_…`, `a_running_recovery_is_refused`, `a_stopped_recovery_is_taken_over_after_a_yes` | STEP-02 |
+| 2026-09-15T21:02:33Z | STEP-02 | Completed: set-up, fresh start, and change of words run under the journal (new kinds `set-up`, `fresh-start`, `words`), with their headers staged inside the journal folder; `finish` and `undo` dispatch on the journal kind; `encrypt --recover` finishes or undoes header changes, and restores a broken store from a header v0.2.0 left in `v2/tmp/` once the words unlock it and its key opens the items; nothing to recover on a broken store is now an error | Tests `a_set_up_cut_anywhere_…`, `a_fresh_start_cut_anywhere_…`, `a_change_of_words_cut_anywhere_…` (every call and every write cut), `a_change_of_words_waits_for_a_rewrite`, `a_header_0_2_0_left_aside_is_restored_…`; CLI `an_interrupted_change_of_words_is_finished_or_undone`, `a_store_without_its_header_is_restored_with_its_words` | STEP-03 |
 
 ### Deviations and blockers
 
@@ -789,6 +790,9 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T20:50:24Z | STEP-01 | Neither backend renames atomically: `LocalFs` and `SftpFs` check for the target first. The lock stays exclusive because the staged journal folder is never empty, and renaming a folder onto a non-empty folder fails on POSIX and OpenSSH's sftp-server. The builder stop condition (a rename replacing an existing `.rewrite`) did not trigger | Documented in `journal.rs` | None |
 | 2026-09-15T20:50:24Z | STEP-01 | The lock adds one rename, so the cut points of three existing tests moved by one (CLI `cut_migration` 3→4, SFTP cut migration and rotation 4→5); their intent (cut at the header swap) is unchanged | Test-only | None |
 | 2026-09-15T20:50:24Z | STEP-01 | `check` reporting leftover `.rewrite-*` folders (D-15) moves to STEP-04, where `check` changes; recovery and the end of every rewrite already remove them | Scheduling only | None |
+| 2026-09-15T21:02:33Z | STEP-02 | As in STEP-01, the regression tests were written with the fix. The old failure (an unjournalled `replace_header`, and `recover` printing "no re-encryption to recover" with exit 0 for the broken store) is established by reading `header.rs` and `encrypt.rs` at 255b734, as REV-00002-MAJ-04 describes | None | None |
+| 2026-09-15T21:02:33Z | STEP-02 | Beyond the plan's wording, and within D-13: migration and rotation also stage their headers inside the journal folder instead of writing them after the lock, and a rotation's replaced header moves into `.rewrite/previous/` instead of `v2/tmp/old-header-*`, so every header move stays inside the lock. The legacy states (a v0.2.0 lock without `header/`, a header under `v2/tmp/`) are still handled | Fewer interrupted states; no format change | None |
+| 2026-09-15T21:02:33Z | STEP-02 | A set-up whose `items/` gains items after the emptiness check (an old client writing meanwhile) now moves them to `plain/items/` like a fresh start, instead of failing part-way; undoing a set-up does not recreate an empty `items/` folder it removed | Safer outcome; the undo test compares the store tree, which has no empty `items/` in the template | None |
 
 ### Verification results
 
@@ -797,6 +801,9 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T20:50:24Z | STEP-01 | `cargo fmt --all`; `cargo clippy --workspace --all-targets --all-features -- -D warnings` | Pass | Exit 0 |
 | 2026-09-15T20:50:24Z | STEP-01 | `cargo test --workspace --all-features` | Pass | Core 284 passed, CLI 188 passed, all suites 0 failed |
 | 2026-09-15T20:50:24Z | STEP-01 | `just _with-sshd "cargo test -p passalong-ssh --test sftp_docker -- --ignored a_cut_migration"` | Pass | 1 passed |
+| 2026-09-15T21:02:33Z | STEP-02 | `cargo fmt --all`; `cargo clippy --workspace --all-targets --all-features -- -D warnings` | Pass | Exit 0 |
+| 2026-09-15T21:02:33Z | STEP-02 | `cargo test --workspace --all-features` | Pass | Core 289 passed, CLI 190 passed, all suites 0 failed |
+| 2026-09-15T21:02:33Z | STEP-02 | `just _with-sshd "cargo test -p passalong-ssh --test sftp_docker -- --ignored --test-threads=4"` | Pass | 14 passed |
 
 ### Completion summary
 

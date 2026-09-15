@@ -14,8 +14,8 @@ use passalong_core::clock::{Clock, SystemClock};
 
 use passalong_core::crypto::{CryptoError, KdfParams, KeyId, Words};
 use passalong_core::encryption::{
-    self, EncryptionError, GitCheck, Journal, REWRITE_DIR, RewriteKind, StoreState,
-    check_key_location, load_key_file, save_key_file,
+    self, EncryptionError, GitCheck, HeaderChange, HeaderChangeKind, Journal, REWRITE_DIR,
+    RewriteKind, StoreState, check_key_location, load_key_file, save_key_file,
 };
 use passalong_core::fs::{RemoteFs, RemotePath};
 
@@ -257,6 +257,9 @@ async fn recover(
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
     if fs.stat(&RemotePath::new(REWRITE_DIR)?).await?.is_none() {
+        if encryption::inspect(fs).await? == StoreState::Broken {
+            return restore(fs, keys, prompt, out).await;
+        }
         writeln!(out, "no re-encryption to recover")?;
         return Ok(());
     }
@@ -279,6 +282,9 @@ async fn recover(
     }
     let plan = match encryption::read_journal(fs).await? {
         Some(Journal::Rewrite(plan)) => plan,
+        Some(Journal::HeaderChange(change)) => {
+            return recover_header_change(fs, &change, keys, prompt, out).await;
+        }
         None | Some(Journal::Unreadable { .. }) => {
             encryption::undo(fs).await?;
             writeln!(out, "released a re-encryption lock that had not started")?;
@@ -327,6 +333,63 @@ async fn recover(
         }
         _ => anyhow::bail!("answer finish or undo; nothing was changed"),
     }
+    Ok(())
+}
+
+/// Finishes or undoes an interrupted change of the store header alone.
+async fn recover_header_change(
+    fs: &dyn RemoteFs,
+    change: &HeaderChange,
+    keys: &Keys<'_>,
+    prompt: &mut dyn Prompt,
+    out: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let what = match change.kind {
+        HeaderChangeKind::SetUp => "setting up encryption",
+        HeaderChangeKind::FreshStart => "encrypting with a fresh start",
+        HeaderChangeKind::Words => "changing the store's words",
+        _ => "changing the store's header",
+    };
+    prompt.show(&format!(
+        "A change started at {}: {what}.\n",
+        change.started_at
+    ))?;
+    let answer = prompt.ask("Finish it, or undo it? [finish/undo]", Some("finish"))?;
+    match answer.trim().to_ascii_lowercase().as_str() {
+        "f" | "finish" => {
+            let new = ask_words(prompt, "The new six words shown when it started")?;
+            let key = encryption::finish(fs, &new, None, None, Arc::new(SystemClock)).await?;
+            save_key_file(keys.key_file, &key, keys.git)?;
+            writeln!(out, "finished: the store's key is {}", key.key_id().short())?;
+        }
+        "u" | "undo" => {
+            encryption::undo(fs).await?;
+            writeln!(out, "undone: the store is as it was before")?;
+        }
+        _ => anyhow::bail!("answer finish or undo; nothing was changed"),
+    }
+    Ok(())
+}
+
+/// Puts back the header of a store left without one, from a copy saved in
+/// the store.
+async fn restore(
+    fs: &dyn RemoteFs,
+    keys: &Keys<'_>,
+    prompt: &mut dyn Prompt,
+    out: &mut dyn Write,
+) -> anyhow::Result<()> {
+    prompt.show(
+        "The store's encryption header is missing. When passalong 0.2.0 was cut short while changing the words, a copy is left in the store, and the store's words find it.\n",
+    )?;
+    let words = ask_words(prompt, "The store's six words, current or previous")?;
+    let key = encryption::restore_header(fs, &words).await?;
+    save_key_file(keys.key_file, &key, keys.git)?;
+    writeln!(
+        out,
+        "restored the store's header: key {}; its words are the ones you typed",
+        key.key_id().short()
+    )?;
     Ok(())
 }
 
@@ -948,5 +1011,112 @@ mod tests {
             prompt.shown()
         );
         assert_eq!(out, "undone: the store is as it was before\n");
+    }
+
+    /// A change of words cut before its new header was put in place.
+    async fn cut_change_of_words(rig: &Rig) -> DataKey {
+        let key = encryption::set_up(&rig.fs(), &w1().unwrap(), quick().unwrap())
+            .await
+            .unwrap();
+        save_key_file(&rig.key_file(), &key, &rig.git).unwrap();
+        let fs = passalong_core::testing::FaultyFs::new(rig.fs());
+        // Renames: the lock, the old header into it, then the new header.
+        fs.fail_nth(passalong_core::testing::FsOp::Rename, 3);
+        assert!(
+            encryption::change_words(&fs, &w1().unwrap(), &w2().unwrap(), quick().unwrap())
+                .await
+                .is_err()
+        );
+        key
+    }
+
+    #[tokio::test]
+    async fn an_interrupted_change_of_words_is_finished_or_undone() {
+        let rig = Rig::new();
+        let key = cut_change_of_words(&rig).await;
+        let mut prompt = ScriptedPrompt::new(true, ["", W2]);
+        let out = rig.run_with(recover_args(), w1, &mut prompt).await.unwrap();
+        assert!(
+            prompt.shown().contains("changing the store's words"),
+            "{}",
+            prompt.shown()
+        );
+        assert_eq!(
+            out,
+            format!("finished: the store's key is {}\n", key.key_id().short())
+        );
+        assert_eq!(
+            encryption::join(&rig.fs(), &w2().unwrap())
+                .await
+                .unwrap()
+                .key_id(),
+            key.key_id()
+        );
+
+        let other = Rig::new();
+        let key = cut_change_of_words(&other).await;
+        let out = other
+            .run_with(recover_args(), w1, &mut ScriptedPrompt::new(true, ["undo"]))
+            .await
+            .unwrap();
+        assert_eq!(out, "undone: the store is as it was before\n");
+        assert_eq!(
+            encryption::join(&other.fs(), &w1().unwrap())
+                .await
+                .unwrap()
+                .key_id(),
+            key.key_id()
+        );
+    }
+
+    /// A store whose change of words by passalong 0.2.0 stopped between its
+    /// two renames, leaving no header.
+    async fn broken_by_0_2_0(rig: &Rig) -> DataKey {
+        let key = encryption::set_up(&rig.fs(), &w1().unwrap(), quick().unwrap())
+            .await
+            .unwrap();
+        let fs = passalong_core::testing::FaultyFs::new(rig.fs());
+        fs.fail_nth(passalong_core::testing::FsOp::Rename, 2);
+        let header = encryption::StoreHeader::new(
+            passalong_core::crypto::wrap(&key, &w2().unwrap(), quick().unwrap()).unwrap(),
+        );
+        assert!(encryption::replace_header(&fs, &header).await.is_err());
+        key
+    }
+
+    #[tokio::test]
+    async fn a_store_without_its_header_is_restored_with_its_words() {
+        let rig = Rig::new();
+        let key = broken_by_0_2_0(&rig).await;
+        let err = rig
+            .run_with(
+                recover_args(),
+                w1,
+                &mut ScriptedPrompt::new(true, ["zoom abacus zoom abacus zoom abacus"]),
+            )
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("nothing was changed"), "{err}");
+        let out = rig
+            .run_with(recover_args(), w1, &mut ScriptedPrompt::new(true, [W1]))
+            .await
+            .unwrap();
+        assert_eq!(
+            out,
+            format!(
+                "restored the store's header: key {}; its words are the ones you typed\n",
+                key.key_id().short()
+            )
+        );
+        assert_eq!(rig.saved_key().unwrap().key_id(), key.key_id());
+        let out = rig
+            .run_with(
+                recover_args(),
+                w1,
+                &mut ScriptedPrompt::new(true, Vec::<&str>::new()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(out, "no re-encryption to recover\n");
     }
 }

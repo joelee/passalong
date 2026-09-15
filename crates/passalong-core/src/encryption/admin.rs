@@ -4,10 +4,12 @@
 
 use std::sync::Arc;
 
+use super::header_change::run_change;
+use super::journal::HeaderChangeKind;
 use super::open::rewrite_started;
+use super::rewrite::fold;
 use super::{
-    EncryptionError, PLAIN_DIR, REWRITE_DIR, STOP_FILE, StoreHeader, create_header, read_header,
-    replace_header, write_stop_file,
+    EncryptionError, PLAIN_DIR, REWRITE_DIR, STOP_FILE, StoreHeader, read_header, write_stop_file,
 };
 use crate::clock::SystemClock;
 use crate::crypto::{DataKey, KdfParams, KeyId, Words, unwrap, wrap};
@@ -130,19 +132,17 @@ pub async fn set_up<F: RemoteFs + ?Sized>(
         }
         other => return Err(refuse(other)),
     }
-    let (key, header) = new_key(words, kdf)?;
     let items = items_path();
-    if fs.stat(&items).await?.is_some_and(|meta| meta.is_dir) {
-        if !fs.read_dir(&items).await?.is_empty() {
-            return Err(EncryptionError::Layout(format!(
-                "`{STOP_FILE}` holds files that are not items; move them away first"
-            ))
-            .into());
-        }
-        fs.remove_dir_all(&items).await?;
+    if fs.stat(&items).await?.is_some_and(|meta| meta.is_dir)
+        && !fs.read_dir(&items).await?.is_empty()
+    {
+        return Err(EncryptionError::Layout(format!(
+            "`{STOP_FILE}` holds files that are not items; move them away first"
+        ))
+        .into());
     }
-    write_stop_file(fs).await?;
-    create_header(fs, &header).await?;
+    let (key, header) = new_key(words, kdf)?;
+    run_change(fs, HeaderChangeKind::SetUp, &header, None).await?;
     Ok(key)
 }
 
@@ -165,18 +165,53 @@ pub async fn fresh_start<F: RemoteFs + ?Sized>(
         other => return Err(refuse(other)),
     }
     let (key, header) = new_key(words, kdf)?;
-    move_items_to_plain(fs).await?;
+    run_change(fs, HeaderChangeKind::FreshStart, &header, None).await?;
+    Ok(key)
+}
+
+/// Makes way for the stop file and writes it: an empty `items/` is
+/// removed, and one holding items moves to `plain/items/`; once more when a
+/// client before v0.2.0 recreated `items/` in between.
+pub(super) async fn stop_old_clients<F: RemoteFs + ?Sized>(fs: &F) -> Result<(), StoreError> {
+    clear_items(fs).await?;
     if let Err(err) = write_stop_file(fs).await {
-        // A client before v0.2.0 recreated `items/` in between: move what
-        // it stored as well, once.
         if !matches!(err, StoreError::Encryption(EncryptionError::Layout(_))) {
             return Err(err);
         }
-        move_items_to_plain(fs).await?;
+        clear_items(fs).await?;
         write_stop_file(fs).await?;
     }
-    create_header(fs, &header).await?;
-    Ok(key)
+    Ok(())
+}
+
+async fn clear_items<F: RemoteFs + ?Sized>(fs: &F) -> Result<(), StoreError> {
+    let items = items_path();
+    if !fs.stat(&items).await?.is_some_and(|meta| meta.is_dir) {
+        return Ok(());
+    }
+    if fs.read_dir(&items).await?.is_empty() {
+        fs.remove_dir_all(&items).await?;
+        return Ok(());
+    }
+    move_items_to_plain(fs).await
+}
+
+/// Undoes [`stop_old_clients`]: removes the stop file, and moves
+/// `plain/items/` back to `items/`.
+pub(super) async fn restore_items<F: RemoteFs + ?Sized>(fs: &F) -> Result<(), StoreError> {
+    let items = items_path();
+    if fs.stat(&items).await?.is_some_and(|meta| !meta.is_dir) {
+        fs.remove_file(&items).await?;
+    }
+    let kept = plain_path().join(STOP_FILE)?;
+    if fs.stat(&kept).await?.is_some() {
+        fold(fs, &kept, &items).await?;
+    }
+    let plain = plain_path();
+    if fs.stat(&plain).await?.is_some() && fs.read_dir(&plain).await?.is_empty() {
+        fs.remove_dir_all(&plain).await?;
+    }
+    Ok(())
 }
 
 /// Moves `items/` to `plain/items/`: in one rename when there is no
@@ -239,7 +274,11 @@ pub async fn change_words<F: RemoteFs + ?Sized>(
     kdf: KdfParams,
 ) -> Result<KeyId, StoreError> {
     let key = join(fs, current).await?;
-    replace_header(fs, &StoreHeader::new(wrap(&key, new, kdf)?)).await?;
+    let old = read_header(fs)
+        .await?
+        .ok_or(EncryptionError::HeaderMissing)?;
+    let header = StoreHeader::new(wrap(&key, new, kdf)?);
+    run_change(fs, HeaderChangeKind::Words, &header, Some(&old)).await?;
     Ok(key.key_id())
 }
 

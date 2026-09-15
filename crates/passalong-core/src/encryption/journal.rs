@@ -16,13 +16,20 @@ use chrono::{DateTime, TimeDelta, Utc};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use super::{EncryptionError, REWRITE_DIR, RewritePlan};
+use super::header::write_header_in;
+use super::{EncryptionError, REWRITE_DIR, RewritePlan, StoreHeader};
 use crate::crypto::random_bytes;
 use crate::fs::{FsError, RemoteFs, RemotePath};
 use crate::store::StoreError;
 
 /// The journal's file name inside `.rewrite/`.
 pub(super) const PLAN_FILE: &str = "plan.json";
+/// The folder inside `.rewrite/` holding the header to put in place.
+pub(super) const NEW_HEADER: &str = "header";
+/// The folder inside `.rewrite/` keeping a copy of the header replaced.
+pub(super) const OLD_HEADER: &str = "old-header";
+/// The folder inside `.rewrite/` the replaced header moves into.
+pub(super) const PREVIOUS: &str = "previous";
 /// The folder a recovery claims inside `.rewrite/`.
 const RECOVERY: &str = "recovery";
 /// How staged journal folders start.
@@ -172,8 +179,8 @@ pub(super) fn nothing_to_recover() -> StoreError {
     EncryptionError::Layout("no re-encryption is in progress".to_owned()).into()
 }
 
-/// Takes the lock with `journal`: writes it into a staging folder and
-/// renames that to `.rewrite/`.
+/// Takes the lock with `journal` and `headers`, each `(folder, header)`:
+/// writes them into a staging folder and renames that to `.rewrite/`.
 ///
 /// # Errors
 ///
@@ -182,6 +189,7 @@ pub(super) fn nothing_to_recover() -> StoreError {
 pub(super) async fn publish<F: RemoteFs + ?Sized>(
     fs: &F,
     journal: &impl Serialize,
+    headers: &[(&str, &StoreHeader)],
 ) -> Result<(), StoreError> {
     let lock = RemotePath::new(REWRITE_DIR)?;
     if fs.stat(&lock).await?.is_some() {
@@ -191,7 +199,7 @@ pub(super) async fn publish<F: RemoteFs + ?Sized>(
     let staged = RemotePath::new(&format!("{STAGING_PREFIX}{}", hex::encode(token)))?;
     fs.create_dir(&staged).await?;
     let json = serde_json::to_vec_pretty(journal).expect("the journal serialises");
-    let published = async {
+    let published: Result<(), StoreError> = async {
         let path = staged.join(PLAN_FILE)?;
         let mut writer = fs.open_write(&path).await?;
         writer
@@ -202,21 +210,28 @@ pub(super) async fn publish<F: RemoteFs + ?Sized>(
             .shutdown()
             .await
             .map_err(|err| FsError::from_io(&path, err))?;
-        fs.rename(&staged, &lock).await
+        for (folder, header) in headers {
+            write_header_in(fs, &staged.join(folder)?, header).await?;
+        }
+        fs.rename(&staged, &lock).await.map_err(|err| match err {
+            FsError::AlreadyExists(_) => EncryptionError::Rewriting { started: None }.into(),
+            err => err.into(),
+        })
     }
     .await;
-    match published {
-        Ok(()) => Ok(()),
-        Err(err) => {
-            if let Err(clean) = fs.remove_dir_all(&staged).await {
-                tracing::warn!(path = %staged, error = %clean, "could not remove a staged journal");
-            }
-            Err(match err {
-                FsError::AlreadyExists(_) => EncryptionError::Rewriting { started: None }.into(),
-                err => err.into(),
-            })
-        }
+    if published.is_err()
+        && let Err(clean) = fs.remove_dir_all(&staged).await
+    {
+        tracing::warn!(path = %staged, error = %clean, "could not remove a staged journal");
     }
+    published
+}
+
+/// Removes journals staged by locks never taken, and then the lock.
+pub(super) async fn release_lock<F: RemoteFs + ?Sized>(fs: &F) -> Result<(), StoreError> {
+    sweep_staged(fs).await?;
+    fs.remove_dir_all(&RemotePath::new(REWRITE_DIR)?).await?;
+    Ok(())
 }
 
 /// Removes journals staged by locks that were never taken.
@@ -252,9 +267,7 @@ pub(super) async fn release_unstarted<F: RemoteFs + ?Sized>(fs: &F) -> Result<()
         ))
         .into());
     }
-    sweep_staged(fs).await?;
-    fs.remove_dir_all(&lock).await?;
-    Ok(())
+    release_lock(fs).await
 }
 
 /// A recovery that is running, or was interrupted.

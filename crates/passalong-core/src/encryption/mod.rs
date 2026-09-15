@@ -16,11 +16,13 @@
 //!   plaintext;
 //! - `v2/items/` and `v2/tmp/`, the sealed items and their staging;
 //! - `plain/items/`, only after a fresh start, for the items stored before;
-//! - `.rewrite/`, only while items are re-encrypted; it appears in one
-//!   rename of a whole journal, and is the lock (see [`read_journal`]).
+//! - `.rewrite/`, only while items are re-encrypted or the header changes;
+//!   it appears in one rename of a whole journal, and is the lock (see
+//!   [`read_journal`]).
 
 mod admin;
 pub(crate) mod header;
+mod header_change;
 mod journal;
 mod key_file;
 mod open;
@@ -31,6 +33,7 @@ pub use admin::{
     set_up,
 };
 pub use header::{StoreHeader, create_header, read_header, replace_header, write_stop_file};
+pub use header_change::restore_header;
 pub use journal::{
     HeaderChange, HeaderChangeKind, Journal, RECOVERY_STALE_SECS, RecoveryMarker, read_journal,
     recovery_in_progress, release_recovery,

@@ -474,7 +474,7 @@ async fn a_cut_migration_is_finished_and_a_cut_rotation_undone_over_sftp() {
     );
     assert_eq!(store.list().await.unwrap().len(), 2);
 
-    // The same, with the old header moved aside first.
+    // The same for a rotation: moving the old header aside fails.
     let faulty = FaultyFs::new(&fs);
     faulty.fail_nth(FsOp::Rename, 5);
     assert!(

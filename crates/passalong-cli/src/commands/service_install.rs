@@ -338,6 +338,7 @@ mod tests {
                 .join(".config/systemd/user/passalong-serve.service")
         }
 
+        #[cfg(unix)]
         fn plist(&self) -> PathBuf {
             self.home()
                 .join("Library/LaunchAgents/com.passalong.serve.plist")
@@ -362,6 +363,7 @@ mod tests {
             (result, String::from_utf8(out).unwrap())
         }
 
+        #[cfg(unix)]
         fn remove(&mut self, platform: Platform) -> (anyhow::Result<()>, String) {
             let mut out = Vec::new();
             let result = remove(platform, &self.env, &mut self.manager, &mut out);
@@ -373,6 +375,7 @@ mod tests {
         ServiceInstallArgs::default()
     }
 
+    #[cfg(unix)]
     const LAUNCHD: Platform = Platform::Launchd { uid: 501 };
 
     #[cfg(unix)]

@@ -8,6 +8,7 @@ use tokio::sync::{mpsc, watch};
 use tokio::time::MissedTickBehavior;
 
 use crate::clipboard::{RgbaImage, decode_png};
+use crate::crypto::KeyId;
 use crate::download::{self, DownloadError};
 use crate::model::{ItemId, ItemKind, ItemMeta, sanitise_file_name};
 use crate::serve::{StoreOpener, stopped};
@@ -29,6 +30,8 @@ pub struct Puller {
     device: String,
     download_dir: PathBuf,
     seen: HashSet<ItemId>,
+    /// The store's key when `seen` was taken; a new key means new ids.
+    key_id: Option<KeyId>,
     clipboard: Option<mpsc::Sender<ClipboardWrite>>,
     warned_no_dir: bool,
     warned_no_clipboard: bool,
@@ -52,6 +55,7 @@ impl Puller {
             device,
             download_dir,
             seen: store.list_ids().await?.into_iter().collect(),
+            key_id: store.key_id(),
             clipboard,
             warned_no_dir: false,
             warned_no_clipboard: false,
@@ -70,6 +74,17 @@ impl Puller {
     /// picks them up without repeating anything already done.
     pub async fn poll(&mut self, store: &dyn Store) -> Result<(), StoreError> {
         let ids = store.list_ids().await?;
+        if store.key_id() != self.key_id {
+            // The store was migrated or its key rotated, so every id is new;
+            // starting from its current items avoids applying them all again.
+            tracing::info!(
+                items = ids.len(),
+                "the store's key changed; pull mode starts from its current items"
+            );
+            self.key_id = store.key_id();
+            self.seen = ids.into_iter().collect();
+            return Ok(());
+        }
         let present: HashSet<&ItemId> = ids.iter().collect();
         self.seen.retain(|id| present.contains(id));
         let unseen: Vec<ItemId> = ids
@@ -249,6 +264,7 @@ pub(crate) async fn pull_loop(
 mod tests {
     use super::*;
     use crate::clipboard::{RgbaImage, encode_png};
+    use crate::crypto::{DataKey, Sealer};
     use crate::fs::LocalFs;
     use crate::model::{ItemMeta, NewItem};
     use crate::random::StdRandom;
@@ -310,6 +326,36 @@ mod tests {
             writes.push(write);
         }
         writes
+    }
+
+    #[tokio::test]
+    async fn a_new_key_starts_pull_mode_afresh_instead_of_applying_everything() {
+        let rig = Rig::new();
+        let mut puller = rig.puller(None).await;
+        let sealed = FsStore::sealed(
+            LocalFs::new(rig.dir.path().join("sealed")),
+            rig.clock.clone(),
+            Box::new(StdRandom::new()),
+            Sealer::new(DataKey::generate().unwrap()),
+        );
+        let file = |data: &[u8]| Box::new(std::io::Cursor::new(data.to_vec()));
+        sealed
+            .put(NewItem::file("migrated.txt", "phone"), file(b"old"))
+            .await
+            .unwrap();
+        rig.clock.advance(1);
+        puller.poll(&sealed).await.unwrap();
+        assert!(
+            rig.downloaded().is_empty(),
+            "migrated items are not applied again"
+        );
+        assert_eq!(puller.seen_len(), 1);
+        sealed
+            .put(NewItem::file("new.txt", "phone"), file(b"new"))
+            .await
+            .unwrap();
+        puller.poll(&sealed).await.unwrap();
+        assert_eq!(rig.downloaded(), ["new.txt"]);
     }
 
     #[tokio::test]

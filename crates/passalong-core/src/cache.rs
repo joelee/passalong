@@ -15,6 +15,7 @@ use tokio::time::MissedTickBehavior;
 
 use crate::clock::Clock;
 use crate::config::Config;
+use crate::encryption::{SystemGit, load_key_file};
 use crate::model::{ItemId, ItemMeta};
 use crate::serve::{StoreOpener, stopped};
 use crate::store::{Store, StoreError};
@@ -60,14 +61,26 @@ impl ListCache {
     /// Which store `config` names, for telling caches apart, or `None` for
     /// backends that are not cached: listing a `local` store needs no
     /// network.
+    ///
+    /// The identity also names this device's key, or `plain`, so a cache
+    /// from before a migration, a rotation, or a join is never used; it is
+    /// `None` when the key file cannot be read.
     pub fn store_identity(config: &Config) -> Option<String> {
-        match (config.server.kind.as_str(), &config.server.ssh) {
-            ("ssh", Some(ssh)) => Some(format!(
+        let base = match (config.server.kind.as_str(), &config.server.ssh) {
+            ("ssh", Some(ssh)) => format!(
                 "ssh {}@{}:{} {}",
                 ssh.user, ssh.host, ssh.port, ssh.remote_path
-            )),
-            _ => None,
-        }
+            ),
+            _ => return None,
+        };
+        let key = match &config.client.key_file {
+            Some(path) => load_key_file(path, &SystemGit::new()).ok()?,
+            None => None,
+        };
+        Some(match key {
+            Some(key) => format!("{base} key {}", key.key_id()),
+            None => format!("{base} plain"),
+        })
     }
 
     /// The cache in `path`, or `None` when the file is missing, unreadable,
@@ -330,10 +343,35 @@ mod tests {
         );
         assert_eq!(
             ListCache::store_identity(&ssh).as_deref(),
-            Some("ssh pa@nas:2222 /srv/passalong")
+            Some("ssh pa@nas:2222 /srv/passalong plain")
         );
         let local = parse("[server]\nkind = \"local\"\n\n[server.local]\npath = \"/srv/share\"\n");
         assert_eq!(ListCache::store_identity(&local), None);
+    }
+
+    #[test]
+    fn the_identity_names_this_device_s_key() {
+        let keys = TempDir::new().unwrap();
+        let key_file = keys.path().join("store.key");
+        let text = format!(
+            "[client]\nkey_file = \"{}\"\n\n[server]\nkind = \"ssh\"\n\n[server.ssh]\nhost = \"nas\"\nuser = \"pa\"\nhost_key = \"ssh-ed25519 AAAAkey\"\nidentity_file = \"/keys/id\"\nremote_path = \"/srv/passalong\"\n",
+            key_file.display()
+        );
+        let env = crate::testing::MapEnv::new().with("HOME", "/home/u");
+        let config = crate::config::parse(&text, std::path::Path::new("/c.toml"), &env).unwrap();
+        assert!(
+            ListCache::store_identity(&config)
+                .unwrap()
+                .ends_with(" plain")
+        );
+        let key = crate::crypto::DataKey::generate().unwrap();
+        crate::encryption::save_key_file(&key_file, &key, &SystemGit::new()).unwrap();
+        assert_eq!(
+            ListCache::store_identity(&config).unwrap(),
+            format!("ssh pa@nas:22 /srv/passalong key {}", key.key_id())
+        );
+        std::fs::write(&key_file, "damaged").unwrap();
+        assert_eq!(ListCache::store_identity(&config), None);
     }
 
     #[tokio::test]

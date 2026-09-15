@@ -904,9 +904,13 @@ async fn list_prints_a_fresh_cache_without_connecting_and_nocache_connects() {
     } else {
         sb.path("home/.local/state/passalong/list-cache.json")
     };
-    ListCache::new("ssh u@127.0.0.1:1 /r".into(), Utc::now(), seeded.clone())
-        .save(&cache)
-        .unwrap();
+    ListCache::new(
+        "ssh u@127.0.0.1:1 /r plain".into(),
+        Utc::now(),
+        seeded.clone(),
+    )
+    .save(&cache)
+    .unwrap();
     let list = |args: &[&str]| {
         let mut cmd = sb.cmd();
         cmd.arg("--config").arg(&config).arg("list").args(args);

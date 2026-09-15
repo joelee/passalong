@@ -133,7 +133,7 @@ impl Uploader {
         // already stored; checking first avoids uploading it again.
         let mut hasher = ContentHasher::new();
         hasher.update(&png);
-        let key = hasher.finalize().content_key();
+        let key = self.store.content_key(&hasher.finalize());
         if let Some(existing) = self
             .store
             .find_by_content_key(&key)
@@ -164,7 +164,7 @@ impl Uploader {
         // checking first avoids uploading it again.
         let mut hasher = ContentHasher::new();
         hasher.update(text.as_bytes());
-        let key = hasher.finalize().content_key();
+        let key = self.store.content_key(&hasher.finalize());
         if let Some(existing) = self
             .store
             .find_by_content_key(&key)
@@ -306,6 +306,93 @@ mod tests {
         async fn clean_staging(&self, older_than: Duration) -> Result<usize, StoreError> {
             self.inner.clean_staging(older_than).await
         }
+    }
+
+    /// A sealed store that counts its puts.
+    struct CountingSealed {
+        inner: FsStore<LocalFs>,
+        puts: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl Store for CountingSealed {
+        async fn put(&self, item: NewItem, content: BoxRead) -> Result<PutOutcome, StoreError> {
+            self.puts.fetch_add(1, Ordering::SeqCst);
+            self.inner.put(item, content).await
+        }
+        async fn list(&self) -> Result<Vec<ItemMeta>, StoreError> {
+            self.inner.list().await
+        }
+        async fn list_after(&self, after: Option<&ItemId>) -> Result<Vec<ItemMeta>, StoreError> {
+            self.inner.list_after(after).await
+        }
+        async fn get(&self, id: &ItemId) -> Result<(ItemMeta, BoxRead), StoreError> {
+            self.inner.get(id).await
+        }
+        async fn exists(&self, id: &ItemId) -> Result<bool, StoreError> {
+            self.inner.exists(id).await
+        }
+        async fn find_by_content_key(
+            &self,
+            key: &ContentKey,
+        ) -> Result<Option<ItemMeta>, StoreError> {
+            self.inner.find_by_content_key(key).await
+        }
+        async fn resolve(&self, input: &str) -> Result<ItemId, StoreError> {
+            self.inner.resolve(input).await
+        }
+        async fn delete(&self, id: &ItemId) -> Result<ItemMeta, StoreError> {
+            self.inner.delete(id).await
+        }
+        async fn clean_staging(&self, older_than: Duration) -> Result<usize, StoreError> {
+            self.inner.clean_staging(older_than).await
+        }
+        fn key_id(&self) -> Option<crate::crypto::KeyId> {
+            self.inner.key_id()
+        }
+        fn content_key(&self, digest: &crate::model::ContentDigest) -> ContentKey {
+            self.inner.content_key(digest)
+        }
+    }
+
+    #[tokio::test]
+    async fn text_already_in_an_encrypted_store_is_not_uploaded_again() {
+        let dir = TempDir::new().unwrap();
+        let sealer = crate::crypto::Sealer::new(crate::crypto::DataKey::generate().unwrap());
+        let inner = FsStore::sealed(
+            LocalFs::new(dir.path()),
+            Arc::new(SystemClock),
+            Box::new(StdRandom::new()),
+            sealer,
+        );
+        inner
+            .put(
+                NewItem::text("load"),
+                Box::new(std::io::Cursor::new(b"from load".to_vec())),
+            )
+            .await
+            .unwrap();
+        let puts = Arc::new(AtomicUsize::new(0));
+        let store = CountingSealed {
+            inner,
+            puts: puts.clone(),
+        };
+        let opener: StoreOpener = Arc::new(|| -> crate::store::BackendFuture<'static> {
+            Box::pin(async { Err(StoreError::Backend("not reopened".into())) })
+        });
+        let mut uploader = Uploader::new(
+            Box::new(store),
+            opener,
+            "box".into(),
+            AfterSend::Move,
+            dir.path().join("sent"),
+        );
+        let (_stop, mut stopped) = watch::channel(false);
+        let outcome = uploader
+            .handle(Job::Text("from load".into()), &mut stopped)
+            .await;
+        assert!(matches!(outcome, JobOutcome::AlreadyPresent));
+        assert_eq!(puts.load(Ordering::SeqCst), 0, "nothing was uploaded");
     }
 
     struct Rig {

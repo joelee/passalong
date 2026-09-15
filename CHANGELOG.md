@@ -52,6 +52,12 @@ All notable changes to this project are documented here. The format follows
   re-encryption holds a lock (`.rewrite/`), keeps each item's time and
   metadata, checks every copy before the new key takes over, and resumes
   without uploading anything twice (PLAN-00008 STEP-07).
+- `serve` works with encrypted stores: the uploader looks for text and
+  images already stored by the store's own content key, pull mode starts
+  afresh instead of applying every item again when the store's key
+  changes, and the list cache's identity names this device's key, so a
+  cache from before a migration, rotation, or join is never used
+  (PLAN-00008 STEP-08).
 
 ## v0.1.6 - 2026-09-14T21:14:49Z
 

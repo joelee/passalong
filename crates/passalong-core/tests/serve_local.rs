@@ -8,6 +8,8 @@ use std::time::Duration;
 use passalong_core::clipboard::RgbaImage;
 use passalong_core::clock::SystemClock;
 use passalong_core::config::AfterSend;
+use passalong_core::crypto::{DataKey, KdfParams, Words};
+use passalong_core::encryption;
 use passalong_core::fs::LocalFs;
 use passalong_core::model::{ItemKind, ItemMeta};
 use passalong_core::random::StdRandom;
@@ -409,4 +411,89 @@ async fn serve_sends_the_image_behind_a_copied_image_link() {
     let listed = items(&store).await;
     assert_eq!(listed.len(), 1, "the link is not sent as text");
     stop_and_join(stop, task).await;
+}
+
+fn sealed_opener(root: PathBuf, key: DataKey) -> StoreOpener {
+    Arc::new(move || -> BackendFuture<'static> {
+        let (root, key) = (root.clone(), key.clone());
+        Box::pin(async move {
+            encryption::open_with_key(
+                LocalFs::new(root),
+                Some(key),
+                Arc::new(SystemClock),
+                Box::new(StdRandom::new()),
+            )
+            .await
+        })
+    })
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn serve_sends_into_an_encrypted_store_leaving_no_plaintext() {
+    let dir = TempDir::new().unwrap();
+    let (store, drop) = (dir.path().join("store"), dir.path().join("drop"));
+    std::fs::create_dir_all(&drop).unwrap();
+    std::fs::create_dir_all(&store).unwrap();
+    let kdf = KdfParams {
+        m_kib: 64,
+        t: 1,
+        p: 1,
+        salt: [1; 16],
+    };
+    let words = Words::parse("zoom zoom zoom zoom zoom zoom").unwrap();
+    let key = encryption::set_up(&LocalFs::new(&store), &words, kdf)
+        .await
+        .unwrap();
+    let clipboard = MockClipboard::new().with_reads([Some("secret clipboard text")]);
+    let (stop, stopped) = watch::channel(false);
+    let task = tokio::spawn(serve::run(
+        options(&drop),
+        Some(Box::new(clipboard)),
+        sealed_opener(store.clone(), key.clone()),
+        stopped,
+    ));
+    wait_for("the sent folder", async || drop.join("sent").is_dir()).await;
+    std::fs::write(drop.join("note.txt"), b"a dropped secret").unwrap();
+    let listed = async || {
+        encryption::open_with_key(
+            LocalFs::new(&store),
+            Some(key.clone()),
+            Arc::new(SystemClock),
+            Box::new(StdRandom::new()),
+        )
+        .await
+        .unwrap()
+        .list()
+        .await
+        .unwrap()
+    };
+    wait_for("two sealed items", async || listed().await.len() == 2).await;
+    let items = listed().await;
+    assert!(items.iter().any(|m| m.kind == ItemKind::Text));
+    assert!(items.iter().any(|m| m.name.as_deref() == Some("note.txt")));
+
+    let mut pending = vec![store.clone()];
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                let bytes = std::fs::read(&path).unwrap();
+                for secret in ["secret clipboard text", "a dropped secret", "note.txt"] {
+                    assert!(
+                        !bytes.windows(secret.len()).any(|w| w == secret.as_bytes()),
+                        "{} holds `{secret}`",
+                        path.display()
+                    );
+                }
+            }
+        }
+    }
+
+    stop.send(true).unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(5), task)
+        .await
+        .expect("serve stops promptly");
+    result.unwrap().unwrap();
 }

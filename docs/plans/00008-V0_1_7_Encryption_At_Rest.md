@@ -38,9 +38,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00008-v0.2.0"
 execution_started_at: "2026-09-15T13:53:01Z"
-execution_updated_at: "2026-09-15T15:21:28Z"
+execution_updated_at: "2026-09-15T15:26:35Z"
 execution_completed_at: null
-current_step: "PLAN-00008-STEP-08"
+current_step: "PLAN-00008-STEP-09"
 ---
 
 # Delivery Plan 00008: V0 1 7 Encryption At Rest
@@ -1065,7 +1065,7 @@ passing unchanged.
 | PLAN-00008-STEP-05 | completed | 2026-09-15T14:31:15Z | 2026-09-15T14:38:18Z | Commit `build: complete PLAN-00008-STEP-05 - Store header and encryption-aware opening`; core 261, cli_local_backend 34, test-compat 2 pass; just check green, 93.24% lines | AC-01 (encrypted store), AC-02. encryption::{StoreHeader, create_header, replace_header, read_header, write_stop_file, open_store, open_with_key}; EncryptionError gains NoKey, KeyMismatch, KeyWithoutEncryption, Rewriting, HeaderMissing, KeyChanged, AlreadyEncrypted, Header, Layout, KeyFile. BackendRegistry keeps register (store openers, no encryption) and adds register_fs/open_fs; local and ssh are filesystem kinds; open_ssh_store keeps its signature and opens through the header; new open_ssh_fs. FsStore::guarded (crate-private) re-checks the header size and mtime and .rewrite before put, delete, and list_ids. The header's staging and old copies live in v2/tmp. |
 | PLAN-00008-STEP-06 | completed | 2026-09-15T14:40:11Z | 2026-09-15T14:58:06Z | Commit `build: complete PLAN-00008-STEP-06 - init, encrypt, join, changing the words, fresh start, check`; core 269, CLI 182, cli_local_backend 36 pass; just check green, 93.55% lines | AC-08, AC-11, AC-12, AC-15. encryption::{StoreState, inspect, set_up, fresh_start, join, change_words, plain_store, remove_plain_if_empty, check_key_location}; EncryptionError::NotEncrypted; fs::SubFs and RemoteFs for &T. set_up writes the stop file before the header. CLI: encrypt (set up, fresh start for a store with items, change words asking the current ones, --join), prune --plain, check's encryption line (check now opens the filesystem first, so it reports on stores it may not open), init inspects the store after the connection test (ConnectionCheck::open returns the filesystem). The list reminder is logged by a guarded sealed store's list(), so choose and prune show it too. Migration (the [m] choice) arrives with the rewrite engine in STEP-07; until then a store with items gets the fresh start. |
 | PLAN-00008-STEP-07 | completed | 2026-09-15T15:12:28Z | 2026-09-15T15:21:28Z | Commit `build: complete PLAN-00008-STEP-07 - Rewrite engine: migrate, rotate, recover`; rewrite 6 (incl. fault injection at every call), CLI 185 pass; just check green, 93.61% lines | AC-09, AC-10. encryption::{migrate, rotate, finish, undo, read_plan, RewritePlan, RewriteKind} per D-16; FsStore::id_for/import (crate-private) compute the new keyed id from the recorded SHA-256, so a resumed run skips published items without downloading them; ContentDigest::new. Hardening beyond D-16 found while testing: undo releases a lock whose plan was never written, and finish/undo treat the new key as in place only when the live header names the plan's key (a half-written .rewrite/header is undone, not finished). encrypt: migrate/fresh choice (migrate default), --rotate, --recover (finish or undo; asks old words only when this device lacks the old key). |
-| PLAN-00008-STEP-08 | not-started | — | — | — | — |
+| PLAN-00008-STEP-08 | completed | 2026-09-15T15:22:04Z | 2026-09-15T15:26:35Z | Commit `build: complete PLAN-00008-STEP-08 - serve, pull mode, uploader, and list cache`; core 278, serve_local 13, CLI 185 pass; just check green, 93.53% lines | AC-13 (uploader), AC-14 (behaviour). Uploader asks store.content_key(&digest). Puller records store.key_id() at start and re-baselines on a change. ListCache::store_identity reads the key file and appends ' key <id>' or ' plain' (None when the key file is unreadable), so the CLI cache and serve's refresh loop pick it up unchanged; a v0.1.6 cache file is therefore not reused after upgrading (one extra server read). The 'not yet complete' handling of D-17 shipped in STEP-04. |
 | PLAN-00008-STEP-09 | not-started | — | — | — | — |
 | PLAN-00008-STEP-10 | not-started | — | — | — | — |
 | PLAN-00008-STEP-11 | not-started | — | — | — | — |
@@ -1092,6 +1092,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T14:58:06Z | PLAN-00008-STEP-06 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00008-STEP-06 - init, encrypt, join, changing the words, fresh start, check` | Begin PLAN-00008-STEP-07 |
 | 2026-09-15T15:12:28Z | PLAN-00008-STEP-07 | Started | — | Red phase |
 | 2026-09-15T15:21:28Z | PLAN-00008-STEP-07 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00008-STEP-07 - Rewrite engine: migrate, rotate, recover` | Begin PLAN-00008-STEP-08 |
+| 2026-09-15T15:22:04Z | PLAN-00008-STEP-08 | Started | — | Red phase |
+| 2026-09-15T15:26:35Z | PLAN-00008-STEP-08 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00008-STEP-08 - serve, pull mode, uploader, and list cache` | Begin PLAN-00008-STEP-09 |
 
 ### Deviations and blockers
 
@@ -1125,6 +1127,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T15:21:28Z | PLAN-00008-STEP-07 | cargo test -p passalong-core --all-features --lib encryption::rewrite | 6 passed | migration and rotation keep time, metadata, content; old key refused after rotation; lock refuses a second rewrite, undo releases a plan-less lock; resume writes only the stop file again (FaultyFs OpenWrite = 1); a failure injected at every call of every FsOp in a whole migration and a whole rotation, each cut recovered by finish (every item verified) and by undo (store identical byte for byte, staging folders aside), more than 10 cuts needing recovery each |
 | 2026-09-15T15:21:28Z | PLAN-00008-STEP-07 | cargo test -p passalong --bins | 185 passed | encrypt: migrate by default (empty answer), fresh start, --rotate (needs this device's key, decline, new key saved, old refused), --recover (nothing to recover, finish a cut migration with its words, undo another) |
 | 2026-09-15T15:21:28Z | PLAN-00008-STEP-07 | just check | exit 0; line coverage 93.61% | clippy clean |
+| 2026-09-15T15:26:35Z | PLAN-00008-STEP-08 | cargo test -p passalong-core --all-features --lib; --test serve_local; cargo test -p passalong --bins | 278 core (incl. 10 upload), 13 serve_local, 185 CLI passed | uploader skips text already in a sealed store with zero puts; a Puller whose store's key changed re-baselines and applies nothing, then applies the next new item; list-cache identity ends with ' plain' or ' key <id>' and is None for a damaged key file; serve sends clipboard text and a dropped file into a sealed local store with no plaintext on disk |
+| 2026-09-15T15:26:35Z | PLAN-00008-STEP-08 | just check | exit 0; line coverage 93.53% | the local-backend cache test now writes its cache under the identity with ' plain' |
 
 ### Completion summary
 

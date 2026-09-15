@@ -59,6 +59,20 @@ All notable changes to this project are documented here. The format follows
   cache from before a migration, rotation, or join is never used
   (PLAN-00008 STEP-08).
 
+### Changed
+
+- The version is 0.2.0. Encrypted stores use a new layout, and the
+  library's public API breaks code built against 0.1: `ClientConfig` gains
+  `key_file`, `StoreError` gains `Encryption`, and `StoreError`, `FsError`,
+  `ConfigError`, `ModelError`, `Config`, `ClientConfig`, `ServerConfig`,
+  `SshConfig`, `LocalConfig`, and `ServeConfig` are now
+  `#[non_exhaustive]`, so later additions stop being breaking changes.
+  Windows and S3 support move to v0.2.1 (PLAN-00008 STEP-10).
+- `init` now inspects the store after its connection test, and its last
+  line says how to encrypt or join it.
+- A list cache written by v0.1.6 is read once more from the server, since
+  the cache now names this device's key.
+
 ## v0.1.6 - 2026-09-14T21:14:49Z
 
 ### Added

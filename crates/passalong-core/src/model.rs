@@ -30,6 +30,7 @@ const KEY_HEX_LEN: usize = 12;
 
 /// Errors from building or parsing model values.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum ModelError {
     /// Text that is not an `<8 hex>-<12 hex>` item id.
     #[error(

@@ -149,6 +149,7 @@ pub trait Store: Send + Sync {
 
 /// Storage errors.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum StoreError {
     /// No item matches the given id or prefix.
     #[error("no item matches `{0}`")]

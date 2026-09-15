@@ -293,16 +293,17 @@ mod tests {
     use std::time::Duration;
 
     fn config() -> SshConfig {
-        SshConfig {
-            host: "192.168.1.10".into(),
-            port: 2222,
-            user: "pa".into(),
-            host_key: KEY_A.into(),
-            identity_file: PathBuf::from("/keys/id_ed25519"),
-            remote_path: "/srv/passalong".into(),
-            connect_timeout_secs: 7,
-            passphrase: Some(Passphrase::new("s3cret-value")),
-        }
+        let text = format!(
+            "[server]\nkind = \"ssh\"\n\n[server.ssh]\nhost = \"192.168.1.10\"\nport = 2222\nuser = \"pa\"\nhost_key = \"{KEY_A}\"\nidentity_file = \"/keys/id_ed25519\"\nremote_path = \"/srv/passalong\"\nconnect_timeout_secs = 7\n"
+        );
+        let env = passalong_core::testing::MapEnv::new()
+            .with("HOME", "/home/pa")
+            .with(passalong_core::config::PASSPHRASE_ENV, "s3cret-value");
+        passalong_core::config::parse(&text, std::path::Path::new("/c.toml"), &env)
+            .unwrap()
+            .server
+            .ssh
+            .unwrap()
     }
 
     #[test]

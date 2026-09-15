@@ -4,11 +4,7 @@ Future work not covered by an active plan. Completed items are removed.
 
 ## @joelee road map for next releases
 
-### v0.1.7
-- **Encryption at rest.** Implement a optional client secret key to encrypt the content stored on the server and `passalong encrypt` prompting password prompts for old password and new password (twice) to encrypt or re-encrypt (to change secret key)
-  - Design questions for its plan: which metadata is encrypted, the content hash in the item id, deduplication, pull mode, and sharing the key across devices.
-
-### v0.2.0
+### v0.2.1
 - **Windows support**
 - **Amazon S3 support** for `serve`
 
@@ -34,3 +30,11 @@ Future work not covered by an active plan. Completed items are removed.
 - **Android client and desktop GUI** on top of `passalong-core` and
   `passalong-ssh`.
 - **Windows support.**
+- **Cloud-sync hardening.** Encrypted stores treat a recent item that does
+  not open as not complete; check each provider (Dropbox, Google Drive,
+  OneDrive) for conflicted copies of `encryption/header.json` and warn.
+- **Key import for GUI and Android**, for example from a QR code shown by
+  another device.
+- **Several stores per machine**, each with its own key file.
+- **Stronger Argon2 settings** when the words next change, since the
+  header records them.

@@ -130,6 +130,7 @@ pub struct Metadata {
 
 /// Filesystem errors, independent of the backend.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum FsError {
     /// The path does not exist.
     #[error("{0}: not found")]

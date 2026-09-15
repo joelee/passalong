@@ -7,14 +7,14 @@ use std::io::Cursor;
 use std::sync::Arc;
 
 use passalong_core::clock::SystemClock;
-use passalong_core::config::SshConfig;
+use passalong_core::config::{self, SshConfig};
 use passalong_core::crypto::{DataKey, KdfParams, Words};
 use passalong_core::encryption;
 use passalong_core::fs::{FsError, RemoteFs, RemotePath};
 use passalong_core::model::NewItem;
 use passalong_core::random::{RandomSource, StdRandom};
 use passalong_core::store::{FsStore, Store, StoreError, WriteProbe};
-use passalong_core::testing::{FaultyFs, FixedClock, FsOp, ManualClock};
+use passalong_core::testing::{FaultyFs, FixedClock, FsOp, ManualClock, MapEnv};
 use passalong_ssh::connect::SshParams;
 use passalong_ssh::error::SshError;
 use passalong_ssh::fetch_host_key;
@@ -32,16 +32,21 @@ fn var(name: &str) -> String {
 }
 
 fn config() -> SshConfig {
-    SshConfig {
-        host: var("PASSALONG_IT_SSH_HOST"),
-        port: var("PASSALONG_IT_SSH_PORT").parse().unwrap(),
-        user: var("PASSALONG_IT_SSH_USER"),
-        host_key: var("PASSALONG_IT_SSH_HOST_KEY"),
-        identity_file: var("PASSALONG_IT_SSH_IDENTITY").into(),
-        remote_path: var("PASSALONG_IT_SSH_REMOTE_PATH"),
-        connect_timeout_secs: 10,
-        passphrase: None,
-    }
+    let text = format!(
+        "[server]\nkind = \"ssh\"\n\n[server.ssh]\nhost = \"{}\"\nport = {}\nuser = \"{}\"\nhost_key = \"{}\"\nidentity_file = \"{}\"\nremote_path = \"{}\"\nconnect_timeout_secs = 10\n",
+        var("PASSALONG_IT_SSH_HOST"),
+        var("PASSALONG_IT_SSH_PORT"),
+        var("PASSALONG_IT_SSH_USER"),
+        var("PASSALONG_IT_SSH_HOST_KEY"),
+        var("PASSALONG_IT_SSH_IDENTITY"),
+        var("PASSALONG_IT_SSH_REMOTE_PATH"),
+    );
+    let env = MapEnv::new().with("HOME", "/nonexistent-home");
+    config::parse(&text, std::path::Path::new("/it.toml"), &env)
+        .unwrap()
+        .server
+        .ssh
+        .unwrap()
 }
 
 /// A fresh directory per test so tests can run in parallel.

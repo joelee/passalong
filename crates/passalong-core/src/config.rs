@@ -264,6 +264,7 @@ fn probe(path: &Path) -> Result<bool, ConfigError> {
 
 /// Complete, validated configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Config {
     /// `[client]`: settings about this device.
     pub client: ClientConfig,
@@ -275,6 +276,7 @@ pub struct Config {
 
 /// `[client]` section.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ClientConfig {
     /// Name recorded on every item this device sends. Default: host name.
     pub device_name: String,
@@ -292,6 +294,7 @@ pub struct ClientConfig {
 
 /// `[server]` section.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ServerConfig {
     /// Backend name. `ssh` and `local` are validated here; any other value
     /// is passed through for the store factory to accept or reject.
@@ -304,6 +307,7 @@ pub struct ServerConfig {
 
 /// `[server.ssh]` section.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SshConfig {
     /// Server host name or IP address.
     pub host: String,
@@ -326,6 +330,7 @@ pub struct SshConfig {
 
 /// `[server.local]` section.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct LocalConfig {
     /// Storage directory, for example a mounted network share; `~` is expanded.
     pub path: PathBuf,
@@ -333,6 +338,7 @@ pub struct LocalConfig {
 
 /// `[serve]` section.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ServeConfig {
     /// Folder watched for files to send; `~` is expanded. Default: `~/PassAlong`.
     pub drop_folder: PathBuf,
@@ -397,6 +403,7 @@ impl fmt::Debug for Passphrase {
 
 /// Errors from finding, reading, or validating configuration.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum ConfigError {
     /// No file exists at any probed location.
     #[error("no config file found; searched: {}", join_paths(searched))]

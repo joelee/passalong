@@ -111,6 +111,24 @@ The pid file is locked while `serve` runs, which is how a second copy is
 refused. A pid file left behind by a crash is harmless and is reused. The
 log file grows without rotation.
 
+## Encrypted stores
+
+`passalong encrypt` changes a store's layout. An encrypted store's root
+holds:
+
+| Path | What it is |
+|---|---|
+| `encryption/header.json` | The store's key, sealed under the key its six words derive (Argon2id, 64 MiB), and the key's id. No device name or time |
+| `items` | A file, not a folder, that says the store is encrypted: clients before v0.2.0 fail on it instead of writing plaintext |
+| `v2/items/<id>/` | Sealed items: `meta.json` shows only the schema and id, and `content` is sealed in 64 KiB chunks |
+| `v2/tmp/` | Staging for uploads, and for the header while it is replaced |
+| `plain/items/` | After a fresh start, the items stored before, unencrypted until `prune --plain` removes them |
+| `.rewrite/` | Only while a migration or rotation runs: its lock and journal |
+
+Each device keeps its copy of the store's key in `client.key_file`. A store
+opens sealed only with that key; without it, with another key, or while
+`.rewrite/` exists, commands refuse and name the command that fixes it.
+
 ## Logging
 
 Logs go to standard error, one line per record:

@@ -10,8 +10,8 @@ and no custom server daemon.
 
 > **Status:** released versions and their notes are on the
 > [releases page](https://github.com/joelee/passalong/releases), and
-> [CHANGELOG.md](https://github.com/joelee/passalong/blob/main/CHANGELOG.md) lists what changed in each. A GUI, Android,
-> and Windows support are planned for v0.2 and later.
+> [CHANGELOG.md](https://github.com/joelee/passalong/blob/main/CHANGELOG.md) lists what changed in each. Windows support
+> is planned for v0.2.1, and a GUI and Android after that.
 
 ## How it works
 
@@ -37,6 +37,9 @@ flowchart LR
   written.
 - With an SSH server, `serve` keeps a local copy of the item list up to
   date, so `list` and `choose` show it without waiting for the server.
+- A store can be encrypted: each device holds the store's key, and the
+  server, or the service behind a synced folder, sees only sealed items
+  (see [Encryption](#encryption)).
 - Storage sits behind a trait. Besides SSH there is a `local` backend for a
   mounted share, and others such as S3 can be added.
 
@@ -83,7 +86,8 @@ flowchart LR
 | `passalong choose` | Pick an item from a full-screen list, then load, print, show, or delete it |
 | `passalong serve` | Keep running, sending every new clipboard text and every file dropped into the drop folder (`--daemon`, `--status`, `--stop`) |
 | `passalong delete <id>...` | Delete items |
-| `passalong prune` | Delete items older than `--older-than`, keeping the newest `--keep` |
+| `passalong prune` | Delete items older than `--older-than`, keeping the newest `--keep` (`--plain` for the unencrypted items a fresh start left) |
+| `passalong encrypt` | Encrypt the store or change its words (`--join` to give this device the key, `--rotate` to replace the key, `--recover` after an interruption) |
 | `passalong init` | Write a config file for an SSH server and pin its host key |
 | `passalong service-install` | Start `serve` at login as a systemd user service or launchd agent |
 | `passalong service-remove` | Stop and remove that service |
@@ -91,6 +95,30 @@ flowchart LR
 
 An id can be shortened to its first 4 or more distinctive characters. See
 [docs/usage.md](https://github.com/joelee/passalong/blob/main/docs/usage.md) for every option and exit code.
+
+## Encryption
+
+Encryption is optional and happens on each device, so the server, or the
+cloud service behind a synced `local` folder, stores only sealed items.
+
+1. On one device, `passalong encrypt` shows six words and has you type them
+   back. If items are already stored, it migrates them, re-encrypting each
+   one, or starts fresh and leaves them unencrypted in `plain/` until
+   `passalong prune --plain` removes them.
+2. On every other device, `passalong encrypt --join` asks for the words
+   once. `passalong init` does the same when it finds an encrypted store.
+3. Running `passalong encrypt` again changes the words without
+   re-encrypting anything. `passalong encrypt --rotate` replaces the key
+   itself, and every other device must join again: do this after losing a
+   device.
+
+Every device needs passalong 0.2.0 or later; older versions stop working
+with an encrypted store instead of writing into it. Keep the words safe: if
+they and every device's key file are lost, the items cannot be recovered.
+The server still sees when items were created, how many there are, and
+roughly how large they are. The words come from the EFF large word list,
+used under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); see
+[NOTICE](https://github.com/joelee/passalong/blob/main/NOTICE).
 
 ## Server setup
 

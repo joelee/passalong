@@ -129,6 +129,18 @@ Linux x86_64 or macOS arm64 once into `target/compat/`, checks its SHA-256,
 and runs them. `just ci` includes it. `serve` is not run, because it would
 read the real clipboard.
 
+## Encryption tests
+
+The `crypto` module is tested with round trips and with every kind of
+tampering: truncated, reordered, repeated, or extended content, content
+moved between items, and flipped bits. Tests use small Argon2 settings;
+`cargo test --release -p passalong-core timing_ -- --ignored --nocapture`
+measures the production settings. The rewrite engine's tests fail each
+filesystem call of a whole migration and rotation in turn, then recover
+both ways. The EFF word list in `crates/passalong-core/src/crypto/` must
+stay unmodified: 7,776 lines of a dice code, a tab, and a word, and its
+attribution in `NOTICE` and `crates/passalong-core/NOTICE`.
+
 ## Desktop clipboard test
 
 The real clipboard adapter needs a desktop session, so its test is ignored

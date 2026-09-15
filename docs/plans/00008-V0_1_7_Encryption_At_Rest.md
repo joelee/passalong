@@ -38,9 +38,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00008-v0.2.0"
 execution_started_at: "2026-09-15T13:53:01Z"
-execution_updated_at: "2026-09-15T15:31:50Z"
+execution_updated_at: "2026-09-15T15:37:20Z"
 execution_completed_at: null
-current_step: "PLAN-00008-STEP-10"
+current_step: "PLAN-00008-STEP-11"
 ---
 
 # Delivery Plan 00008: V0 1 7 Encryption At Rest
@@ -1067,7 +1067,7 @@ passing unchanged.
 | PLAN-00008-STEP-07 | completed | 2026-09-15T15:12:28Z | 2026-09-15T15:21:28Z | Commit `build: complete PLAN-00008-STEP-07 - Rewrite engine: migrate, rotate, recover`; rewrite 6 (incl. fault injection at every call), CLI 185 pass; just check green, 93.61% lines | AC-09, AC-10. encryption::{migrate, rotate, finish, undo, read_plan, RewritePlan, RewriteKind} per D-16; FsStore::id_for/import (crate-private) compute the new keyed id from the recorded SHA-256, so a resumed run skips published items without downloading them; ContentDigest::new. Hardening beyond D-16 found while testing: undo releases a lock whose plan was never written, and finish/undo treat the new key as in place only when the live header names the plan's key (a half-written .rewrite/header is undone, not finished). encrypt: migrate/fresh choice (migrate default), --rotate, --recover (finish or undo; asks old words only when this device lacks the old key). |
 | PLAN-00008-STEP-08 | completed | 2026-09-15T15:22:04Z | 2026-09-15T15:26:35Z | Commit `build: complete PLAN-00008-STEP-08 - serve, pull mode, uploader, and list cache`; core 278, serve_local 13, CLI 185 pass; just check green, 93.53% lines | AC-13 (uploader), AC-14 (behaviour). Uploader asks store.content_key(&digest). Puller records store.key_id() at start and re-baselines on a change. ListCache::store_identity reads the key file and appends ' key <id>' or ' plain' (None when the key file is unreadable), so the CLI cache and serve's refresh loop pick it up unchanged; a v0.1.6 cache file is therefore not reused after upgrading (one extra server read). The 'not yet complete' handling of D-17 shipped in STEP-04. |
 | PLAN-00008-STEP-09 | completed | 2026-09-15T15:28:02Z | 2026-09-15T15:31:50Z | Commit `build: complete PLAN-00008-STEP-09 - Encryption over SFTP`; test-integration: 6 + 15 SSH tests pass; just check green, 93.53% lines | AC-16. SftpFs create_dir/remove_file, sealed store, header swap, and cut migration/rotation recovery all exercised against the Docker sshd; scripted init over SSH now also prints the hint to encrypt; the binary test parses its written config instead of building SshConfig, ready for STEP-10's #[non_exhaustive]. |
-| PLAN-00008-STEP-10 | not-started | — | — | — | — |
+| PLAN-00008-STEP-10 | completed | 2026-09-15T15:33:06Z | 2026-09-15T15:37:20Z | Commit `build: complete PLAN-00008-STEP-10 - Documentation, public types, and v0.2.0 release preparation`; just links ok; just check green, 93.54% lines; test-integration green | AC-17, AC-18, AC-22. #[non_exhaustive] on StoreError, FsError, ConfigError, ModelError, Config, ClientConfig, ServerConfig, SshConfig, LocalConfig, ServeConfig; nothing outside passalong-core needed a new wildcard arm; the two SshConfig literals (connect.rs tests, sftp_docker.rs) now parse TOML. Version 0.2.0 (workspace, internal = requirements, version literals; compat and Homebrew test data keep 0.1.6). README (Encryption section, EFF attribution, v0.2.1 roadmap line, commands), usage (encrypt, init, check, list, prune --plain), configuration (Encrypted stores), architecture (encrypted layout, keys, formats, opening table, rewrite engine, security model), developer guide (encryption tests, word list), backlog (v0.2.1, follow-ups), CHANGELOG Changed, docs/release/v0.2.0.md draft (Tests, Coverage, Timings filled at STEP-11). |
 | PLAN-00008-STEP-11 | not-started | — | — | — | — |
 
 Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
@@ -1096,6 +1096,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T15:26:35Z | PLAN-00008-STEP-08 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00008-STEP-08 - serve, pull mode, uploader, and list cache` | Begin PLAN-00008-STEP-09 |
 | 2026-09-15T15:28:02Z | PLAN-00008-STEP-09 | Started | — | Red phase |
 | 2026-09-15T15:31:50Z | PLAN-00008-STEP-09 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00008-STEP-09 - Encryption over SFTP` | Begin PLAN-00008-STEP-10 |
+| 2026-09-15T15:33:06Z | PLAN-00008-STEP-10 | Started | — | Red phase |
+| 2026-09-15T15:37:20Z | PLAN-00008-STEP-10 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00008-STEP-10 - Documentation, public types, and v0.2.0 release preparation` | Begin PLAN-00008-STEP-11 |
 
 ### Deviations and blockers
 
@@ -1134,6 +1136,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T15:26:35Z | PLAN-00008-STEP-08 | just check | exit 0; line coverage 93.53% | the local-backend cache test now writes its cache under the identity with ' plain' |
 | 2026-09-15T15:31:50Z | PLAN-00008-STEP-09 | just test-integration | exit 0: cli_ssh_backend 6 passed, sftp_docker 15 passed | over SFTP: create_dir exclusive (AlreadyExists) and remove_file; set_up, sealed put/list/get/delete, a header swap on new words with the guarded store still writing, refusal without a key; a migration cut at its header swap then finished, a rotation cut at its header swap then undone; the binary with a key sends, lists (--nocache), loads, and check shows 'encryption ok on (key …)'; a config without the key is refused naming encrypt --join |
 | 2026-09-15T15:31:50Z | PLAN-00008-STEP-09 | just check | exit 0; line coverage 93.53% | clippy clean |
+| 2026-09-15T15:37:20Z | PLAN-00008-STEP-10 | just links; just check | links ok: 36 Markdown files; just check exit 0, line coverage 93.54% | clippy clean after #[non_exhaustive] |
+| 2026-09-15T15:37:20Z | PLAN-00008-STEP-10 | just test-integration | exit 0: 6 CLI SSH and 15 SFTP tests pass with configs parsed from TOML | sftp_docker config() and connect.rs tests no longer build SshConfig literally |
 
 ### Completion summary
 

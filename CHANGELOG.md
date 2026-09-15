@@ -21,6 +21,13 @@ All notable changes to this project are documented here. The format follows
   and the key file behind it: written with mode 0600 through a temporary
   file, and refused when other users can read it or when it is inside a git
   work tree that does not ignore it (PLAN-00008 STEP-03).
+- `FsStore::sealed` keeps a store's items under `v2/` with sealed metadata
+  (only the schema and id are readable), sealed chunked content, and ids
+  made of keyed content keys; deduplication and id prefixes work as
+  before. A recent sealed item that does not open yet is reported as not
+  complete rather than corrupt, for stores in synced folders. `RemoteFs`
+  gains `create_dir` (exclusive) and `remove_file`, and `Store` gains
+  `key_id` and `content_key` (PLAN-00008 STEP-04).
 
 ## v0.1.6 - 2026-09-14T21:14:49Z
 

@@ -47,6 +47,12 @@ fn invalid(err: CryptoError) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, err)
 }
 
+/// The length of `plain_len` bytes of content once sealed.
+pub fn sealed_len(plain_len: u64) -> u64 {
+    let records = plain_len.div_ceil(CHUNK_LEN as u64).max(1);
+    HEADER_LEN as u64 + plain_len + records * TAG_LEN as u64
+}
+
 /// Reads until `buf` is full or the stream ends, returning the bytes read.
 ///
 /// # Errors
@@ -141,6 +147,7 @@ impl ContentSealer {
 pub struct OpenReader<R> {
     inner: R,
     key: DataKey,
+    expected_salt: Option<[u8; CONTENT_SALT_LEN]>,
     cipher: Option<Aes256Gcm>,
     /// One record plus one byte of look-ahead, to tell the final record.
     buf: Box<[u8]>,
@@ -153,10 +160,15 @@ pub struct OpenReader<R> {
 }
 
 impl<R> OpenReader<R> {
-    pub(crate) fn new(inner: R, key: DataKey) -> Self {
+    pub(crate) fn new(
+        inner: R,
+        key: DataKey,
+        expected_salt: Option<[u8; CONTENT_SALT_LEN]>,
+    ) -> Self {
         Self {
             inner,
             key,
+            expected_salt,
             cipher: None,
             buf: vec![0_u8; RECORD_LEN + 1].into_boxed_slice(),
             filled: 0,
@@ -209,6 +221,9 @@ impl<R: AsyncRead + Unpin> AsyncRead for OpenReader<R> {
                 }
                 let mut salt = [0_u8; CONTENT_SALT_LEN];
                 salt.copy_from_slice(&this.buf[CONTENT_MAGIC.len()..HEADER_LEN]);
+                if this.expected_salt.is_some_and(|expected| expected != salt) {
+                    return Poll::Ready(Err(invalid(CryptoError::Authentication)));
+                }
                 this.cipher = Some(this.key.content_cipher(&salt));
                 this.buf.copy_within(HEADER_LEN..this.filled, 0);
                 this.filled -= HEADER_LEN;
@@ -438,6 +453,44 @@ mod tests {
         .await
         .unwrap_err();
         assert!(matches!(crypto_error(&err), CryptoError::Format(_)));
+    }
+
+    #[tokio::test]
+    async fn item_content_opens_only_with_its_recorded_salt() {
+        let sealer = sealer();
+        let mut content = sealer.content_sealer().unwrap();
+        let salt = content.salt();
+        let mut sealed = content.header().to_vec();
+        sealed.extend(content.seal_chunk(b"hi", true).unwrap());
+        assert_eq!(sealed.len() as u64, sealed_len(2));
+        let mut plain = Vec::new();
+        sealer
+            .open_item_content(Cursor::new(sealed.clone()), salt)
+            .read_to_end(&mut plain)
+            .await
+            .unwrap();
+        assert_eq!(plain, b"hi");
+        let mut other = salt;
+        other[0] ^= 1;
+        let err = sealer
+            .open_item_content(Cursor::new(sealed), other)
+            .read_to_end(&mut Vec::new())
+            .await
+            .unwrap_err();
+        assert_eq!(crypto_error(&err), CryptoError::Authentication);
+    }
+
+    #[test]
+    fn sealed_lengths_count_one_tag_per_record() {
+        assert_eq!(sealed_len(0), (HEADER_LEN + TAG_LEN) as u64);
+        assert_eq!(
+            sealed_len(CHUNK_LEN as u64),
+            (HEADER_LEN + CHUNK_LEN + TAG_LEN) as u64
+        );
+        assert_eq!(
+            sealed_len(CHUNK_LEN as u64 + 1),
+            (HEADER_LEN + CHUNK_LEN + 1 + 2 * TAG_LEN) as u64
+        );
     }
 
     #[test]

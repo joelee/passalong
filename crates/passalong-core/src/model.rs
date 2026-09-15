@@ -403,7 +403,25 @@ impl NewItem {
         digest: &ContentDigest,
         preview: Option<String>,
     ) -> Result<ItemMeta, ModelError> {
-        let id = ItemId::new(created_at, digest.content_key())?;
+        let key = digest.content_key();
+        self.finish_keyed(created_at, digest, key, preview)
+    }
+
+    /// Like [`NewItem::finish`], with the id's content key given, as an
+    /// encrypted store derives it with a key.
+    ///
+    /// # Errors
+    ///
+    /// [`ModelError::TimestampOutOfRange`] when `created_at` cannot be
+    /// encoded in an id.
+    pub fn finish_keyed(
+        self,
+        created_at: DateTime<Utc>,
+        digest: &ContentDigest,
+        key: ContentKey,
+        preview: Option<String>,
+    ) -> Result<ItemMeta, ModelError> {
+        let id = ItemId::new(created_at, key)?;
         Ok(ItemMeta {
             schema: ItemMeta::SCHEMA_VERSION,
             created_at: id.timestamp(),

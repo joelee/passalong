@@ -197,6 +197,26 @@ pub trait RemoteFs: Send + Sync {
 
     /// Returns metadata, or `None` if the path does not exist.
     async fn stat(&self, path: &RemotePath) -> Result<Option<Metadata>, FsError>;
+
+    /// Creates one directory, whose parent must exist, and fails with
+    /// [`FsError::AlreadyExists`] when the path exists. Creating a directory
+    /// exclusively is how clients take a lock, so backends override this
+    /// default, which checks first and is therefore not atomic.
+    async fn create_dir(&self, path: &RemotePath) -> Result<(), FsError> {
+        if self.stat(path).await?.is_some() {
+            return Err(FsError::AlreadyExists(path.to_string()));
+        }
+        self.create_dir_all(path).await
+    }
+
+    /// Removes one file; succeeds if it does not exist. This default reports
+    /// that the backend cannot.
+    async fn remove_file(&self, path: &RemotePath) -> Result<(), FsError> {
+        Err(FsError::Other {
+            path: path.to_string(),
+            message: "this backend cannot remove a single file".to_owned(),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -272,6 +292,50 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let fs: Box<dyn RemoteFs> = Box::new(LocalFs::new(dir.path()));
         drop(fs);
+    }
+
+    /// Implements only the required methods, to exercise the defaults.
+    struct Basic(crate::fs::LocalFs);
+
+    #[async_trait]
+    impl RemoteFs for Basic {
+        async fn create_dir_all(&self, path: &RemotePath) -> Result<(), FsError> {
+            self.0.create_dir_all(path).await
+        }
+        async fn read_dir(&self, path: &RemotePath) -> Result<Vec<DirEntry>, FsError> {
+            self.0.read_dir(path).await
+        }
+        async fn open_read(&self, path: &RemotePath) -> Result<BoxRead, FsError> {
+            self.0.open_read(path).await
+        }
+        async fn open_write(&self, path: &RemotePath) -> Result<BoxWrite, FsError> {
+            self.0.open_write(path).await
+        }
+        async fn rename(&self, from: &RemotePath, to: &RemotePath) -> Result<(), FsError> {
+            self.0.rename(from, to).await
+        }
+        async fn remove_dir_all(&self, path: &RemotePath) -> Result<(), FsError> {
+            self.0.remove_dir_all(path).await
+        }
+        async fn stat(&self, path: &RemotePath) -> Result<Option<Metadata>, FsError> {
+            self.0.stat(path).await
+        }
+    }
+
+    #[tokio::test]
+    async fn the_default_create_dir_refuses_an_existing_path_and_remove_file_is_unsupported() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let fs = Basic(crate::fs::LocalFs::new(dir.path()));
+        let lock = RemotePath::new("lock").unwrap();
+        fs.create_dir(&lock).await.unwrap();
+        assert!(matches!(
+            fs.create_dir(&lock).await,
+            Err(FsError::AlreadyExists(_))
+        ));
+        assert!(matches!(
+            fs.remove_file(&lock).await,
+            Err(FsError::Other { .. })
+        ));
     }
 
     #[tokio::test]

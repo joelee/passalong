@@ -192,6 +192,10 @@ pub enum FsOp {
     RemoveDirAll,
     /// [`RemoteFs::stat`].
     Stat,
+    /// [`RemoteFs::create_dir`].
+    CreateDir,
+    /// [`RemoteFs::remove_file`].
+    RemoveFile,
 }
 
 #[derive(Debug, Default)]
@@ -300,6 +304,16 @@ impl<F: RemoteFs> RemoteFs for FaultyFs<F> {
     async fn stat(&self, path: &RemotePath) -> Result<Option<Metadata>, FsError> {
         self.check(FsOp::Stat, path)?;
         self.inner.stat(path).await
+    }
+
+    async fn create_dir(&self, path: &RemotePath) -> Result<(), FsError> {
+        self.check(FsOp::CreateDir, path)?;
+        self.inner.create_dir(path).await
+    }
+
+    async fn remove_file(&self, path: &RemotePath) -> Result<(), FsError> {
+        self.check(FsOp::RemoveFile, path)?;
+        self.inner.remove_file(path).await
     }
 }
 

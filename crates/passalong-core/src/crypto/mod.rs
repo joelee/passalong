@@ -41,7 +41,7 @@ use zeroize::{Zeroize, Zeroizing};
 use crate::model::{ContentDigest, ContentKey, ItemId};
 
 pub use stream::{
-    CHUNK_LEN, CONTENT_MAGIC, ContentSealer, HEADER_LEN, OpenReader, TAG_LEN, read_full,
+    CHUNK_LEN, CONTENT_MAGIC, ContentSealer, HEADER_LEN, OpenReader, TAG_LEN, read_full, sealed_len,
 };
 pub use words::{WORD_COUNT, Words, word_list};
 
@@ -510,7 +510,18 @@ impl Sealer {
     /// A reader that opens sealed content from `sealed`, failing with
     /// [`std::io::ErrorKind::InvalidData`] on any tampering.
     pub fn open_content<R: AsyncRead + Unpin>(&self, sealed: R) -> OpenReader<R> {
-        OpenReader::new(sealed, self.key.clone())
+        OpenReader::new(sealed, self.key.clone(), None)
+    }
+
+    /// Like [`Sealer::open_content`], and also refuses content whose salt
+    /// differs from `salt`, the one its item's metadata records, so content
+    /// moved from another item does not open.
+    pub fn open_item_content<R: AsyncRead + Unpin>(
+        &self,
+        sealed: R,
+        salt: [u8; CONTENT_SALT_LEN],
+    ) -> OpenReader<R> {
+        OpenReader::new(sealed, self.key.clone(), Some(salt))
     }
 }
 

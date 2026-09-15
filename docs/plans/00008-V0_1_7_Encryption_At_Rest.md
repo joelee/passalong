@@ -38,9 +38,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00008-v0.2.0"
 execution_started_at: "2026-09-15T13:53:01Z"
-execution_updated_at: "2026-09-15T14:16:20Z"
+execution_updated_at: "2026-09-15T14:28:02Z"
 execution_completed_at: null
-current_step: "PLAN-00008-STEP-04"
+current_step: "PLAN-00008-STEP-05"
 ---
 
 # Delivery Plan 00008: V0 1 7 Encryption At Rest
@@ -1061,7 +1061,7 @@ passing unchanged.
 | PLAN-00008-STEP-01 | completed | 2026-09-15T13:53:01Z | 2026-09-15T13:56:48Z | Commit `build: complete PLAN-00008-STEP-01 - Compatibility gate: v0.1.6 against the stop file`; just test-compat pass (AC-01, stop-file layout); just check green, 92.51% lines | compat_v016 runs the released v0.1.6 binary against a store whose items is a regular file: all 8 commands exit non-zero, nothing reaches the store. just test-compat downloads and checksums the archive into target/compat; just ci runs it, so the Linux CI job does too (it runs just ci); test-integration and coverage-full skip compat_ tests. STEP-01's success condition for accepting IDEA-00001 (D-10) is met; the encrypted-store half of AC-01 follows in STEP-05. |
 | PLAN-00008-STEP-02 | completed | 2026-09-15T13:57:50Z | 2026-09-15T14:08:34Z | Commit `build: complete PLAN-00008-STEP-02 - Crypto primitives and the word list`; crypto tests 25 pass; Argon2 unwrap 106 ms (release); no new Cargo.lock packages; just audit ok; just check green, 92.64% lines | AC-04, AC-05, AC-06. New public module passalong_core::crypto (DataKey, KeyId, KdfParams, WrappedKey, wrap/unwrap, Sealer, SealedMeta, ContentSealer, OpenReader, read_full, Words, CryptoError #[non_exhaustive]). aes-gcm and argon2 without their getrandom default features, so the lock gains nothing; argon2 and blake2 build at opt-level 3 in dev so debug tests stay fast. A cut after a full record reports Truncated (tries the record as non-final), a cut inside one reports Authentication. |
 | PLAN-00008-STEP-03 | completed | 2026-09-15T14:09:32Z | 2026-09-15T14:16:20Z | Commit `build: complete PLAN-00008-STEP-03 - Key file, client.key_file, and hidden prompts`; core 230 and CLI 165 tests pass; just check green, 92.45% lines | AC-07. ClientConfig.key_file is Option<PathBuf>: the default beside default_config_path, None only without XDG_CONFIG_HOME and HOME (a config that does not use encryption must still parse; a serve test parses one with an empty environment). Key file in passalong_core::encryption (load_key_file, save_key_file, GitCheck, SystemGit, KeyFileError #[non_exhaustive]); existing folders keep their mode, new ones get 0700. Prompt::ask_secret reads in crossterm raw mode (through ratatui::crossterm) with a guard that always leaves raw mode; it is marked expect(dead_code) outside tests until STEP-06 calls it. *.key added to .gitignore. |
-| PLAN-00008-STEP-04 | not-started | — | — | — | — |
+| PLAN-00008-STEP-04 | completed | 2026-09-15T14:17:39Z | 2026-09-15T14:28:02Z | Commit `build: complete PLAN-00008-STEP-04 - RemoteFs additions and the sealed FsStore`; core 246 tests pass; just check green, 93.08% lines | AC-03, AC-13 (store level). FsStore::sealed over v2/items and v2/tmp; sealed meta.json {schema 2, id, nonce, sealed}, sealing the ItemMeta and the content salt; content opened with open_item_content, which refuses another item's salt; NewItem::finish_keyed; get compares the content length with crypto::sealed_len first. Not complete yet (StoreError::Encryption(EncryptionError::Incomplete)) within 5 minutes of the id's time, corrupt after; list skips such items at debug level. Deviation from the step's test note: the sealed behaviours are covered by a dedicated sealed_tests suite that mirrors the plaintext cases, rather than by running the same test functions twice. SftpFs create_dir/remove_file compile here and are exercised over Docker in STEP-09. The CLI's Recording wrapper forwards key_id and content_key. |
 | PLAN-00008-STEP-05 | not-started | — | — | — | — |
 | PLAN-00008-STEP-06 | not-started | — | — | — | — |
 | PLAN-00008-STEP-07 | not-started | — | — | — | — |
@@ -1084,13 +1084,14 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T14:08:34Z | PLAN-00008-STEP-02 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00008-STEP-02 - Crypto primitives and the word list` | Begin PLAN-00008-STEP-03 |
 | 2026-09-15T14:09:32Z | PLAN-00008-STEP-03 | Started | — | Red phase |
 | 2026-09-15T14:16:20Z | PLAN-00008-STEP-03 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00008-STEP-03 - Key file, client.key_file, and hidden prompts` | Begin PLAN-00008-STEP-04 |
+| 2026-09-15T14:17:39Z | PLAN-00008-STEP-04 | Started | — | Red phase |
+| 2026-09-15T14:28:02Z | PLAN-00008-STEP-04 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00008-STEP-04 - RemoteFs additions and the sealed FsStore` | Begin PLAN-00008-STEP-05 |
 
 ### Deviations and blockers
 
 | Timestamp (UTC) | Step | Deviation or blocker | Impact | Decision required from |
 |---|---|---|---|---|
-
-None
+| 2026-09-15T14:28:02Z | PLAN-00008-STEP-04 | Sealed store behaviours are tested by a dedicated sealed_tests suite mirroring the plaintext cases, not by running every existing FsStore test a second time | None on behaviour: every listed operation and failure case has a sealed test; the plaintext suite is unchanged | None (recorded for review) |
 
 ### Verification results
 
@@ -1106,6 +1107,8 @@ None
 | 2026-09-15T14:08:33Z | PLAN-00008-STEP-02 | just check | exit 0; line coverage 92.64 % | android-check not run locally (no NDK); the CI Android job runs it (STEP-11) |
 | 2026-09-15T14:16:20Z | PLAN-00008-STEP-03 | cargo test -p passalong-core --all-features --lib; cargo test -p passalong --bins | 230 and 165 passed | key file: private save (0600 file, 0700 new folders), load back, replace without temp files, missing = None, readable-by-others refused, damaged refused without quoting, git work tree refused until ignored (real git, isolated config), .git without git refused; client.key_file default, XDG, set, relative refused; ScriptedPrompt::ask_secret |
 | 2026-09-15T14:16:20Z | PLAN-00008-STEP-03 | just check | exit 0; line coverage 92.45 % | clippy clean with the ask_secret/read_hidden dead_code expectation until STEP-06 |
+| 2026-09-15T14:28:02Z | PLAN-00008-STEP-04 | cargo test -p passalong-core --all-features --lib | 246 passed, 4 ignored | sealed suite: v2 layout and keyed ids, leak scan (markers, file name, device, MIME, previews, SHA-256 and its 12-hex prefix), dedup, lookups, delete/probe/staging in v2/tmp, swapped content, moved and relabelled metadata, another key, not-complete-yet then corrupt, 3-chunk round trip, failed uploads; LocalFs create_dir/remove_file; RemoteFs defaults; salt-checked content |
+| 2026-09-15T14:28:02Z | PLAN-00008-STEP-04 | just check | exit 0; line coverage 93.08% | clippy clean workspace-wide |
 
 ### Completion summary
 

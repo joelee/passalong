@@ -44,6 +44,16 @@ fn only(accounts: &[String], user: &str) -> bool {
     matches!(accounts, [only] if only.eq_ignore_ascii_case(user))
 }
 
+/// How `icacls /remove` names an account `icacls` listed: by name, or, for
+/// an account Windows could not name, by its security identifier.
+fn removal_name(account: &str) -> String {
+    if account.starts_with("S-1-") {
+        format!("*{account}")
+    } else {
+        account.to_owned()
+    }
+}
+
 #[cfg(windows)]
 fn run(program: &str, args: &[&std::ffi::OsStr]) -> std::io::Result<String> {
     let output = std::process::Command::new(program)
@@ -79,11 +89,12 @@ fn current_user() -> std::io::Result<(String, String)> {
 ///
 /// # Errors
 ///
-/// When `whoami` or `icacls` cannot be run or fails.
+/// When `whoami` or `icacls` cannot be run or fails, or when others can
+/// still open `path` afterwards.
 #[cfg(windows)]
 pub(crate) fn restrict(path: &std::path::Path, folder: bool) -> std::io::Result<()> {
     use std::ffi::OsStr;
-    let (_, sid) = current_user()?;
+    let (user, sid) = current_user()?;
     let grant = if folder {
         format!("*{sid}:(OI)(CI)F")
     } else {
@@ -97,8 +108,27 @@ pub(crate) fn restrict(path: &std::path::Path, folder: bool) -> std::io::Result<
             OsStr::new("/grant:r"),
             OsStr::new(&grant),
         ],
-    )
-    .map(drop)
+    )?;
+    // Some systems keep the inherited entries as entries of the file's own
+    // rather than dropping them (GitHub's Windows runners do), so whoever
+    // else is still listed is removed by name.
+    let shown = path.to_string_lossy();
+    let listed = parse_icacls(&run("icacls", &[path.as_os_str()])?, &shown);
+    for account in listed.iter().filter(|a| !a.eq_ignore_ascii_case(&user)) {
+        let name = removal_name(account);
+        run(
+            "icacls",
+            &[path.as_os_str(), OsStr::new("/remove:g"), OsStr::new(&name)],
+        )?;
+    }
+    let left = parse_icacls(&run("icacls", &[path.as_os_str()])?, &shown);
+    if !only(&left, &user) {
+        return Err(std::io::Error::other(format!(
+            "cannot make {shown} private: icacls still lists {}",
+            left.join(", ")
+        )));
+    }
+    Ok(())
 }
 
 /// Whether the current user alone may open `path`.
@@ -197,6 +227,33 @@ mod tests {
         for out in cases {
             assert!(!only(&parse_icacls(&out, PATH), ME), "{out}");
         }
+    }
+
+    #[test]
+    fn entries_copied_from_the_folder_are_removed_by_name_or_sid() {
+        // What GitHub's runner lists after `/inheritance:r /grant:r`.
+        let out = listing(
+            &[
+                r"NT AUTHORITY\SYSTEM:(F)",
+                r"BUILTIN\Administrators:(F)",
+                r"DESKTOP-1\me:(F)",
+                "S-1-5-21-9-9-9-1234:(R)",
+            ],
+            SUMMARY,
+        );
+        let others: Vec<String> = parse_icacls(&out, PATH)
+            .iter()
+            .filter(|a| !a.eq_ignore_ascii_case(ME))
+            .map(|a| removal_name(a))
+            .collect();
+        assert_eq!(
+            others,
+            [
+                r"NT AUTHORITY\SYSTEM",
+                r"BUILTIN\Administrators",
+                "*S-1-5-21-9-9-9-1234"
+            ]
+        );
     }
 
     #[test]

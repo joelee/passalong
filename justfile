@@ -85,6 +85,13 @@ test-compat:
     PASSALONG_COMPAT_BIN="$v016" cargo test -p passalong --test compat_v016 -- --ignored
     PASSALONG_COMPAT_V020_BIN="$v020" cargo test -p passalong --test compat_v020 -- --ignored
 
+# What the Windows CI job runs: build, lint, and test the workspace. On
+# Windows it needs Git Bash for `just`, and the MSVC build tools.
+windows-check:
+    cargo build --locked --workspace --all-targets --all-features
+    cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+    cargo test --locked --workspace --all-features
+
 # Prove deploy/ssh-server works end to end: start it from a temporary
 # directory, run `init` and a round trip, check host-owned storage and a
 # stable host key across re-creation. Linux and Docker only.

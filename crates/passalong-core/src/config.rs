@@ -74,6 +74,38 @@ fn non_empty(env: &dyn EnvProvider, key: &str) -> Option<String> {
     env.var(key).filter(|value| !value.is_empty())
 }
 
+/// Whose conventions decide the standard file locations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Platform {
+    /// Linux, macOS, and other Unix-like systems: XDG and `$HOME`.
+    Unix,
+    /// Windows: `%APPDATA%` and `%USERPROFILE%`.
+    Windows,
+}
+
+impl Platform {
+    /// The platform this binary was built for.
+    pub(crate) fn current() -> Self {
+        if cfg!(windows) {
+            Self::Windows
+        } else {
+            Self::Unix
+        }
+    }
+}
+
+/// On Windows, the folder the environment variable `key` names. `None`
+/// elsewhere, or when it is unset; then the Unix rules apply, which on a
+/// real Windows system, where these variables are always set, never
+/// happens.
+fn windows_dir(env: &dyn EnvProvider, platform: Platform, key: &str) -> Option<PathBuf> {
+    if platform == Platform::Windows {
+        non_empty(env, key).map(PathBuf::from)
+    } else {
+        None
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Discovery
 // ---------------------------------------------------------------------------
@@ -87,9 +119,11 @@ pub enum ConfigOrigin {
     EnvVar,
     /// `$XDG_CONFIG_HOME/passalong/config.toml`.
     XdgConfigHome,
-    /// `$HOME/.config/passalong/config.toml`.
+    /// `$HOME/.config/passalong/config.toml`; on Windows,
+    /// `%APPDATA%\passalong\config.toml`.
     HomeConfig,
-    /// `/etc/passalong/config.toml`.
+    /// `/etc/passalong/config.toml`; on Windows,
+    /// `%ProgramData%\passalong\config.toml`.
     System,
     /// `./config.toml`.
     WorkingDir,
@@ -101,6 +135,7 @@ impl fmt::Display for ConfigOrigin {
             Self::Explicit => "--config",
             Self::EnvVar => CONFIG_FILE_ENV,
             Self::XdgConfigHome => "$XDG_CONFIG_HOME",
+            Self::HomeConfig if cfg!(windows) => "%APPDATA%",
             Self::HomeConfig => "$HOME/.config",
             Self::System => "the system config directory",
             Self::WorkingDir => "the working directory",
@@ -121,21 +156,30 @@ pub struct LocatedConfig {
 /// environment; injectable so tests can use temporary directories.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchRoots {
-    /// Directory holding `passalong/config.toml` system-wide (`/etc`).
+    /// Directory holding `passalong/config.toml` system-wide (`/etc`, or
+    /// `%ProgramData%` on Windows).
     pub system_config_dir: PathBuf,
     /// Directory holding `./config.toml`, and the base for relative paths.
     pub working_dir: PathBuf,
 }
 
 impl SearchRoots {
-    /// Returns `/etc` and the process's current directory.
+    /// Returns `/etc`, or `%ProgramData%` on Windows, and the process's
+    /// current directory.
     ///
     /// # Errors
     ///
     /// Fails when the current directory cannot be determined.
     pub fn from_system() -> io::Result<Self> {
+        let system_config_dir = if cfg!(windows) {
+            std::env::var_os("ProgramData")
+                .filter(|dir| !dir.is_empty())
+                .map_or_else(|| PathBuf::from(r"C:\ProgramData"), PathBuf::from)
+        } else {
+            PathBuf::from("/etc")
+        };
         Ok(Self {
-            system_config_dir: PathBuf::from("/etc"),
+            system_config_dir,
             working_dir: std::env::current_dir()?,
         })
     }
@@ -150,6 +194,10 @@ impl SearchRoots {
 /// 5. `/etc/passalong/config.toml`
 /// 6. `./config.toml`
 ///
+/// On Windows, 3 and 4 are replaced by `%APPDATA%\passalong\config.toml`,
+/// and 5 is under `%ProgramData%`; `XDG_CONFIG_HOME` and `HOME` are read
+/// only when `APPDATA` is unset.
+///
 /// A path named by 1 or 2 must exist: a typo there is reported rather than
 /// silently falling back to another file. Relative paths resolve against
 /// the working directory; an empty variable counts as unset; a relative
@@ -163,6 +211,16 @@ pub fn locate(
     explicit: Option<&Path>,
     env: &dyn EnvProvider,
     roots: &SearchRoots,
+) -> Result<LocatedConfig, ConfigError> {
+    locate_on(explicit, env, roots, Platform::current())
+}
+
+/// [`locate`] with `platform`'s locations.
+pub(crate) fn locate_on(
+    explicit: Option<&Path>,
+    env: &dyn EnvProvider,
+    roots: &SearchRoots,
+    platform: Platform,
 ) -> Result<LocatedConfig, ConfigError> {
     let absolute = |path: &Path| {
         if path.is_absolute() {
@@ -188,23 +246,30 @@ pub fn locate(
     }
 
     let mut candidates = Vec::with_capacity(4);
-    if let Some(xdg) = non_empty(env, "XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
-    {
+    if let Some(appdata) = windows_dir(env, platform, "APPDATA") {
         candidates.push((
-            xdg.join(APP_NAME).join(CONFIG_FILE_NAME),
-            ConfigOrigin::XdgConfigHome,
-        ));
-    }
-    if let Some(home) = non_empty(env, "HOME") {
-        candidates.push((
-            Path::new(&home)
-                .join(".config")
-                .join(APP_NAME)
-                .join(CONFIG_FILE_NAME),
+            appdata.join(APP_NAME).join(CONFIG_FILE_NAME),
             ConfigOrigin::HomeConfig,
         ));
+    } else {
+        if let Some(xdg) = non_empty(env, "XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+        {
+            candidates.push((
+                xdg.join(APP_NAME).join(CONFIG_FILE_NAME),
+                ConfigOrigin::XdgConfigHome,
+            ));
+        }
+        if let Some(home) = non_empty(env, "HOME") {
+            candidates.push((
+                Path::new(&home)
+                    .join(".config")
+                    .join(APP_NAME)
+                    .join(CONFIG_FILE_NAME),
+                ConfigOrigin::HomeConfig,
+            ));
+        }
     }
     candidates.push((
         roots
@@ -538,16 +603,29 @@ pub fn effective_log_level(
 /// [`ConfigError::InvalidValue`] for `key` when the path starts with `~` and
 /// `HOME` is unset or empty.
 pub fn expand_tilde(path: &str, key: &str, env: &dyn EnvProvider) -> Result<PathBuf, ConfigError> {
+    expand_tilde_on(path, key, env, Platform::current())
+}
+
+/// [`expand_tilde`] with `platform`'s home folder: `%USERPROFILE%` on
+/// Windows, where `~\` is accepted too, and `$HOME` elsewhere.
+pub(crate) fn expand_tilde_on(
+    path: &str,
+    key: &str,
+    env: &dyn EnvProvider,
+    platform: Platform,
+) -> Result<PathBuf, ConfigError> {
     let rest = if path == "~" {
         Some("")
+    } else if platform == Platform::Windows {
+        path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\"))
     } else {
         path.strip_prefix("~/")
     };
     let Some(rest) = rest else {
         return Ok(PathBuf::from(path));
     };
-    let home = non_empty(env, "HOME")
-        .map(PathBuf::from)
+    let home = windows_dir(env, platform, "USERPROFILE")
+        .or_else(|| non_empty(env, "HOME").map(PathBuf::from))
         .ok_or_else(|| invalid(key, "starts with `~` but HOME is not set"))?;
     Ok(if rest.is_empty() {
         home
@@ -890,9 +968,18 @@ after_send = "move"
 
 /// Where `passalong init` writes without `--config`:
 /// `$XDG_CONFIG_HOME/passalong/config.toml` when that variable is absolute,
-/// otherwise `$HOME/.config/passalong/config.toml`. Both are lookup
-/// positions, so the written file is found again.
+/// otherwise `$HOME/.config/passalong/config.toml`; on Windows,
+/// `%APPDATA%\passalong\config.toml`. These are lookup positions, so the
+/// written file is found again.
 pub fn default_config_path(env: &dyn EnvProvider) -> Option<PathBuf> {
+    default_config_path_on(env, Platform::current())
+}
+
+/// [`default_config_path`] with `platform`'s locations.
+pub(crate) fn default_config_path_on(env: &dyn EnvProvider, platform: Platform) -> Option<PathBuf> {
+    if let Some(appdata) = windows_dir(env, platform, "APPDATA") {
+        return Some(appdata.join(APP_NAME).join(CONFIG_FILE_NAME));
+    }
     if let Some(xdg) = non_empty(env, "XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
@@ -920,6 +1007,72 @@ mod tests {
     use crate::testing::MapEnv;
     use std::fs;
     use tempfile::TempDir;
+
+    // The tests below describe the Unix locations on every platform; the
+    // Windows ones are tested by name.
+    fn locate(
+        explicit: Option<&Path>,
+        env: &dyn EnvProvider,
+        roots: &SearchRoots,
+    ) -> Result<LocatedConfig, ConfigError> {
+        locate_on(explicit, env, roots, Platform::Unix)
+    }
+
+    fn default_config_path(env: &dyn EnvProvider) -> Option<PathBuf> {
+        default_config_path_on(env, Platform::Unix)
+    }
+
+    fn expand_tilde(path: &str, key: &str, env: &dyn EnvProvider) -> Result<PathBuf, ConfigError> {
+        expand_tilde_on(path, key, env, Platform::Unix)
+    }
+
+    #[test]
+    fn windows_looks_in_appdata_and_not_in_home_or_xdg() {
+        let sb = Sandbox::new();
+        sb.touch_all_standard();
+        let appdata = sb.home.join("AppData");
+        let env = sb.env().with("APPDATA", appdata.to_str().unwrap());
+        // Nothing in %APPDATA%: the system file comes next, never $HOME's.
+        let found = locate_on(None, &env, &sb.roots(), Platform::Windows).unwrap();
+        assert_eq!(found.origin, ConfigOrigin::System);
+        let wanted = sb.touch(&appdata.join("passalong").join("config.toml"));
+        let found = locate_on(None, &env, &sb.roots(), Platform::Windows).unwrap();
+        assert_eq!(
+            (found.path, found.origin),
+            (wanted, ConfigOrigin::HomeConfig)
+        );
+    }
+
+    #[test]
+    fn windows_writes_to_appdata_and_expands_tilde_from_userprofile() {
+        let env = MapEnv::new()
+            .with("APPDATA", "/appdata")
+            .with("USERPROFILE", "/profile")
+            .with("HOME", "/home/u")
+            .with("XDG_CONFIG_HOME", "/x");
+        assert_eq!(
+            default_config_path_on(&env, Platform::Windows),
+            Some(Path::new("/appdata").join("passalong").join("config.toml"))
+        );
+        for input in ["~/docs", "~\\docs"] {
+            assert_eq!(
+                expand_tilde_on(input, "k", &env, Platform::Windows).unwrap(),
+                Path::new("/profile").join("docs"),
+                "{input}"
+            );
+        }
+        // `~\` is a plain name elsewhere.
+        assert_eq!(
+            expand_tilde_on("~\\docs", "k", &env, Platform::Unix).unwrap(),
+            PathBuf::from("~\\docs")
+        );
+        // Without the Windows variables, the Unix rules apply.
+        let unix_only = MapEnv::new().with("HOME", "/home/u");
+        assert_eq!(
+            default_config_path_on(&unix_only, Platform::Windows),
+            default_config_path_on(&unix_only, Platform::Unix)
+        );
+    }
 
     // ---------- discovery ----------
 
@@ -1129,6 +1282,18 @@ mod tests {
         assert_eq!(found.path, file);
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn system_search_roots_use_programdata_on_windows() {
+        let roots = SearchRoots::from_system().unwrap();
+        assert!(
+            roots.system_config_dir.ends_with("ProgramData"),
+            "{roots:?}"
+        );
+        assert_eq!(roots.working_dir, std::env::current_dir().unwrap());
+    }
+
+    #[cfg(unix)]
     #[test]
     fn system_search_roots_use_etc_and_the_current_directory() {
         let roots = SearchRoots::from_system().unwrap();

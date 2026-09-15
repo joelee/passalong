@@ -104,8 +104,8 @@ impl SystemGit {
     }
 
     /// Ignores the user's and the system's git configuration, so tests do
-    /// not depend on global ignore rules.
-    #[cfg(test)]
+    /// not depend on global ignore rules. Only the Unix tests use git.
+    #[cfg(all(test, unix))]
     fn isolated() -> Self {
         let mut git = Self::new();
         git.envs = vec![

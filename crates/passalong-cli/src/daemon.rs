@@ -17,14 +17,18 @@ pub enum Os {
     /// Linux and other Unix-like systems using the XDG layout.
     Linux,
     /// macOS, using `~/Library`.
-    MacOs,
+    Mac,
+    /// Windows, using `%LOCALAPPDATA%`.
+    Windows,
 }
 
 impl Os {
     /// The platform this binary was built for.
     pub fn current() -> Self {
         if cfg!(target_os = "macos") {
-            Self::MacOs
+            Self::Mac
+        } else if cfg!(windows) {
+            Self::Windows
         } else {
             Self::Linux
         }
@@ -51,10 +55,23 @@ impl StatePaths {
     /// `serve.pid`, `serve.log`, and `list-cache.json`. macOS:
     /// `~/Library/Application Support/passalong/` holds `serve.pid` and
     /// `list-cache.json`, and the log is `~/Library/Logs/passalong/serve.log`.
+    /// Windows: `%LOCALAPPDATA%\passalong\` holds all three; without
+    /// `LOCALAPPDATA`, which Windows always sets, the Linux rules apply.
     /// `None` without a home.
     pub fn resolve(env: &dyn EnvProvider, os: Os) -> Option<Self> {
         match os {
-            Os::MacOs => {
+            Os::Windows => match non_empty(env, "LOCALAPPDATA") {
+                Some(local) => {
+                    let dir = PathBuf::from(local).join("passalong");
+                    Some(Self {
+                        pid: dir.join("serve.pid"),
+                        log: dir.join("serve.log"),
+                        cache: dir.join(CACHE_FILE),
+                    })
+                }
+                None => Self::resolve(env, Os::Linux),
+            },
+            Os::Mac => {
                 let home = PathBuf::from(non_empty(env, "HOME")?);
                 let dir = home.join("Library/Application Support/passalong");
                 Some(Self {
@@ -266,14 +283,36 @@ mod tests {
             .with("HOME", "/Users/u")
             .with("XDG_STATE_HOME", "/ignored");
         assert_eq!(
-            StatePaths::resolve(&env, Os::MacOs),
+            StatePaths::resolve(&env, Os::Mac),
             Some(StatePaths {
                 pid: "/Users/u/Library/Application Support/passalong/serve.pid".into(),
                 log: "/Users/u/Library/Logs/passalong/serve.log".into(),
                 cache: "/Users/u/Library/Application Support/passalong/list-cache.json".into(),
             })
         );
-        assert_eq!(StatePaths::resolve(&MapEnv::new(), Os::MacOs), None);
+        assert_eq!(StatePaths::resolve(&MapEnv::new(), Os::Mac), None);
+    }
+
+    #[test]
+    fn windows_state_goes_to_localappdata_and_ignores_home() {
+        let env = MapEnv::new()
+            .with("LOCALAPPDATA", "/local")
+            .with("XDG_STATE_HOME", "/state")
+            .with("HOME", "/home/u");
+        let dir = Path::new("/local").join("passalong");
+        assert_eq!(
+            StatePaths::resolve(&env, Os::Windows),
+            Some(StatePaths {
+                pid: dir.join("serve.pid"),
+                log: dir.join("serve.log"),
+                cache: dir.join("list-cache.json"),
+            })
+        );
+        let unix_only = MapEnv::new().with("HOME", "/home/u");
+        assert_eq!(
+            StatePaths::resolve(&unix_only, Os::Windows),
+            StatePaths::resolve(&unix_only, Os::Linux)
+        );
     }
 
     #[test]

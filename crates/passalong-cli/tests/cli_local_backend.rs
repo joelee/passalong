@@ -58,6 +58,10 @@ impl Sandbox {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_passalong"));
         cmd.current_dir(self.path("work"))
             .env("HOME", self.path("home"))
+            // Windows' locations, kept inside the sandbox too.
+            .env("APPDATA", self.path("home/AppData/Roaming"))
+            .env("LOCALAPPDATA", self.path("home/AppData/Local"))
+            .env("USERPROFILE", self.path("home"))
             .env_remove("XDG_CONFIG_HOME")
             .env_remove("XDG_STATE_HOME")
             .env_remove("WAYLAND_DISPLAY")

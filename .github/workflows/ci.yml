@@ -60,6 +60,22 @@ jobs:
       # One display, one clipboard: the tests must not run in parallel.
       - run: xvfb-run -a cargo test --workspace --all-features -- --ignored desktop_ --test-threads=1
 
+  windows:
+    # Windows x86_64: the whole workspace builds, lints, and passes its
+    # tests there. The SSH tests need Docker, so they run on Linux only.
+    name: Windows (build, clippy, tests)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked --workspace --all-targets --all-features
+      - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+      - run: cargo test --locked --workspace --all-features
+
   android:
     # The library crates must keep building for Android, the planned mobile
     # client's platform. The runner's preinstalled NDK compiles ring's C

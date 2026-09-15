@@ -92,7 +92,7 @@ pub fn run(
         argv.push(config.display().to_string());
     }
     argv.push("serve".to_owned());
-    let log = StatePaths::resolve(env, Os::MacOs)
+    let log = StatePaths::resolve(env, Os::Mac)
         .context("cannot find the home directory: set HOME")?
         .log;
     let text = match platform {

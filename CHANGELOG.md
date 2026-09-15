@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Added
+
+- `just test-compat` runs the released v0.1.6 binary against the layout of
+  an encrypted store and proves it fails without writing item data; `just
+  ci` runs it (PLAN-00008 STEP-01).
+
 ## v0.1.6 - 2026-09-14T21:14:49Z
 
 ### Added

@@ -33,14 +33,14 @@ confidence: medium                # high | medium | low
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; Delivery Planner initializes them.
-implementation_status: not-started # not-started | in-progress | blocked | completed | abandoned
-builder_agent: null
-builder_model: null
-execution_branch: null
-execution_started_at: null
-execution_updated_at: null
+implementation_status: in-progress # not-started | in-progress | blocked | completed | abandoned
+builder_agent: "Claude Code"
+builder_model: "anthropic/claude-opus-5"
+execution_branch: "feature/00008-v0.2.0"
+execution_started_at: "2026-09-15T13:53:01Z"
+execution_updated_at: "2026-09-15T13:56:48Z"
 execution_completed_at: null
-current_step: null
+current_step: "PLAN-00008-STEP-02"
 ---
 
 # Delivery Plan 00008: V0 1 7 Encryption At Rest
@@ -1058,7 +1058,7 @@ passing unchanged.
 
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
-| PLAN-00008-STEP-01 | not-started | — | — | — | — |
+| PLAN-00008-STEP-01 | completed | 2026-09-15T13:53:01Z | 2026-09-15T13:56:48Z | Commit `build: complete PLAN-00008-STEP-01 - Compatibility gate: v0.1.6 against the stop file`; just test-compat pass (AC-01, stop-file layout); just check green, 92.51% lines | compat_v016 runs the released v0.1.6 binary against a store whose items is a regular file: all 8 commands exit non-zero, nothing reaches the store. just test-compat downloads and checksums the archive into target/compat; just ci runs it, so the Linux CI job does too (it runs just ci); test-integration and coverage-full skip compat_ tests. STEP-01's success condition for accepting IDEA-00001 (D-10) is met; the encrypted-store half of AC-01 follows in STEP-05. |
 | PLAN-00008-STEP-02 | not-started | — | — | — | — |
 | PLAN-00008-STEP-03 | not-started | — | — | — | — |
 | PLAN-00008-STEP-04 | not-started | — | — | — | — |
@@ -1077,6 +1077,9 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 
 | Timestamp (UTC) | Step | Event | Evidence or reference | Next action |
 |---|---|---|---|---|
+| 2026-09-15T13:53:01Z | PLAN-00008 | Plan approved (commit d13cc2d); Builder starts on feature/00008-v0.2.0 | `docs(plan): approve PLAN-00008 - V0 1 7 Encryption At Rest` | Begin PLAN-00008-STEP-01 |
+| 2026-09-15T13:53:01Z | PLAN-00008-STEP-01 | Started | — | Red phase |
+| 2026-09-15T13:56:48Z | PLAN-00008-STEP-01 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00008-STEP-01 - Compatibility gate: v0.1.6 against the stop file` | Begin PLAN-00008-STEP-02 |
 
 ### Deviations and blockers
 
@@ -1089,6 +1092,9 @@ None
 
 | Timestamp (UTC) | Step | Command or check | Result | Evidence |
 |---|---|---|---|---|
+| 2026-09-15T13:56:48Z | PLAN-00008-STEP-01 | just test-compat | pass: 1 test; v0.1.6 (sha256 of the x86_64 Linux archive verified) fails clipboard --stdin, file, list, list --json, load, delete, prune, check; no marker under the store root | v0.1.6 errors: 'items: already exists' (sends), 'items: Not a directory (os error 20)' (list), check 'storage read FAIL' |
+| 2026-09-15T13:56:48Z | PLAN-00008-STEP-01 | sanity: the same v0.1.6 binary against an ordinary local store | pass: clipboard --stdin stored the item (exit 0), so the harness runs real commands | manual run in a temporary folder |
+| 2026-09-15T13:56:48Z | PLAN-00008-STEP-01 | just check | exit 0; line coverage 92.51 % | fmt, clippy, links, tests, coverage, build |
 
 ### Completion summary
 

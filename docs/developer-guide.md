@@ -113,6 +113,20 @@ server image with up to 5 attempts because registries throttle shared CI
 runners, starts `tests/docker/docker-compose.yml`, exports the variables,
 runs the ignored tests, and always removes the container.
 
+## Compatibility test
+
+Clients before v0.2.0 must never write into an encrypted store. An
+encrypted store's root holds a regular file named `items` where older
+clients expect their item directory, so their commands fail instead.
+`crates/passalong-cli/tests/compat_v016.rs` proves this with the released
+v0.1.6 binary: it runs every command that reads or writes items against
+temporary stores and checks that each one fails and that nothing it sent
+reaches the store. The tests are ignored and need the old binary in
+`PASSALONG_COMPAT_BIN`; `just test-compat` downloads the v0.1.6 archive for
+Linux x86_64 or macOS arm64 once into `target/compat/`, checks its SHA-256,
+and runs them. `just ci` includes it. `serve` is not run, because it would
+read the real clipboard.
+
 ## Desktop clipboard test
 
 The real clipboard adapter needs a desktop session, so its test is ignored

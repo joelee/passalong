@@ -1,0 +1,10 @@
+passalong includes the following third-party material.
+
+EFF large word list
+  File: crates/passalong-core/src/crypto/eff_large_wordlist.txt (unmodified)
+  Copyright Electronic Frontier Foundation.
+  Source: https://www.eff.org/files/2016/07/18/eff_large_wordlist.txt
+  About: https://www.eff.org/dice
+  Licensed under the Creative Commons Attribution 4.0 International License,
+  https://creativecommons.org/licenses/by/4.0/
+  passalong draws the six words of a store's passphrase from this list.

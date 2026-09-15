@@ -11,6 +11,12 @@ All notable changes to this project are documented here. The format follows
 - `just test-compat` runs the released v0.1.6 binary against the layout of
   an encrypted store and proves it fails without writing item data; `just
   ci` runs it (PLAN-00008 STEP-01).
+- `passalong_core::crypto`: the key hierarchy for encrypted stores (a random
+  data key wrapped with Argon2id, 64 MiB, t=3, p=4, and AES-256-GCM), the
+  keyed content key, sealed metadata, a chunked AES-256-GCM content format
+  that rejects truncated, reordered, or extended content, and six-word
+  passphrases from the EFF large word list (CC BY 4.0; see `NOTICE`)
+  (PLAN-00008 STEP-02).
 
 ## v0.1.6 - 2026-09-14T21:14:49Z
 

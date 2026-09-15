@@ -10,6 +10,7 @@ pub mod cache;
 pub mod clipboard;
 pub mod clock;
 pub mod config;
+pub mod crypto;
 pub mod download;
 pub mod fs;
 pub mod model;

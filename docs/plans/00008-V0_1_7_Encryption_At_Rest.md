@@ -38,9 +38,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00008-v0.2.0"
 execution_started_at: "2026-09-15T13:53:01Z"
-execution_updated_at: "2026-09-15T13:56:48Z"
+execution_updated_at: "2026-09-15T14:08:34Z"
 execution_completed_at: null
-current_step: "PLAN-00008-STEP-02"
+current_step: "PLAN-00008-STEP-03"
 ---
 
 # Delivery Plan 00008: V0 1 7 Encryption At Rest
@@ -1059,7 +1059,7 @@ passing unchanged.
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
 | PLAN-00008-STEP-01 | completed | 2026-09-15T13:53:01Z | 2026-09-15T13:56:48Z | Commit `build: complete PLAN-00008-STEP-01 - Compatibility gate: v0.1.6 against the stop file`; just test-compat pass (AC-01, stop-file layout); just check green, 92.51% lines | compat_v016 runs the released v0.1.6 binary against a store whose items is a regular file: all 8 commands exit non-zero, nothing reaches the store. just test-compat downloads and checksums the archive into target/compat; just ci runs it, so the Linux CI job does too (it runs just ci); test-integration and coverage-full skip compat_ tests. STEP-01's success condition for accepting IDEA-00001 (D-10) is met; the encrypted-store half of AC-01 follows in STEP-05. |
-| PLAN-00008-STEP-02 | not-started | — | — | — | — |
+| PLAN-00008-STEP-02 | completed | 2026-09-15T13:57:50Z | 2026-09-15T14:08:34Z | Commit `build: complete PLAN-00008-STEP-02 - Crypto primitives and the word list`; crypto tests 25 pass; Argon2 unwrap 106 ms (release); no new Cargo.lock packages; just audit ok; just check green, 92.64% lines | AC-04, AC-05, AC-06. New public module passalong_core::crypto (DataKey, KeyId, KdfParams, WrappedKey, wrap/unwrap, Sealer, SealedMeta, ContentSealer, OpenReader, read_full, Words, CryptoError #[non_exhaustive]). aes-gcm and argon2 without their getrandom default features, so the lock gains nothing; argon2 and blake2 build at opt-level 3 in dev so debug tests stay fast. A cut after a full record reports Truncated (tries the record as non-final), a cut inside one reports Authentication. |
 | PLAN-00008-STEP-03 | not-started | — | — | — | — |
 | PLAN-00008-STEP-04 | not-started | — | — | — | — |
 | PLAN-00008-STEP-05 | not-started | — | — | — | — |
@@ -1080,6 +1080,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T13:53:01Z | PLAN-00008 | Plan approved (commit d13cc2d); Builder starts on feature/00008-v0.2.0 | `docs(plan): approve PLAN-00008 - V0 1 7 Encryption At Rest` | Begin PLAN-00008-STEP-01 |
 | 2026-09-15T13:53:01Z | PLAN-00008-STEP-01 | Started | — | Red phase |
 | 2026-09-15T13:56:48Z | PLAN-00008-STEP-01 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00008-STEP-01 - Compatibility gate: v0.1.6 against the stop file` | Begin PLAN-00008-STEP-02 |
+| 2026-09-15T13:57:50Z | PLAN-00008-STEP-02 | Started | — | Red phase |
+| 2026-09-15T14:08:34Z | PLAN-00008-STEP-02 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00008-STEP-02 - Crypto primitives and the word list` | Begin PLAN-00008-STEP-03 |
 
 ### Deviations and blockers
 
@@ -1095,6 +1097,11 @@ None
 | 2026-09-15T13:56:48Z | PLAN-00008-STEP-01 | just test-compat | pass: 1 test; v0.1.6 (sha256 of the x86_64 Linux archive verified) fails clipboard --stdin, file, list, list --json, load, delete, prune, check; no marker under the store root | v0.1.6 errors: 'items: already exists' (sends), 'items: Not a directory (os error 20)' (list), check 'storage read FAIL' |
 | 2026-09-15T13:56:48Z | PLAN-00008-STEP-01 | sanity: the same v0.1.6 binary against an ordinary local store | pass: clipboard --stdin stored the item (exit 0), so the harness runs real commands | manual run in a temporary folder |
 | 2026-09-15T13:56:48Z | PLAN-00008-STEP-01 | just check | exit 0; line coverage 92.51 % | fmt, clippy, links, tests, coverage, build |
+| 2026-09-15T14:08:33Z | PLAN-00008-STEP-02 | cargo test -p passalong-core --all-features --lib crypto | 25 passed, 1 ignored (timing) | wrap/unwrap, bounds, keyed content key, metadata binding, content round trips 0 B to 3 MiB, truncation, reordering, duplication, extension, bit flips, other key/salt, words |
+| 2026-09-15T14:08:33Z | PLAN-00008-STEP-02 | cargo test --release -p passalong-core --lib timing_ -- --ignored | Argon2id 64 MiB, t=3, p=4 unwrap: 106 ms (limit 1 s; stop at 3 s) | release build on the Linux build machine |
+| 2026-09-15T14:08:33Z | PLAN-00008-STEP-02 | word list | 7,776 lines, dice codes 11111-66666 in order, 7,776 unique lowercase words; SHA-256 addd35536511597a02fa0a9ff1e5284677b8883b83e986e43f15a3db996b903e | fetched from https://www.eff.org/files/2016/07/18/eff_large_wordlist.txt, stored unmodified |
+| 2026-09-15T14:08:33Z | PLAN-00008-STEP-02 | Cargo.lock package names vs HEAD; just audit; cargo package --list | no new package names; advisories, bans, licenses, sources ok; NOTICE and the word list are in the passalong-core package | diff of name lines empty |
+| 2026-09-15T14:08:33Z | PLAN-00008-STEP-02 | just check | exit 0; line coverage 92.64 % | android-check not run locally (no NDK); the CI Android job runs it (STEP-11) |
 
 ### Completion summary
 

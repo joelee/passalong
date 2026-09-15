@@ -1949,11 +1949,16 @@ dependencies = [
 name = "passalong-core"
 version = "0.1.6"
 dependencies = [
+ "aes-gcm",
  "arboard",
+ "argon2",
  "async-trait",
  "chrono",
  "gethostname",
+ "getrandom 0.4.3",
  "hex",
+ "hkdf",
+ "hmac",
  "mime_guess",
  "notify",
  "png",
@@ -1966,6 +1971,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "zeroize",
 ]
 
 [[package]]

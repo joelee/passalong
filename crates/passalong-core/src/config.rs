@@ -24,6 +24,8 @@ pub const PASSPHRASE_ENV: &str = "PASSALONG_SSH_KEY_PASSPHRASE";
 pub const LOG_LEVEL_ENV: &str = "PASSALONG_LOG_LEVEL";
 
 const CONFIG_FILE_NAME: &str = "config.toml";
+/// Name of the key file in the default config folder.
+pub const KEY_FILE_NAME: &str = "store.key";
 const DEFAULT_SSH_PORT: i64 = 22;
 const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
 const DEFAULT_DROP_FOLDER: &str = "~/PassAlong";
@@ -262,6 +264,7 @@ fn probe(path: &Path) -> Result<bool, ConfigError> {
 
 /// Complete, validated configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Config {
     /// `[client]`: settings about this device.
     pub client: ClientConfig,
@@ -273,6 +276,7 @@ pub struct Config {
 
 /// `[client]` section.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ClientConfig {
     /// Name recorded on every item this device sends. Default: host name.
     pub device_name: String,
@@ -281,10 +285,16 @@ pub struct ClientConfig {
     /// Where `load` puts file items when no destination is given, and where
     /// pull mode writes files; absolute, `~` expanded. Default: `~/Downloads`.
     pub download_dir: PathBuf,
+    /// Where this device keeps an encrypted store's data key; absolute, `~`
+    /// expanded. Default: [`KEY_FILE_NAME`] beside the default config file
+    /// ([`default_key_path`]); `None` only when neither `XDG_CONFIG_HOME`
+    /// nor `HOME` gives one, and then encryption needs it set.
+    pub key_file: Option<PathBuf>,
 }
 
 /// `[server]` section.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ServerConfig {
     /// Backend name. `ssh` and `local` are validated here; any other value
     /// is passed through for the store factory to accept or reject.
@@ -297,6 +307,7 @@ pub struct ServerConfig {
 
 /// `[server.ssh]` section.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SshConfig {
     /// Server host name or IP address.
     pub host: String,
@@ -319,6 +330,7 @@ pub struct SshConfig {
 
 /// `[server.local]` section.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct LocalConfig {
     /// Storage directory, for example a mounted network share; `~` is expanded.
     pub path: PathBuf,
@@ -326,6 +338,7 @@ pub struct LocalConfig {
 
 /// `[serve]` section.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ServeConfig {
     /// Folder watched for files to send; `~` is expanded. Default: `~/PassAlong`.
     pub drop_folder: PathBuf,
@@ -390,6 +403,7 @@ impl fmt::Debug for Passphrase {
 
 /// Errors from finding, reading, or validating configuration.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum ConfigError {
     /// No file exists at any probed location.
     #[error("no config file found; searched: {}", join_paths(searched))]
@@ -598,6 +612,7 @@ struct RawClient {
     device_name: Option<String>,
     log_level: Option<String>,
     download_dir: Option<String>,
+    key_file: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -691,10 +706,25 @@ impl RawClient {
                 "must be an absolute path or start with `~/`",
             ));
         }
+        let key_file = match self.key_file {
+            Some(path) => {
+                let path = required(Some(path), "client.key_file")?;
+                let path = expand_tilde(&path, "client.key_file", env)?;
+                if !path.is_absolute() {
+                    return Err(invalid(
+                        "client.key_file",
+                        "must be an absolute path or start with `~/`",
+                    ));
+                }
+                Some(path)
+            }
+            None => default_key_path(env),
+        };
         Ok(ClientConfig {
             device_name,
             log_level,
             download_dir,
+            key_file,
         })
     }
 }
@@ -875,6 +905,12 @@ pub fn default_config_path(env: &dyn EnvProvider) -> Option<PathBuf> {
             .join(APP_NAME)
             .join(CONFIG_FILE_NAME)
     })
+}
+
+/// Where the key file is by default: [`KEY_FILE_NAME`] in the folder of
+/// [`default_config_path`].
+pub fn default_key_path(env: &dyn EnvProvider) -> Option<PathBuf> {
+    default_config_path(env).map(|config| config.with_file_name(KEY_FILE_NAME))
 }
 
 #[cfg(test)]
@@ -1517,6 +1553,49 @@ remote_path = "/srv/pa"
         assert_eq!(cfg.serve.pull_interval_ms, 5000);
         assert!(cfg.serve.list_cache);
         assert_eq!(cfg.serve.list_cache_check_secs, 60);
+    }
+
+    #[test]
+    fn the_key_file_defaults_beside_the_default_config() {
+        let home = MapEnv::new().with("HOME", "/home/u");
+        let cfg = parse(MINIMAL_SSH, Path::new("/c.toml"), &home).unwrap();
+        assert_eq!(
+            cfg.client.key_file.as_deref(),
+            Some(Path::new("/home/u/.config/passalong/store.key"))
+        );
+        let xdg = MapEnv::new()
+            .with("HOME", "/home/u")
+            .with("XDG_CONFIG_HOME", "/x");
+        let cfg = parse(MINIMAL_SSH, Path::new("/c.toml"), &xdg).unwrap();
+        assert_eq!(
+            cfg.client.key_file.as_deref(),
+            Some(Path::new("/x/passalong/store.key"))
+        );
+        assert_eq!(default_key_path(&MapEnv::new()), None);
+    }
+
+    #[test]
+    fn the_key_file_can_be_set_and_must_be_absolute() {
+        let home = MapEnv::new().with("HOME", "/home/u");
+        let with = |value: &str| {
+            parse(
+                &format!("{MINIMAL_SSH}\n[client]\nkey_file = \"{value}\"\n"),
+                Path::new("/c.toml"),
+                &home,
+            )
+        };
+        assert_eq!(
+            with("~/keys/work.key").unwrap().client.key_file.as_deref(),
+            Some(Path::new("/home/u/keys/work.key"))
+        );
+        assert_eq!(
+            with("/etc/k/store.key").unwrap().client.key_file.as_deref(),
+            Some(Path::new("/etc/k/store.key"))
+        );
+        assert_eq!(
+            invalid_key(with("keys/store.key").unwrap_err()),
+            "client.key_file"
+        );
     }
 
     #[test]

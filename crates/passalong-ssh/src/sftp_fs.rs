@@ -154,6 +154,26 @@ impl RemoteFs for SftpFs {
         self.create_absolute_dir_all(&self.full(path)).await
     }
 
+    async fn create_dir(&self, path: &RemotePath) -> Result<(), FsError> {
+        let full = self.full(path);
+        match self.sftp.create_dir(full.as_str()).await {
+            Ok(()) => Ok(()),
+            // SFTP v3 does not say why mkdir failed; an existing path is the
+            // reason a lock must tell apart.
+            Err(err) => match self.sftp.try_exists(full.as_str()).await {
+                Ok(true) => Err(FsError::AlreadyExists(path.to_string())),
+                _ => Err(map_sftp_error(&path.to_string(), err)),
+            },
+        }
+    }
+
+    async fn remove_file(&self, path: &RemotePath) -> Result<(), FsError> {
+        match self.sftp.remove_file(self.full(path)).await {
+            Err(err) if is_not_found(&err) => Ok(()),
+            other => other.map_err(|err| map_sftp_error(&path.to_string(), err)),
+        }
+    }
+
     async fn read_dir(&self, path: &RemotePath) -> Result<Vec<DirEntry>, FsError> {
         let entries = self
             .sftp

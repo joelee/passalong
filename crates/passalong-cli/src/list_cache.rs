@@ -11,8 +11,9 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use passalong_core::cache::{self, ListCache};
 use passalong_core::config::{Config, EnvProvider};
+use passalong_core::crypto::KeyId;
 use passalong_core::fs::BoxRead;
-use passalong_core::model::{ContentKey, ItemId, ItemMeta, NewItem};
+use passalong_core::model::{ContentDigest, ContentKey, ItemId, ItemMeta, NewItem};
 use passalong_core::store::{PutOutcome, Store, StoreError, WriteProbe};
 
 use crate::daemon::{Os, StatePaths};
@@ -209,6 +210,12 @@ impl Store for Recording<'_> {
     }
     async fn probe_write(&self) -> Result<WriteProbe, StoreError> {
         self.inner.probe_write().await
+    }
+    fn key_id(&self) -> Option<KeyId> {
+        self.inner.key_id()
+    }
+    fn content_key(&self, digest: &ContentDigest) -> ContentKey {
+        self.inner.content_key(digest)
     }
 }
 

@@ -38,12 +38,20 @@ wrote /home/you/.config/passalong/config.toml
 Add this device's public key to ~passalong/.ssh/authorized_keys on the server:
   /home/you/.ssh/id_ed25519.pub
 connected: 0 items on the server
+Encrypting keeps what the server stores unreadable without this store's six words.
+...
+Encrypt this store? [y/N] n
+nothing was changed
 ```
 
 The key is written only after you confirm its fingerprint. `init` writes to
 `--config` when given, otherwise to the standard location, and refuses to
 replace an existing file without `--force`. After writing, it logs in and
-lists the server to prove the settings work.
+lists the server to prove the settings work. Then it looks at the store:
+an empty store can be encrypted on the spot (see
+[`passalong encrypt`](#passalong-encrypt)), an encrypted store is joined by
+typing its six words, and a store with items gets the command to run. With
+`--yes` or `--no-test`, `init` only says what to run.
 
 | Option | Meaning |
 |---|---|
@@ -65,6 +73,49 @@ For scripts, `--yes` alone is refused so a key is never trusted blindly:
 passalong init --host nas.local --fingerprint SHA256:5Si4lWKPwa0+I2wCQf3eOtcF8jWo30BWybHoXLTxABo --yes
 ```
 
+## `passalong encrypt`
+
+Encrypts the store, or changes its words. It needs a terminal: new words
+are shown there, and words are typed there without being echoed. Words
+never appear in the results or the logs.
+
+| Store | `passalong encrypt` does |
+|---|---|
+| Plaintext, empty | Shows six new words, has them typed back, encrypts the store, and saves this device's key in `client.key_file` |
+| Plaintext, with items | The same, after asking whether to migrate the items (the default: each is downloaded, re-encrypted, uploaded again, and checked) or to start fresh (they stay unencrypted in `plain/` until `prune --plain`) |
+| Encrypted | Asks for the current words, shows new ones, and replaces the words; the key stays, nothing is re-encrypted, and every device that joined keeps working |
+
+| Option | Meaning |
+|---|---|
+| `--join` | Give this device the key of an encrypted store, by typing its words |
+| `--rotate` | Replace the store's key and words and re-encrypt every item; every other device must run `--join` again. Use it after losing a device |
+| `--recover` | Finish or undo a migration or rotation that was interrupted |
+
+```text
+$ passalong encrypt
+Encrypting keeps what the server stores unreadable without this store's six words.
+Every device then needs passalong 0.2.0 or later, and joins once with `passalong encrypt --join`; older versions stop working with this store.
+If the words and every device's key file are lost, the items cannot be recovered.
+The 12 items stored now can be migrated, which re-encrypts each one by downloading and uploading it again, or left unencrypted in plain/ on the server until you remove them with `passalong prune --plain` (a fresh start).
+Encrypt this store? [y/N] y
+Migrate the 12 items or start fresh? [migrate/fresh] [migrate]:
+
+The store's six words:
+
+    abacus doorman quilt refinish tidy unwired
+
+Write them down or keep them in a password manager. Every device types them to join, and nothing else can recover the store.
+
+Type the six words to confirm:
+encrypted the store: key 3f9a2c1d
+migrated 12 items
+```
+
+The words are the only way to recover the store: keep them in a password
+manager. A migration or rotation holds a lock on the server while it runs;
+other devices wait, and if it is interrupted, `passalong encrypt --recover`
+shows what it was doing and asks whether to finish or undo it.
+
 ## `passalong check`
 
 Checks the setup in four steps, printing one line for each, then reports
@@ -73,6 +124,7 @@ whether `serve` is running:
 ```text
 config         ok    /home/me/.config/passalong/config.toml
 server         ok    ssh passalong@192.168.1.10:22, /srv/passalong
+encryption     off   not encrypted
 storage read   ok    12 items
 storage write  ok    wrote and removed a 128-byte probe in 184 ms (696 B/s)
 serve          ok    running (pid 4242)
@@ -95,6 +147,12 @@ The first failure is shown as `FAIL` with the reason, the remaining checks
 as `skip`, and `check` exits with 1 and an `error: check failed: ...` line.
 A backend that cannot test writes shows `n/a` for the last check, which is
 not a failure.
+
+The `encryption` line says `off` for a plaintext store, and `on (key …)`
+when this device holds the store's key, with the number of unencrypted
+items a fresh start left. It fails, naming the command that fixes it, when
+this device has no key or another key, has a key for a plaintext store, or
+when a re-encryption is in progress.
 
 ## Output and exit codes
 
@@ -139,6 +197,9 @@ either way; `--log-level verbose` says which was used. `file`, `clipboard`,
 `delete`, and `prune` add their own changes to the cache, and `load`,
 `cat`, and `get` refresh it after their output. A cache problem never fails
 a command.
+
+On an encrypted store that still holds unencrypted items from a fresh start,
+`list` warns about them on standard error.
 
 ## `passalong clipboard`
 
@@ -313,6 +374,7 @@ is required:
 | `--keep <N>` | Always keep the newest `N` items. |
 | `--dry-run` | Show what would be deleted, then stop. |
 | `--yes` | Delete without asking. Required when not running in a terminal. |
+| `--plain` | Prune the unencrypted items a fresh start left in `plain/`, instead of the store's items; `plain/` is removed once empty. |
 
 With both options, an item survives if either protects it:
 `prune --older-than 30d --keep 20` deletes items older than 30 days but

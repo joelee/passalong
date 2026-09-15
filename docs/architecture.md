@@ -53,9 +53,10 @@ Every invocation goes through the same start-up:
 | `choose` | `Store::list`, then a full-screen list (ratatui over crossterm); `g` shows `Store::get_meta` in a dialog, `d` runs `Store::delete` and lists again, and `r` lists again; Enter and `c` run the code of `load` or `cat` after the terminal is restored; log records are held while the list is open and written when it closes |
 | `serve` | Runs the loop below until stopped; `--daemon`, `--status`, and `--stop` manage a background copy |
 | `delete` | Resolves every id first, then `Store::delete` for each |
-| `prune` | `Store::list`, selects items older than `--older-than` beyond the newest `--keep`, confirms, deletes, then `Store::clean_staging` |
-| `init` | Fetches the server host key without authenticating, asks you to confirm its fingerprint, writes the config file, then runs `Store::list` as a connection test |
-| `check` | Loads the config, opens the backend, `Store::list_ids`, then `Store::probe_write`, printing one line per step, then reads `serve`'s pid lock |
+| `prune` | `Store::list`, selects items older than `--older-than` beyond the newest `--keep`, confirms, deletes, then `Store::clean_staging`; with `--plain`, the same on the plaintext store in `plain/` |
+| `init` | Fetches the server host key without authenticating, asks you to confirm its fingerprint, writes the config file, then opens the store's filesystem as a connection test and inspects its encryption: offers to encrypt an empty store and joins an encrypted one |
+| `encrypt` | Opens the store's filesystem and inspects it: encrypts a plaintext store (set-up, fresh start, or migration), or changes an encrypted store's words; `--join`, `--rotate`, and `--recover` as in [usage](usage.md) |
+| `check` | Loads the config, opens the backend's filesystem, inspects its encryption against this device's key, opens the store, `Store::list_ids`, then `Store::probe_write`, printing one line per step, then reads `serve`'s pid lock |
 | `service-install` | Writes a systemd user unit or launchd agent for `serve` and loads it with `systemctl --user` or `launchctl` |
 | `service-remove` | Stops the service and removes its unit |
 
@@ -142,6 +143,70 @@ The `local` and `ssh` backends share one layout, implemented once by
 └── tmp/
     └── <random>/        staging for uploads in progress
 ```
+
+### Encrypted stores
+
+An encrypted store keeps a different layout, which clients before v0.2.0
+cannot write into:
+
+```text
+<root>/
+├── encryption/header.json   the wrapped data key (a folder: renames never replace files)
+├── items                    a file saying the store is encrypted, where old clients expect a folder
+├── v2/items/<id>/{content,meta.json}
+├── v2/tmp/                  staging, and the header while it is replaced
+├── plain/items/             after a fresh start: the earlier items, unencrypted
+└── .rewrite/                only during a migration or rotation: lock and journal
+```
+
+**Keys.** A store has one random 256-bit data key. The header holds it
+sealed with AES-256-GCM under a key that Argon2id (64 MiB, t=3, p=4, a
+random 16-byte salt) derives from six words drawn from the EFF large word
+list, about 77.5 bits. Each device keeps the unwrapped key in
+`client.key_file` (mode 0600, refused when others can read it or when it
+sits in a git work tree that does not ignore it). HKDF-SHA256 derives from
+the data key: the key id; the HMAC key of the *keyed content key*, the first
+6 bytes of `HMAC-SHA256(id key, SHA-256 of the content)`, which replaces the
+plain content key in ids so the storage cannot confirm guesses about short
+clipboard text; the metadata key; and, with a random 32-byte salt per item,
+each item's content key. The `crypto` module holds these primitives.
+
+**Items.** `meta.json` is `{"schema":2,"id","nonce","sealed"}`: the
+`ItemMeta` and the content salt, sealed with the id as associated data.
+`content` is `PAC1`, the salt, then records of at most 64 KiB, each sealed
+with a nonce made of the record number and a final-record flag, so a
+reader rejects truncated, reordered, repeated, or extended content, and
+content from another item fails on its salt. Deduplication and id prefixes
+work as before on the keyed ids. A recent item that does not open yet is
+reported as not complete, for stores in synced folders.
+
+**Opening.** Every file-like backend registers a filesystem opener, and
+`encryption::open_store` decides from the store's root and the device's key:
+
+| Store | This device | Result |
+|---|---|---|
+| `.rewrite/` present | any | refused: being re-encrypted |
+| `encryption/` present | key with the store's id | sealed store |
+| `encryption/` present | no key, or another key | refused: `encrypt --join` |
+| no header, `items` is a file | any | refused: `encrypt --recover` |
+| no header | no key | plaintext store |
+| no header | a key | refused: the store is not encrypted |
+
+A sealed store opened this way re-checks, before `put`, `delete`, and
+`list_ids`, that no re-encryption started and that the header still names
+its key, so a device with a rotated-out key stops writing.
+
+**Changing encryption.** Set-up writes the stop file before the header;
+changing the words re-wraps the data key and swaps the header folder,
+rewriting no item. Migration and rotation share one journalled engine:
+take `.rewrite/` exclusively, write the plan and the new header there, move
+the source items into `.rewrite/source/` in one rename, seal each item into
+`v2/items/` under an id computed from its recorded SHA-256 (so a resumed run
+skips what is already there), read every copy back and compare its SHA-256,
+swap the header, and remove the source and then the lock. `encrypt
+--recover` finishes the run or undoes it as long as the new header is not
+yet in place. Pull mode starts afresh when the store's key changes, and the
+list cache's identity names the key.
 
 Storing an item works like this:
 
@@ -310,8 +375,19 @@ runs the desktop clipboard tests under a virtual X server.
   renaming it into place.
 - **Logs.** Only an allow-list of fields is written. Clipboard text, file
   contents, and secrets are never logged.
-- **Not covered.** The server operator can read every item. Encryption at
-  rest is on the [backlog](backlog.md).
+- **Encryption at rest** (optional). With an encrypted store, the storage
+  holds only sealed content and metadata, including names, previews, and
+  device names, and ids carry keyed content keys. It still sees creation
+  times (in ids), the number of items, their approximate sizes, which items
+  share content, and when they are read. A weak point is the six words:
+  anyone with the header can try words offline, which Argon2id and the
+  generated words make impractical. The words and the devices' key files
+  are the only way to the items; losing all of them loses the store.
+- **Local copies.** The list cache and anything a command prints hold
+  decrypted metadata on the device, readable by its user only.
+- **Not covered.** A plaintext store's operator can read every item, and
+  changing the words does not lock out a device that already holds the key;
+  `encrypt --rotate` does.
 
 ## Adding a backend
 

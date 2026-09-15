@@ -8,15 +8,17 @@
 pub mod factory;
 pub mod fs_store;
 
-pub use factory::{BackendFuture, BackendOpener, BackendRegistry, open_store};
+pub use factory::{BackendFuture, BackendOpener, BackendRegistry, FsFuture, FsOpener, open_store};
 pub use fs_store::FsStore;
 
 use std::time::Duration;
 
 use async_trait::async_trait;
 
+use crate::crypto::{CryptoError, KeyId};
+use crate::encryption::EncryptionError;
 use crate::fs::{BoxRead, FsError};
-use crate::model::{ContentKey, ItemId, ItemMeta, ModelError, NewItem};
+use crate::model::{ContentDigest, ContentKey, ItemId, ItemMeta, ModelError, NewItem};
 
 /// Result of [`Store::put`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,10 +132,24 @@ pub trait Store: Send + Sync {
     async fn probe_write(&self) -> Result<WriteProbe, StoreError> {
         Ok(WriteProbe::NotSupported)
     }
+
+    /// Id of the data key this store seals items with; `None` for a
+    /// plaintext store.
+    fn key_id(&self) -> Option<KeyId> {
+        None
+    }
+
+    /// The content key that identifies content with `digest` in this
+    /// store: the plain [`ContentDigest::content_key`], or a keyed one in an
+    /// encrypted store. Use it to look for content already stored.
+    fn content_key(&self, digest: &ContentDigest) -> ContentKey {
+        digest.content_key()
+    }
 }
 
 /// Storage errors.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum StoreError {
     /// No item matches the given id or prefix.
     #[error("no item matches `{0}`")]
@@ -175,6 +191,15 @@ pub enum StoreError {
     /// A backend-specific failure, such as an SSH connection error.
     #[error("{0}")]
     Backend(String),
+    /// An encrypted store's data cannot be used.
+    #[error(transparent)]
+    Encryption(#[from] EncryptionError),
+}
+
+impl From<CryptoError> for StoreError {
+    fn from(err: CryptoError) -> Self {
+        Self::Encryption(err.into())
+    }
 }
 
 fn join_ids(ids: &[ItemId]) -> String {

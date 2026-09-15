@@ -11,12 +11,16 @@ use std::time::Duration;
 use anyhow::Context as _;
 use async_trait::async_trait;
 use passalong_core::config::{self, Config, EnvProvider, InitAnswers};
+use passalong_core::crypto::{CryptoError, KdfParams, Words};
+use passalong_core::encryption::{self, GitCheck, StoreState};
+use passalong_core::fs::RemoteFs;
 use passalong_core::store::BackendRegistry;
 use passalong_ssh::DiscoveredKey;
 use passalong_ssh::error::SshError;
 use passalong_ssh::host_key::PinnedHostKey;
 
 use crate::cli::InitArgs;
+use crate::commands::encrypt::{self, Keys};
 use crate::prompt::Prompt;
 
 const DEFAULT_PORT: &str = "22";
@@ -35,8 +39,8 @@ pub trait HostKeySource: Send + Sync {
 /// Tests a written config; the real version is [`StoreCheck`].
 #[async_trait]
 pub trait ConnectionCheck: Send + Sync {
-    /// Connects with `config` and returns how many items the server holds.
-    async fn check(&self, config: &Config) -> anyhow::Result<usize>;
+    /// Connects with `config` and returns the store's filesystem.
+    async fn open(&self, config: &Config) -> anyhow::Result<Box<dyn RemoteFs>>;
 }
 
 /// [`HostKeySource`] over SSH, with a 10-second timeout.
@@ -49,14 +53,13 @@ impl HostKeySource for NetworkHostKeys {
     }
 }
 
-/// [`ConnectionCheck`] that opens the store and lists it.
+/// [`ConnectionCheck`] that opens the store's filesystem.
 pub struct StoreCheck(pub BackendRegistry);
 
 #[async_trait]
 impl ConnectionCheck for StoreCheck {
-    async fn check(&self, config: &Config) -> anyhow::Result<usize> {
-        let store = self.0.open(config).await?;
-        Ok(store.list().await?.len())
+    async fn open(&self, config: &Config) -> anyhow::Result<Box<dyn RemoteFs>> {
+        Ok(self.0.open_fs(config).await?)
     }
 }
 
@@ -73,6 +76,12 @@ pub struct InitDeps<'a> {
     /// `--quiet`: results are hidden, so what a question is about is shown
     /// with the question instead.
     pub quiet: bool,
+    /// Asks git whether the key file would be committed.
+    pub git: &'a dyn GitCheck,
+    /// New words for a store encrypted during `init`.
+    pub new_words: fn() -> Result<Words, CryptoError>,
+    /// Settings for wrapping a new key.
+    pub new_kdf: fn() -> Result<KdfParams, CryptoError>,
 }
 
 /// Collects the settings, establishes the host key, writes `target`, and
@@ -106,6 +115,9 @@ pub async fn run(
         keys,
         check,
         quiet,
+        git,
+        new_words,
+        new_kdf,
     } = deps;
     let mut value =
         |question: &str, flag: Option<String>, default: Option<&str>| -> anyhow::Result<String> {
@@ -223,17 +235,52 @@ pub async fn run(
         )?;
     }
     if args.no_test {
+        writeln!(
+            out,
+            "To encrypt the store, or to join an encrypted one, run `passalong encrypt` or `passalong encrypt --join`."
+        )?;
         return Ok(());
     }
-    let items = check
-        .check(&parsed)
+    let fs = check
+        .open(&parsed)
         .await
         .context("wrote the config, but connecting with it failed")?;
-    writeln!(
-        out,
-        "connected: {items} {} on the server",
-        if items == 1 { "item" } else { "items" }
-    )?;
+    let state = encryption::inspect(fs.as_ref())
+        .await
+        .context("wrote the config, but reading the store failed")?;
+    let keys = parsed.client.key_file.as_deref().map(|key_file| Keys {
+        key_file,
+        git,
+        new_words,
+        new_kdf,
+    });
+    match state {
+        StoreState::Plain { items } => {
+            let word = if items == 1 { "item" } else { "items" };
+            writeln!(out, "connected: {items} {word} on the server")?;
+            match (&keys, items) {
+                (Some(keys), 0) if interactive => {
+                    encrypt::set_up(fs.as_ref(), 0, keys, prompt, out).await?;
+                }
+                (_, 0) => writeln!(out, "To encrypt this store, run `passalong encrypt`.")?,
+                _ => writeln!(
+                    out,
+                    "To encrypt the {items} stored {word}, run `passalong encrypt`."
+                )?,
+            }
+        }
+        StoreState::Encrypted { .. } => {
+            writeln!(out, "connected: the store is encrypted")?;
+            match &keys {
+                Some(keys) if interactive => encrypt::join(fs.as_ref(), keys, prompt, out).await?,
+                _ => writeln!(out, "To join it, run `passalong encrypt --join`.")?,
+            }
+        }
+        _ => writeln!(
+            out,
+            "connected: the store's encryption is being changed or needs recovery; run `passalong check`"
+        )?,
+    }
     Ok(())
 }
 
@@ -258,7 +305,14 @@ fn write_config(target: &Path, text: &str) -> anyhow::Result<()> {
 mod tests {
     use super::*;
     use crate::prompt::ScriptedPrompt;
-    use passalong_core::testing::MapEnv;
+    use passalong_core::crypto::KDF_SALT_LEN;
+    use passalong_core::encryption::{SystemGit, load_key_file};
+    use passalong_core::fs::LocalFs;
+    use passalong_core::model::NewItem;
+    use passalong_core::random::StdRandom;
+    use passalong_core::store::{FsStore, Store};
+    use passalong_core::testing::{ManualClock, MapEnv};
+    use std::sync::Arc;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tempfile::TempDir;
@@ -285,21 +339,52 @@ mod tests {
         }
     }
 
+    /// A store in a temporary folder, seeded with `items` items when opened.
     struct FakeCheck {
         fail: bool,
         seen: Mutex<Option<Config>>,
+        store: TempDir,
+        items: usize,
     }
 
     #[async_trait]
     impl ConnectionCheck for FakeCheck {
-        async fn check(&self, config: &Config) -> anyhow::Result<usize> {
+        async fn open(&self, config: &Config) -> anyhow::Result<Box<dyn RemoteFs>> {
             *self.seen.lock().unwrap() = Some(config.clone());
             if self.fail {
                 anyhow::bail!("connection refused")
-            } else {
-                Ok(3)
             }
+            let fs = LocalFs::new(self.store.path());
+            if self.items > 0 {
+                let store = FsStore::new(
+                    fs.clone(),
+                    Arc::new(ManualClock::at("2026-09-12T09:53:11Z")),
+                    Box::new(StdRandom::new()),
+                );
+                for i in store.list_ids().await?.len()..self.items {
+                    let text = format!("item {i}").into_bytes();
+                    store
+                        .put(NewItem::text("seed"), Box::new(std::io::Cursor::new(text)))
+                        .await?;
+                }
+            }
+            Ok(Box::new(fs))
         }
+    }
+
+    const W1: &str = "abacus abdomen abdominal abide abiding ability";
+
+    fn w1() -> Result<Words, CryptoError> {
+        Words::parse(W1)
+    }
+
+    fn quick() -> Result<KdfParams, CryptoError> {
+        Ok(KdfParams {
+            m_kib: 64,
+            t: 1,
+            p: 1,
+            salt: [8; KDF_SALT_LEN],
+        })
     }
 
     struct Rig {
@@ -307,6 +392,7 @@ mod tests {
         env: MapEnv,
         keys: FakeKeys,
         check: FakeCheck,
+        git: SystemGit,
     }
 
     impl Rig {
@@ -326,7 +412,10 @@ mod tests {
                 check: FakeCheck {
                     fail: false,
                     seen: Mutex::new(None),
+                    store: TempDir::new().unwrap(),
+                    items: 3,
                 },
+                git: SystemGit::new(),
             }
         }
         fn target(&self) -> PathBuf {
@@ -347,6 +436,9 @@ mod tests {
                 keys: &self.keys,
                 check: &self.check,
                 quiet: false,
+                git: &self.git,
+                new_words: w1,
+                new_kdf: quick,
             };
             run(args, &self.target(), deps, &mut out).await?;
             Ok(String::from_utf8(out).unwrap())
@@ -392,7 +484,7 @@ mod tests {
             out.contains(KEY_A_FP) && out.contains(&format!("wrote {}", rig.target().display())),
             "{out}"
         );
-        assert!(out.ends_with("connected: 3 items on the server\n"), "{out}");
+        assert!(out.contains("connected: 3 items on the server\n"), "{out}");
         assert_eq!(rig.check.seen.lock().unwrap().as_ref(), Some(&cfg));
     }
 
@@ -407,6 +499,9 @@ mod tests {
             keys: &rig.keys,
             check: &rig.check,
             quiet: true,
+            git: &rig.git,
+            new_words: w1,
+            new_kdf: quick,
         };
         run(&InitArgs::default(), &rig.target(), deps, &mut out)
             .await
@@ -606,6 +701,107 @@ mod tests {
             .unwrap();
         assert!(skipped.check.seen.lock().unwrap().is_none());
         assert!(!out.contains("connected"), "{out}");
+    }
+
+    fn key_file(rig: &Rig) -> PathBuf {
+        rig.home().join(".config/passalong/store.key")
+    }
+
+    #[tokio::test]
+    async fn an_empty_store_can_be_encrypted_during_init() {
+        let mut rig = Rig::new();
+        rig.check.items = 0;
+        let mut prompt =
+            ScriptedPrompt::new(true, ["nas.local", "", "", "", "", "", "yes", "yes", W1]);
+        let out = rig.run(&InitArgs::default(), &mut prompt).await.unwrap();
+        assert!(out.contains("connected: 0 items on the server\n"), "{out}");
+        let key = load_key_file(&key_file(&rig), &rig.git).unwrap().unwrap();
+        assert!(
+            out.contains(&format!(
+                "encrypted the store: key {}",
+                key.key_id().short()
+            )),
+            "{out}"
+        );
+        assert!(
+            rig.check
+                .store
+                .path()
+                .join("encryption/header.json")
+                .is_file()
+        );
+        assert!(!out.contains("abacus"));
+    }
+
+    #[tokio::test]
+    async fn an_encrypted_store_is_joined_during_init() {
+        let mut rig = Rig::new();
+        rig.check.items = 0;
+        let key = encryption::set_up(
+            &LocalFs::new(rig.check.store.path()),
+            &w1().unwrap(),
+            quick().unwrap(),
+        )
+        .await
+        .unwrap();
+        let mut prompt = ScriptedPrompt::new(true, ["nas.local", "", "", "", "", "", "yes", W1]);
+        let out = rig.run(&InitArgs::default(), &mut prompt).await.unwrap();
+        assert!(out.contains("connected: the store is encrypted\n"), "{out}");
+        assert!(
+            out.contains(&format!(
+                "joined the encrypted store: key {}",
+                key.key_id().short()
+            )),
+            "{out}"
+        );
+        let saved = load_key_file(&key_file(&rig), &rig.git).unwrap().unwrap();
+        assert_eq!(saved.key_id(), key.key_id());
+    }
+
+    #[tokio::test]
+    async fn yes_and_stores_with_items_only_say_how_to_encrypt_or_join() {
+        let mut rig = Rig::new();
+        rig.check.items = 0;
+        let args = InitArgs {
+            host_key: Some(KEY_B.into()),
+            ..yes_with("nas")
+        };
+        let out = rig
+            .run(&args, &mut ScriptedPrompt::new(false, Vec::<&str>::new()))
+            .await
+            .unwrap();
+        assert!(
+            out.contains("To encrypt this store, run `passalong encrypt`."),
+            "{out}"
+        );
+        assert!(!key_file(&rig).exists());
+        encryption::set_up(
+            &LocalFs::new(rig.check.store.path()),
+            &w1().unwrap(),
+            quick().unwrap(),
+        )
+        .await
+        .unwrap();
+        let again = InitArgs {
+            force: true,
+            ..args.clone()
+        };
+        let out = rig
+            .run(&again, &mut ScriptedPrompt::new(false, Vec::<&str>::new()))
+            .await
+            .unwrap();
+        assert!(
+            out.contains("To join it, run `passalong encrypt --join`."),
+            "{out}"
+        );
+
+        let busy = Rig::new();
+        let mut prompt = ScriptedPrompt::new(true, ["nas.local", "", "", "", "", "", "yes"]);
+        let out = busy.run(&InitArgs::default(), &mut prompt).await.unwrap();
+        assert!(
+            out.contains("To encrypt the 3 stored items, run `passalong encrypt`."),
+            "{out}"
+        );
     }
 
     #[tokio::test]

@@ -36,6 +36,7 @@ Unknown keys are rejected, and every error names the offending key or line.
 |---|---|---|---|
 | `device_name` | string | host name | Name recorded on every item this device sends |
 | `log_level` | string | `info` | `error`, `warning`, `info`, `verbose`, or `debug` (see Logging) |
+| `key_file` | path | `store.key` beside the default config file | Where this device keeps an encrypted store's key: `$XDG_CONFIG_HOME/passalong/store.key`, or `~/.config/passalong/store.key`; there is no default when neither `XDG_CONFIG_HOME` nor `HOME` is set. Must be absolute after `~` expansion. It is written with mode 0600, and refused if other users can read it or if it is inside a git work tree that does not ignore it |
 | `download_dir` | path | `~/Downloads` | Where `load` puts file items when no destination is given, created if missing; pull mode writes here only if it exists. Must be absolute after `~` expansion |
 
 ### `[server]`
@@ -109,6 +110,24 @@ made from.
 The pid file is locked while `serve` runs, which is how a second copy is
 refused. A pid file left behind by a crash is harmless and is reused. The
 log file grows without rotation.
+
+## Encrypted stores
+
+`passalong encrypt` changes a store's layout. An encrypted store's root
+holds:
+
+| Path | What it is |
+|---|---|
+| `encryption/header.json` | The store's key, sealed under the key its six words derive (Argon2id, 64 MiB), and the key's id. No device name or time |
+| `items` | A file, not a folder, that says the store is encrypted: clients before v0.2.0 fail on it instead of writing plaintext |
+| `v2/items/<id>/` | Sealed items: `meta.json` shows only the schema and id, and `content` is sealed in 64 KiB chunks |
+| `v2/tmp/` | Staging for uploads, and for the header while it is replaced |
+| `plain/items/` | After a fresh start, the items stored before, unencrypted until `prune --plain` removes them |
+| `.rewrite/` | Only while a migration or rotation runs: its lock and journal |
+
+Each device keeps its copy of the store's key in `client.key_file`. A store
+opens sealed only with that key; without it, with another key, or while
+`.rewrite/` exists, commands refuse and name the command that fixes it.
 
 ## Logging
 

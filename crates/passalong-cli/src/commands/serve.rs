@@ -306,7 +306,7 @@ mod tests {
     fn only_ssh_stores_with_the_cache_on_get_a_list_cache() {
         assert_eq!(
             list_cache_identity(&parse(SSH)).as_deref(),
-            Some("ssh pa@nas:22 /srv/passalong")
+            Some("ssh pa@nas:22 /srv/passalong plain")
         );
         let off = parse(&format!("{SSH}\n[serve]\nlist_cache = false\n"));
         assert_eq!(list_cache_identity(&off), None);

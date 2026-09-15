@@ -7,6 +7,7 @@ pub mod check;
 pub mod choose;
 pub mod clipboard;
 pub mod delete;
+pub mod encrypt;
 pub mod file;
 pub mod get;
 pub mod init;

@@ -1,11 +1,11 @@
-//! The `ssh` storage backend: [`FsStore`] over [`SftpFs`].
+//! The `ssh` storage backend: [`FsStore`](passalong_core::store::FsStore)
+//! over [`SftpFs`], registered as a file-like backend, so the store opens
+//! as its header says: plaintext or encrypted.
 
-use std::sync::Arc;
-
-use passalong_core::clock::SystemClock;
 use passalong_core::config::Config;
-use passalong_core::random::StdRandom;
-use passalong_core::store::{BackendFuture, BackendRegistry, FsStore, Store, StoreError};
+use passalong_core::encryption;
+use passalong_core::fs::RemoteFs;
+use passalong_core::store::{BackendRegistry, FsFuture, Store, StoreError};
 
 use crate::connect::SshParams;
 use crate::sftp_fs::SftpFs;
@@ -15,33 +15,40 @@ pub const KIND: &str = "ssh";
 
 /// Adds the `ssh` backend to `registry`.
 pub fn register(registry: &mut BackendRegistry) {
-    registry.register(KIND, opener);
+    registry.register_fs(KIND, fs_opener);
 }
 
-fn opener(config: &Config) -> BackendFuture<'_> {
-    Box::pin(open_ssh_store(config))
+fn fs_opener(config: &Config) -> FsFuture<'_> {
+    Box::pin(async move { Ok(Box::new(open_ssh_fs(config).await?) as Box<dyn RemoteFs>) })
 }
 
-/// Connects to the server in `[server.ssh]` and returns a store on it.
+/// Connects to the server in `[server.ssh]` and returns its filesystem.
 ///
 /// # Errors
 ///
 /// [`StoreError::Config`] when `[server.ssh]` is missing and
 /// [`StoreError::Backend`] for every connection problem, with a message
 /// that says how to fix it.
-pub async fn open_ssh_store(config: &Config) -> Result<Box<dyn Store>, StoreError> {
+pub async fn open_ssh_fs(config: &Config) -> Result<SftpFs, StoreError> {
     let ssh = config
         .server
         .ssh
         .as_ref()
         .ok_or_else(|| StoreError::Config("the `server.ssh` section is missing".to_owned()))?;
     let params = SshParams::from_config(ssh)?;
-    let fs = SftpFs::open(&params, &ssh.remote_path).await?;
-    Ok(Box::new(FsStore::new(
-        fs,
-        Arc::new(SystemClock),
-        Box::new(StdRandom::new()),
-    )))
+    Ok(SftpFs::open(&params, &ssh.remote_path).await?)
+}
+
+/// Connects to the server in `[server.ssh]` and returns the store on it,
+/// opened as its header says.
+///
+/// # Errors
+///
+/// As [`open_ssh_fs`], and [`StoreError::Encryption`] when the store is
+/// refused, for example because it is encrypted and this device has no
+/// key.
+pub async fn open_ssh_store(config: &Config) -> Result<Box<dyn Store>, StoreError> {
+    encryption::open_store(open_ssh_fs(config).await?, config).await
 }
 
 #[cfg(test)]

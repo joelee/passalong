@@ -4,6 +4,8 @@
 use std::collections::VecDeque;
 use std::io::{self, BufRead, IsTerminal, Write};
 
+use zeroize::Zeroizing;
+
 /// Asks the user questions on the terminal.
 pub trait Prompt {
     /// Whether a person can answer and see the question, that is, standard
@@ -15,6 +17,10 @@ pub trait Prompt {
 
     /// Asks for a value; an empty answer takes `default`, or is empty.
     fn ask(&mut self, question: &str, default: Option<&str>) -> io::Result<String>;
+
+    /// Asks for a secret, such as a store's words, without echoing what is
+    /// typed. The answer is trimmed and zeroised when dropped.
+    fn ask_secret(&mut self, question: &str) -> io::Result<Zeroizing<String>>;
 
     /// Shows what a coming question is about, where questions appear.
     fn show(&mut self, text: &str) -> io::Result<()>;
@@ -61,11 +67,67 @@ impl Prompt for TerminalPrompt {
         Ok(with_default(&answer, default))
     }
 
+    fn ask_secret(&mut self, question: &str) -> io::Result<Zeroizing<String>> {
+        let mut stderr = io::stderr();
+        write!(stderr, "{question}: ")?;
+        stderr.flush()?;
+        let answer = read_hidden();
+        writeln!(stderr)?;
+        answer
+    }
+
     fn show(&mut self, text: &str) -> io::Result<()> {
         let mut stderr = io::stderr();
         stderr.write_all(text.as_bytes())?;
         stderr.flush()
     }
+}
+
+/// Reads a line from the terminal in raw mode, so nothing typed is echoed.
+/// Enter ends it, Backspace deletes, and Ctrl-C or Esc cancels. The
+/// terminal leaves raw mode on every exit path.
+fn read_hidden() -> io::Result<Zeroizing<String>> {
+    use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+    use ratatui::crossterm::terminal;
+
+    struct RawMode;
+    impl Drop for RawMode {
+        fn drop(&mut self) {
+            let _ = terminal::disable_raw_mode();
+        }
+    }
+
+    terminal::enable_raw_mode()?;
+    let _raw = RawMode;
+    let mut answer = Zeroizing::new(String::with_capacity(256));
+    loop {
+        let Event::Key(key) = event::read()? else {
+            continue;
+        };
+        if key.kind != KeyEventKind::Press {
+            continue;
+        }
+        let control = key.modifiers.contains(KeyModifiers::CONTROL);
+        match key.code {
+            KeyCode::Enter => break,
+            KeyCode::Esc => return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled")),
+            KeyCode::Char('c') if control => {
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
+            }
+            KeyCode::Char('d') if control && answer.is_empty() => {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "no answer: input ended",
+                ));
+            }
+            KeyCode::Backspace => {
+                answer.pop();
+            }
+            KeyCode::Char(c) if !control => answer.push(c),
+            _ => {}
+        }
+    }
+    Ok(Zeroizing::new(answer.trim().to_owned()))
 }
 
 /// The trimmed answer, or `default` when the answer is empty.
@@ -132,6 +194,15 @@ impl Prompt for ScriptedPrompt {
         Ok(with_default(&answer, default))
     }
 
+    fn ask_secret(&mut self, question: &str) -> io::Result<Zeroizing<String>> {
+        self.questions.push(format!("{question} (hidden)"));
+        let answer = self
+            .answers
+            .pop_front()
+            .ok_or_else(|| io::Error::other("no scripted answer left"))?;
+        Ok(Zeroizing::new(answer.trim().to_owned()))
+    }
+
     fn show(&mut self, text: &str) -> io::Result<()> {
         self.shown.push_str(text);
         Ok(())
@@ -179,6 +250,15 @@ mod tests {
         ] {
             assert_eq!(is_yes(answer), expected, "{answer:?}");
         }
+    }
+
+    #[test]
+    fn scripted_secrets_record_the_question_but_not_the_answer() {
+        let mut prompt = ScriptedPrompt::new(true, ["  abacus zoom  "]);
+        assert_eq!(prompt.ask_secret("Words").unwrap().as_str(), "abacus zoom");
+        assert_eq!(prompt.questions(), ["Words (hidden)"]);
+        assert!(!prompt.shown().contains("abacus"));
+        assert!(prompt.ask_secret("Again").is_err());
     }
 
     #[test]

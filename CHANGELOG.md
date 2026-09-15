@@ -6,6 +6,75 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## v0.2.0 - 2026-09-15T16:46:38Z
+
+### Added
+
+- `just test-compat` runs the released v0.1.6 binary against the layout of
+  an encrypted store and proves it fails without writing item data; `just
+  ci` runs it (PLAN-00008 STEP-01).
+- `passalong_core::crypto`: the key hierarchy for encrypted stores (a random
+  data key wrapped with Argon2id, 64 MiB, t=3, p=4, and AES-256-GCM), the
+  keyed content key, sealed metadata, a chunked AES-256-GCM content format
+  that rejects truncated, reordered, or extended content, and six-word
+  passphrases from the EFF large word list (CC BY 4.0; see `NOTICE`)
+  (PLAN-00008 STEP-02).
+- `client.key_file` (default `store.key` beside the default config file)
+  and the key file behind it: written with mode 0600 through a temporary
+  file, and refused when other users can read it or when it is inside a git
+  work tree that does not ignore it (PLAN-00008 STEP-03).
+- `FsStore::sealed` keeps a store's items under `v2/` with sealed metadata
+  (only the schema and id are readable), sealed chunked content, and ids
+  made of keyed content keys; deduplication and id prefixes work as
+  before. A recent sealed item that does not open yet is reported as not
+  complete rather than corrupt, for stores in synced folders. `RemoteFs`
+  gains `create_dir` (exclusive) and `remove_file`, and `Store` gains
+  `key_id` and `content_key` (PLAN-00008 STEP-04).
+- Every store now opens as its header, `encryption/header.json`, says:
+  plaintext as before, sealed with this device's key, or refused with the
+  command that fixes it (`encrypt --join` without the key or with another
+  one, `encrypt --recover` while items are re-encrypted or the header is
+  missing, and a refusal for a key with a plaintext store). A store opened
+  sealed stops writing when its key changes or a re-encryption starts.
+  `BackendRegistry` gains `register_fs` and `open_fs`, and `local` and `ssh`
+  register their filesystems; `just test-compat` now also proves v0.1.6
+  cannot write into a real encrypted store (PLAN-00008 STEP-05).
+- `passalong encrypt`: on a plaintext store it shows six new words, has
+  them typed back, and encrypts the store (a store with items gets a fresh
+  start: they stay unencrypted in `plain/` until `passalong prune
+  --plain`); on an encrypted store it changes the words without
+  re-encrypting anything; `--join` gives a device the store's key. `init`
+  offers encryption for an empty store and joins an encrypted one; `check`
+  gains an `encryption` line; `list` warns while unencrypted items remain
+  (PLAN-00008 STEP-06).
+- `encrypt` offers to migrate a store's items, re-encrypting each one, as
+  well as a fresh start; `encrypt --rotate` replaces the store's key and
+  words and re-encrypts every item, so a lost device is shut out; and
+  `encrypt --recover` finishes or undoes an interrupted re-encryption. The
+  re-encryption holds a lock (`.rewrite/`), keeps each item's time and
+  metadata, checks every copy before the new key takes over, and resumes
+  without uploading anything twice (PLAN-00008 STEP-07).
+- `serve` works with encrypted stores: the uploader looks for text and
+  images already stored by the store's own content key, pull mode starts
+  afresh instead of applying every item again when the store's key
+  changes, and the list cache's identity names this device's key, so a
+  cache from before a migration, rotation, or join is never used
+  (PLAN-00008 STEP-08).
+
+### Changed
+
+- The version is 0.2.0. Encrypted stores use a new layout, and the
+  library's public API breaks code built against 0.1: `ClientConfig` gains
+  `key_file`, `StoreError` gains `Encryption`, and `StoreError`, `FsError`,
+  `ConfigError`, `ModelError`, `Config`, `ClientConfig`, `ServerConfig`,
+  `SshConfig`, `LocalConfig`, and `ServeConfig` are now
+  `#[non_exhaustive]`, so later additions stop being breaking changes.
+  Windows and S3 support move to v0.2.1 (PLAN-00008 STEP-10).
+- `init` now inspects the store after its connection test, and its last
+  line says how to encrypt or join it.
+- A list cache written by v0.1.6 is read once more from the server, since
+  the cache now names this device's key.
+
 ## v0.1.6 - 2026-09-14T21:14:49Z
 
 ### Added

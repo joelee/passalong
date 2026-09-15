@@ -30,6 +30,7 @@ const KEY_HEX_LEN: usize = 12;
 
 /// Errors from building or parsing model values.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum ModelError {
     /// Text that is not an `<8 hex>-<12 hex>` item id.
     #[error(
@@ -103,6 +104,12 @@ pub struct ContentDigest {
 }
 
 impl ContentDigest {
+    /// The digest of content with this SHA-256 and length, as recorded in
+    /// an item's metadata.
+    pub fn new(sha256: [u8; 32], size: u64) -> Self {
+        Self { sha256, size }
+    }
+
     /// The full SHA-256 as 64 lowercase hex digits.
     pub fn sha256_hex(&self) -> String {
         hex::encode(self.sha256)
@@ -403,7 +410,25 @@ impl NewItem {
         digest: &ContentDigest,
         preview: Option<String>,
     ) -> Result<ItemMeta, ModelError> {
-        let id = ItemId::new(created_at, digest.content_key())?;
+        let key = digest.content_key();
+        self.finish_keyed(created_at, digest, key, preview)
+    }
+
+    /// Like [`NewItem::finish`], with the id's content key given, as an
+    /// encrypted store derives it with a key.
+    ///
+    /// # Errors
+    ///
+    /// [`ModelError::TimestampOutOfRange`] when `created_at` cannot be
+    /// encoded in an id.
+    pub fn finish_keyed(
+        self,
+        created_at: DateTime<Utc>,
+        digest: &ContentDigest,
+        key: ContentKey,
+        preview: Option<String>,
+    ) -> Result<ItemMeta, ModelError> {
+        let id = ItemId::new(created_at, key)?;
         Ok(ItemMeta {
             schema: ItemMeta::SCHEMA_VERSION,
             created_at: id.timestamp(),

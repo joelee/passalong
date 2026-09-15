@@ -111,7 +111,35 @@ details from `PASSALONG_IT_SSH_*` variables. `just test-integration` generates
 a throwaway key pair in `tests/docker/keys/` (git-ignored), pulls the
 server image with up to 5 attempts because registries throttle shared CI
 runners, starts `tests/docker/docker-compose.yml`, exports the variables,
-runs the ignored tests, and always removes the container.
+runs the ignored tests, and always removes the container. At most 4
+tests run at once, because the server drops new connections while too many
+are still logging in.
+
+## Compatibility test
+
+Clients before v0.2.0 must never write into an encrypted store. An
+encrypted store's root holds a regular file named `items` where older
+clients expect their item directory, so their commands fail instead.
+`crates/passalong-cli/tests/compat_v016.rs` proves this with the released
+v0.1.6 binary: it runs every command that reads or writes items against
+temporary stores and checks that each one fails and that nothing it sent
+reaches the store. The tests are ignored and need the old binary in
+`PASSALONG_COMPAT_BIN`; `just test-compat` downloads the v0.1.6 archive for
+Linux x86_64 or macOS arm64 once into `target/compat/`, checks its SHA-256,
+and runs them. `just ci` includes it. `serve` is not run, because it would
+read the real clipboard.
+
+## Encryption tests
+
+The `crypto` module is tested with round trips and with every kind of
+tampering: truncated, reordered, repeated, or extended content, content
+moved between items, and flipped bits. Tests use small Argon2 settings;
+`cargo test --release -p passalong-core timing_ -- --ignored --nocapture`
+measures the production settings. The rewrite engine's tests fail each
+filesystem call of a whole migration and rotation in turn, then recover
+both ways. The EFF word list in `crates/passalong-core/src/crypto/` must
+stay unmodified: 7,776 lines of a dice code, a tab, and a word, and its
+attribution in `NOTICE` and `crates/passalong-core/NOTICE`.
 
 ## Desktop clipboard test
 

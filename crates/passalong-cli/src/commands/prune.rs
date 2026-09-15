@@ -5,6 +5,8 @@ use std::time::Duration;
 
 use anyhow::Context as _;
 use chrono::{DateTime, FixedOffset, Utc};
+use passalong_core::encryption::{self, EncryptionError, StoreState};
+use passalong_core::fs::RemoteFs;
 use passalong_core::model::ItemMeta;
 use passalong_core::retention;
 use passalong_core::store::Store;
@@ -102,6 +104,51 @@ pub async fn run(
             };
             writeln!(out, "removed {removed} stale staging {dirs}")?;
         }
+    }
+    Ok(())
+}
+
+/// `prune --plain`: prunes the unencrypted items a fresh start left in
+/// `plain/`, as [`run`] prunes a store's items, and removes `plain/` once it
+/// is empty.
+///
+/// # Errors
+///
+/// For a store that is not encrypted or cannot be used, and as [`run`].
+pub async fn run_plain(
+    fs: &dyn RemoteFs,
+    options: &PruneOptions,
+    now: DateTime<Utc>,
+    prompt: &mut dyn Prompt,
+    offset: FixedOffset,
+    out: &mut dyn Write,
+) -> anyhow::Result<()> {
+    match encryption::inspect(fs).await? {
+        StoreState::Encrypted { plain_left: 0, .. } => {
+            writeln!(out, "no unencrypted items remain")?;
+            return Ok(());
+        }
+        StoreState::Encrypted { .. } => {}
+        StoreState::Plain { .. } => anyhow::bail!(
+            "the store is not encrypted: `--plain` prunes the unencrypted items an encrypted store kept from before; use `passalong prune` without it"
+        ),
+        StoreState::Rewriting { started } => {
+            return Err(EncryptionError::Rewriting { started }.into());
+        }
+        StoreState::Broken => return Err(EncryptionError::HeaderMissing.into()),
+        _ => anyhow::bail!("this store's state is not known to this version of passalong"),
+    }
+    run(
+        &encryption::plain_store(fs),
+        options,
+        now,
+        prompt,
+        offset,
+        out,
+    )
+    .await?;
+    if !options.dry_run && encryption::remove_plain_if_empty(fs).await? {
+        writeln!(out, "removed plain/: no unencrypted items remain")?;
     }
     Ok(())
 }
@@ -318,5 +365,79 @@ mod tests {
         assert_eq!(out, "nothing to prune\nremoved 1 stale staging directory\n");
         assert!(!dir.exists());
         let _ = T;
+    }
+}
+
+#[cfg(test)]
+mod plain_tests {
+    use super::*;
+    use crate::commands::support::{T, TestStore, bytes};
+    use crate::prompt::ScriptedPrompt;
+    use passalong_core::crypto::{KDF_SALT_LEN, KdfParams, Words};
+    use passalong_core::fs::LocalFs;
+    use passalong_core::model::NewItem;
+
+    fn keep(n: usize) -> PruneOptions {
+        PruneOptions {
+            older_than: None,
+            keep: Some(n),
+            dry_run: false,
+            yes: true,
+            quiet: false,
+        }
+    }
+
+    async fn prune(fs: &LocalFs, options: &PruneOptions) -> anyhow::Result<String> {
+        let mut out = Vec::new();
+        let mut prompt = ScriptedPrompt::new(false, Vec::<&str>::new());
+        let utc = FixedOffset::east_opt(0).unwrap();
+        run_plain(fs, options, T.parse().unwrap(), &mut prompt, utc, &mut out).await?;
+        Ok(String::from_utf8(out).unwrap())
+    }
+
+    #[tokio::test]
+    async fn plain_items_are_pruned_and_the_folder_removed_once_empty() {
+        let ts = TestStore::new();
+        for text in ["a", "b", "c"] {
+            ts.store
+                .put(NewItem::text("box"), bytes(text.as_bytes()))
+                .await
+                .unwrap();
+            ts.clock.advance(1);
+        }
+        let fs = LocalFs::new(ts.dir.path());
+        let kdf = KdfParams {
+            m_kib: 64,
+            t: 1,
+            p: 1,
+            salt: [2; KDF_SALT_LEN],
+        };
+        encryption::fresh_start(
+            &fs,
+            &Words::parse("zoom zoom zoom zoom zoom zoom").unwrap(),
+            kdf,
+        )
+        .await
+        .unwrap();
+        let out = prune(&fs, &keep(1)).await.unwrap();
+        assert!(out.contains("deleted 2 items"), "{out}");
+        assert!(ts.dir.path().join("plain").exists());
+        let out = prune(&fs, &keep(0)).await.unwrap();
+        assert!(out.contains("deleted 1 item"), "{out}");
+        assert!(out.contains("removed plain/"), "{out}");
+        assert!(!ts.dir.path().join("plain").exists());
+        assert_eq!(
+            prune(&fs, &keep(0)).await.unwrap(),
+            "no unencrypted items remain\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_plaintext_store_has_nothing_for_plain() {
+        let ts = TestStore::new();
+        let err = prune(&LocalFs::new(ts.dir.path()), &keep(0))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("not encrypted"), "{err}");
     }
 }

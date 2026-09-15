@@ -39,6 +39,21 @@ impl RemoteFs for LocalFs {
             .map_err(|err| FsError::from_io(path, err))
     }
 
+    async fn create_dir(&self, path: &RemotePath) -> Result<(), FsError> {
+        tokio::fs::create_dir(self.resolve(path))
+            .await
+            .map_err(|err| FsError::from_io(path, err))
+    }
+
+    async fn remove_file(&self, path: &RemotePath) -> Result<(), FsError> {
+        match tokio::fs::remove_file(self.resolve(path)).await {
+            Err(err) if err.kind() != std::io::ErrorKind::NotFound => {
+                Err(FsError::from_io(path, err))
+            }
+            _ => Ok(()),
+        }
+    }
+
     async fn read_dir(&self, path: &RemotePath) -> Result<Vec<DirEntry>, FsError> {
         let io = |err| FsError::from_io(path, err);
         let mut dir = tokio::fs::read_dir(self.resolve(path)).await.map_err(io)?;
@@ -199,6 +214,26 @@ mod tests {
         assert_eq!(meta.size, 5);
         assert!(meta.modified.is_some());
         assert!(fs.stat(&RemotePath::root()).await.unwrap().unwrap().is_dir);
+    }
+
+    #[tokio::test]
+    async fn create_dir_is_exclusive_and_remove_file_removes_files_only() {
+        let dir = TempDir::new().unwrap();
+        let fs = LocalFs::new(dir.path());
+        fs.create_dir(&p("lock")).await.unwrap();
+        assert!(matches!(
+            fs.create_dir(&p("lock")).await,
+            Err(FsError::AlreadyExists(_))
+        ));
+        assert!(matches!(
+            fs.create_dir(&p("missing/child")).await,
+            Err(FsError::NotFound(_))
+        ));
+        write(&fs, "lock/f", b"1").await;
+        fs.remove_file(&p("lock/f")).await.unwrap();
+        assert!(fs.stat(&p("lock/f")).await.unwrap().is_none());
+        fs.remove_file(&p("lock/f")).await.unwrap();
+        assert!(fs.remove_file(&p("lock")).await.is_err());
     }
 
     #[tokio::test]

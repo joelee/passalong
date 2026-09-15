@@ -223,7 +223,7 @@ pub(crate) fn locate_on(
     platform: Platform,
 ) -> Result<LocatedConfig, ConfigError> {
     let absolute = |path: &Path| {
-        if path.is_absolute() {
+        if path.has_root() {
             path.to_path_buf()
         } else {
             roots.working_dir.join(path)
@@ -254,7 +254,7 @@ pub(crate) fn locate_on(
     } else {
         if let Some(xdg) = non_empty(env, "XDG_CONFIG_HOME")
             .map(PathBuf::from)
-            .filter(|path| path.is_absolute())
+            .filter(|path| path.has_root())
         {
             candidates.push((
                 xdg.join(APP_NAME).join(CONFIG_FILE_NAME),
@@ -778,7 +778,7 @@ impl RawClient {
             None => DEFAULT_DOWNLOAD_DIR.to_owned(),
         };
         let download_dir = expand_tilde(&download_dir, "client.download_dir", env)?;
-        if !download_dir.is_absolute() {
+        if !download_dir.has_root() {
             return Err(invalid(
                 "client.download_dir",
                 "must be an absolute path or start with `~/`",
@@ -788,7 +788,7 @@ impl RawClient {
             Some(path) => {
                 let path = required(Some(path), "client.key_file")?;
                 let path = expand_tilde(&path, "client.key_file", env)?;
-                if !path.is_absolute() {
+                if !path.has_root() {
                     return Err(invalid(
                         "client.key_file",
                         "must be an absolute path or start with `~/`",
@@ -982,7 +982,7 @@ pub(crate) fn default_config_path_on(env: &dyn EnvProvider, platform: Platform) 
     }
     if let Some(xdg) = non_empty(env, "XDG_CONFIG_HOME")
         .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
+        .filter(|p| p.has_root())
     {
         return Some(xdg.join(APP_NAME).join(CONFIG_FILE_NAME));
     }

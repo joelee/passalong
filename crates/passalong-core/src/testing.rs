@@ -398,6 +398,25 @@ impl<F: RemoteFs> RemoteFs for FaultyFs<F> {
     }
 }
 
+/// Sets the modification time of the file or folder at `path`. Windows
+/// opens a folder only with a flag for it, which `File::open` does not set.
+///
+/// # Errors
+///
+/// When the path cannot be opened or its time set.
+pub fn set_modified(path: &std::path::Path, time: std::time::SystemTime) -> io::Result<()> {
+    let mut options = std::fs::OpenOptions::new();
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // FILE_WRITE_ATTRIBUTES, and FILE_FLAG_BACKUP_SEMANTICS for folders.
+        options.access_mode(0x0100).custom_flags(0x0200_0000);
+    }
+    #[cfg(not(windows))]
+    options.read(true);
+    options.open(path)?.set_modified(time)
+}
+
 #[derive(Debug, Default)]
 struct PauseState {
     calls: HashMap<FsOp, usize>,

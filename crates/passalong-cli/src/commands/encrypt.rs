@@ -985,7 +985,6 @@ mod tests {
         assert!(err.to_string().contains("is running (since "), "{err}");
     }
 
-    #[cfg(unix)]
     #[tokio::test]
     async fn a_stopped_recovery_is_taken_over_after_a_yes() {
         let rig = Rig::new();
@@ -993,10 +992,7 @@ mod tests {
         let marker = rig.store.dir.path().join(".rewrite/recovery");
         std::fs::create_dir(&marker).unwrap();
         let hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
-        std::fs::File::open(&marker)
-            .unwrap()
-            .set_modified(hour_ago)
-            .unwrap();
+        passalong_core::testing::set_modified(&marker, hour_ago).unwrap();
         let out = rig
             .run_with(recover_args(), w1, &mut ScriptedPrompt::new(true, ["no"]))
             .await

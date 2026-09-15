@@ -83,7 +83,7 @@ impl StatePaths {
             Os::Linux => {
                 let state = match non_empty(env, "XDG_STATE_HOME")
                     .map(PathBuf::from)
-                    .filter(|p| p.is_absolute())
+                    .filter(|p| p.has_root())
                 {
                     Some(state) => state,
                     None => PathBuf::from(non_empty(env, "HOME")?).join(".local/state"),
@@ -317,6 +317,9 @@ mod tests {
         );
     }
 
+    // Windows locks are mandatory, so the pid cannot be read back while
+    // the lock is held; Windows serve is handled with background serve.
+    #[cfg(unix)]
     #[test]
     fn only_one_holder_of_the_pid_lock() {
         let dir = TempDir::new().unwrap();
@@ -351,6 +354,7 @@ mod tests {
         assert_eq!(status(&path).unwrap(), Status::NotRunning);
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_stale_pid_file_is_taken_over() {
         let dir = TempDir::new().unwrap();

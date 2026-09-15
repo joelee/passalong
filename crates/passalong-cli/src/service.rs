@@ -165,7 +165,10 @@ mod tests {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../docs/service")
             .join(name);
-        std::fs::read_to_string(&path).unwrap_or_else(|err| panic!("{}: {err}", path.display()))
+        std::fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("{}: {err}", path.display()))
+            // A Windows checkout may turn line ends into CRLF.
+            .replace("\r\n", "\n")
     }
 
     #[test]

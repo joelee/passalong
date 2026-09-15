@@ -90,7 +90,7 @@ test-compat:
 windows-check:
     cargo build --locked --workspace --all-targets --all-features
     cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
-    cargo test --locked --workspace --all-features
+    cargo test --locked --workspace --all-features --no-fail-fast
 
 # Prove deploy/ssh-server works end to end: start it from a temporary
 # directory, run `init` and a round trip, check host-owned storage and a

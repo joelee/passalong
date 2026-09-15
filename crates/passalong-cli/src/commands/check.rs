@@ -573,7 +573,7 @@ mod tests {
     /// The local config, with this device's key in `key_file`.
     fn keyed(key_file: &Path) -> anyhow::Result<(PathBuf, Config)> {
         let text = format!(
-            "[client]\ndevice_name = \"t\"\nkey_file = \"{}\"\n\n[server]\nkind = \"local\"\n\n[server.local]\npath = \"/srv/share\"\n",
+            "[client]\ndevice_name = \"t\"\nkey_file = '{}'\n\n[server]\nkind = \"local\"\n\n[server.local]\npath = \"/srv/share\"\n",
             key_file.display()
         );
         let env = MapEnv::new().with("HOME", "/home/t");

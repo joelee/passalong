@@ -378,7 +378,7 @@ mod tests {
         let keys = TempDir::new().unwrap();
         let key_file = keys.path().join("store.key");
         let text = format!(
-            "[client]\nkey_file = \"{}\"\n\n[server]\nkind = \"ssh\"\n\n[server.ssh]\nhost = \"nas\"\nuser = \"pa\"\nhost_key = \"ssh-ed25519 AAAAkey\"\nidentity_file = \"/keys/id\"\nremote_path = \"/srv/passalong\"\n",
+            "[client]\nkey_file = '{}'\n\n[server]\nkind = \"ssh\"\n\n[server.ssh]\nhost = \"nas\"\nuser = \"pa\"\nhost_key = \"ssh-ed25519 AAAAkey\"\nidentity_file = \"/keys/id\"\nremote_path = \"/srv/passalong\"\n",
             key_file.display()
         );
         let env = crate::testing::MapEnv::new().with("HOME", "/home/u");

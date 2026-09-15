@@ -375,6 +375,7 @@ mod tests {
 
     const LAUNCHD: Platform = Platform::Launchd { uid: 501 };
 
+    #[cfg(unix)]
     #[test]
     fn systemd_install_writes_the_unit_then_enables_and_starts_it() {
         let mut rig = Rig::new();
@@ -441,6 +442,8 @@ mod tests {
         );
     }
 
+    // systemd and launchd paths are Unix paths; Windows has its own tests.
+    #[cfg(unix)]
     #[test]
     fn an_identical_unit_is_left_alone_and_a_different_one_needs_force() {
         let mut rig = Rig::new();
@@ -513,6 +516,7 @@ mod tests {
         assert!(rig.unit().is_file());
     }
 
+    #[cfg(unix)]
     #[test]
     fn systemd_remove_disables_removes_and_reloads() {
         let mut rig = Rig::new();
@@ -538,6 +542,7 @@ mod tests {
         assert!(rig.manager.calls.is_empty());
     }
 
+    #[cfg(unix)]
     #[test]
     fn launchd_install_writes_the_agent_and_bootstraps_it() {
         let mut rig = Rig::new();
@@ -569,6 +574,7 @@ mod tests {
         assert!(out.ends_with("loaded com.passalong.serve\n"), "{out}");
     }
 
+    #[cfg(unix)]
     #[test]
     fn launchd_replacement_boots_the_old_agent_out_first() {
         let mut rig = Rig::new();
@@ -590,6 +596,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn launchd_remove_boots_out_and_removes_even_when_not_loaded() {
         let mut rig = Rig::new();

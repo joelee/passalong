@@ -44,7 +44,7 @@ impl Sandbox {
     fn config(&self) -> PathBuf {
         let path = self.path("cfg/config.toml");
         let text = format!(
-            "[client]\ndevice_name = \"test-box\"\n\n[server]\nkind = \"local\"\n\n[server.local]\npath = \"{}\"\n\n[serve]\ndrop_folder = \"{}\"\n",
+            "[client]\ndevice_name = \"test-box\"\n\n[server]\nkind = \"local\"\n\n[server.local]\npath = '{}'\n\n[serve]\ndrop_folder = '{}'\n",
             self.path("store").display(),
             self.path("drop").display()
         );
@@ -898,7 +898,7 @@ async fn list_prints_a_fresh_cache_without_connecting_and_nocache_connects() {
     std::fs::write(
         &config,
         format!(
-            "[client]\ndevice_name = \"test-box\"\n\n[server]\nkind = \"ssh\"\n\n[server.ssh]\nhost = \"127.0.0.1\"\nport = 1\nuser = \"u\"\nhost_key = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMKy9BQGg0B6NYvYwyrJzGCOHCXKQBj7E/5jvWJSEDCi\"\nidentity_file = \"{}\"\nremote_path = \"/r\"\n",
+            "[client]\ndevice_name = \"test-box\"\n\n[server]\nkind = \"ssh\"\n\n[server.ssh]\nhost = \"127.0.0.1\"\nport = 1\nuser = \"u\"\nhost_key = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMKy9BQGg0B6NYvYwyrJzGCOHCXKQBj7E/5jvWJSEDCi\"\nidentity_file = '{}'\nremote_path = \"/r\"\n",
             key.display()
         ),
     )
@@ -1037,7 +1037,7 @@ fn serve_daemon_pulls_files_sent_by_another_device() {
     std::fs::write(
         &config,
         format!(
-            "[client]\ndevice_name = \"laptop\"\ndownload_dir = \"{}\"\n\n[server]\nkind = \"local\"\n\n[server.local]\npath = \"{}\"\n\n[serve]\ndrop_folder = \"{}\"\npull = true\npull_interval_ms = 1000\n",
+            "[client]\ndevice_name = \"laptop\"\ndownload_dir = '{}'\n\n[server]\nkind = \"local\"\n\n[server.local]\npath = '{}'\n\n[serve]\ndrop_folder = '{}'\npull = true\npull_interval_ms = 1000\n",
             sb.path("home/dl").display(),
             sb.path("store").display(),
             sb.path("drop").display()
@@ -1198,7 +1198,7 @@ impl Sandbox {
     fn with_key_file(&self, key_file: &std::path::Path) -> Command {
         let path = self.path("cfg/keyed.toml");
         let text = format!(
-            "[client]\ndevice_name = \"test-box\"\nkey_file = \"{}\"\n\n[server]\nkind = \"local\"\n\n[server.local]\npath = \"{}\"\n\n[serve]\ndrop_folder = \"{}\"\n",
+            "[client]\ndevice_name = \"test-box\"\nkey_file = '{}'\n\n[server]\nkind = \"local\"\n\n[server.local]\npath = '{}'\n\n[serve]\ndrop_folder = '{}'\n",
             key_file.display(),
             self.path("store").display(),
             self.path("drop").display()

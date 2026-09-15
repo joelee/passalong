@@ -351,10 +351,7 @@ mod tests {
         let dir = ts.dir.path().join("tmp/abandoned");
         std::fs::create_dir_all(&dir).unwrap();
         let old: std::time::SystemTime = (ts.clock.now() - TimeDelta::hours(2)).into();
-        std::fs::File::open(&dir)
-            .unwrap()
-            .set_modified(old)
-            .unwrap();
+        passalong_core::testing::set_modified(&dir, old).unwrap();
         let out = prune(
             &ts,
             &opts(Some(30 * 86_400), None, true, false),

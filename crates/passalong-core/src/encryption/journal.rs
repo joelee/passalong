@@ -210,6 +210,8 @@ pub(super) async fn publish<F: RemoteFs + ?Sized>(
             .shutdown()
             .await
             .map_err(|err| FsError::from_io(&path, err))?;
+        // Windows does not rename a folder that holds an open file.
+        drop(writer);
         for (folder, header) in headers {
             write_header_in(fs, &staged.join(folder)?, header).await?;
         }

@@ -77,10 +77,24 @@ impl ListCache {
             Some(path) => load_key_file(path, &SystemGit::new()).ok()?,
             None => None,
         };
-        Some(match key {
-            Some(key) => format!("{base} key {}", key.key_id()),
+        Some(Self::identity_for(&base, key.map(|key| key.key_id())))
+    }
+
+    /// The identity of the store `base` names, listed with the key `key`,
+    /// or without a key.
+    pub fn identity_for(base: &str, key: Option<crate::crypto::KeyId>) -> String {
+        match key {
+            Some(key) => format!("{base} key {key}"),
             None => format!("{base} plain"),
-        })
+        }
+    }
+
+    /// `identity` without the key it names.
+    fn base_of(identity: &str) -> &str {
+        identity
+            .strip_suffix(" plain")
+            .or_else(|| identity.rsplit_once(" key ").map(|(base, _)| base))
+            .unwrap_or(identity)
     }
 
     /// The cache in `path`, or `None` when the file is missing, unreadable,
@@ -184,10 +198,13 @@ impl ListCache {
 
 /// Keeps the cache in `path` current for `serve`: one refresh at start,
 /// then one every `interval`, over a store connection of its own. A saved
-/// cache of the same store is refreshed rather than read again. After an
-/// error the file keeps its last good contents and the store is reopened at
-/// the next check; each distinct error is logged once. Returns once
-/// `shutdown` turns `true` or its sender is dropped.
+/// cache of the same store is refreshed rather than read again. The cache
+/// is saved under the identity of the key each connection uses, which may
+/// differ from `identity`'s after a migration, a rotation, or a join; a
+/// cache of another key is read again. After an error the file keeps its
+/// last good contents and the store is reopened at the next check; each
+/// distinct error is logged once. Returns once `shutdown` turns `true` or
+/// its sender is dropped.
 pub async fn refresh_loop(
     open_store: StoreOpener,
     path: PathBuf,
@@ -197,6 +214,7 @@ pub async fn refresh_loop(
     mut shutdown: watch::Receiver<bool>,
 ) {
     let mut cache = ListCache::load(&path).filter(|cache| cache.store == identity);
+    let base = ListCache::base_of(&identity).to_owned();
     let mut store: Option<Box<dyn Store>> = None;
     let mut ticker = tokio::time::interval(interval);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -208,7 +226,7 @@ pub async fn refresh_loop(
         }
         let refreshed = tokio::select! {
             () = stopped(&mut shutdown) => return,
-            refreshed = refresh_once(&open_store, &mut store, &mut cache, &identity, clock.now()) => refreshed,
+            refreshed = refresh_once(&open_store, &mut store, &mut cache, &base, clock.now()) => refreshed,
         };
         let outcome = refreshed
             .map_err(|err| format!("cannot read the store: {err}"))
@@ -239,20 +257,26 @@ pub async fn refresh_loop(
 
 /// One refresh, opening the store first when there is none. The store is
 /// kept only when the refresh succeeds, so a failure reconnects next time.
+/// `base` is the store's identity without a key.
 async fn refresh_once(
     open_store: &StoreOpener,
     store: &mut Option<Box<dyn Store>>,
     cache: &mut Option<ListCache>,
-    identity: &str,
+    base: &str,
     now: DateTime<Utc>,
 ) -> Result<(), StoreError> {
     let connected = match store.take() {
         Some(connected) => connected,
         None => open_store().await?,
     };
+    let identity = ListCache::identity_for(base, connected.key_id());
+    if cache.as_ref().is_some_and(|cache| cache.store != identity) {
+        tracing::info!("the store's key changed; reading the list cache again");
+        *cache = None;
+    }
     let result = match cache.as_mut() {
         Some(cache) => cache.refresh(connected.as_ref(), now).await,
-        None => ListCache::read(connected.as_ref(), identity.to_owned(), now)
+        None => ListCache::read(connected.as_ref(), identity, now)
             .await
             .map(|fresh| *cache = Some(fresh)),
     };
@@ -447,6 +471,110 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_running_refresh_follows_the_store_to_a_new_key() {
+        use crate::crypto::{DataKey, KDF_SALT_LEN, KdfParams, Words};
+        use crate::encryption::{migrate, open_with_key, rotate};
+        let (dir, _store, items) = fixture(&["a", "b"]).await;
+        let root = dir.path().to_path_buf();
+        // This device's key file, as `serve` reads it at each reconnection.
+        let device_key: Arc<std::sync::Mutex<Option<DataKey>>> =
+            Arc::new(std::sync::Mutex::new(None));
+        let opener: StoreOpener = {
+            let (root, key) = (root.clone(), Arc::clone(&device_key));
+            Arc::new(move || -> BackendFuture<'static> {
+                let (root, key) = (root.clone(), key.lock().unwrap().clone());
+                Box::pin(async move {
+                    open_with_key(
+                        LocalFs::new(root),
+                        key,
+                        Arc::new(ManualClock::at(T)),
+                        Box::new(StdRandom::new()),
+                    )
+                    .await
+                })
+            })
+        };
+        let kdf = || KdfParams {
+            m_kib: 64,
+            t: 1,
+            p: 1,
+            salt: [1; KDF_SALT_LEN],
+        };
+        let base = "ssh pa@nas:22 /srv/passalong";
+        let (mut store, mut cache) = (None, None);
+        refresh_once(&opener, &mut store, &mut cache, base, now())
+            .await
+            .unwrap();
+        assert_eq!(cache.as_ref().unwrap().store, format!("{base} plain"));
+
+        let k1 = migrate(
+            &LocalFs::new(root.clone()),
+            &Words::parse("abacus zoom abdomen abacus zoom abdomen").unwrap(),
+            kdf(),
+            Arc::new(ManualClock::at(T)),
+        )
+        .await
+        .unwrap();
+        *device_key.lock().unwrap() = Some(k1.clone());
+        // The kept connection is refused; the next refresh reconnects.
+        assert!(
+            refresh_once(&opener, &mut store, &mut cache, base, now())
+                .await
+                .is_err()
+        );
+        refresh_once(&opener, &mut store, &mut cache, base, now())
+            .await
+            .unwrap();
+        let saved = cache.as_ref().unwrap();
+        assert_eq!(
+            saved.store,
+            ListCache::identity_for(base, Some(k1.key_id()))
+        );
+        assert_eq!(saved.items.len(), items.len());
+
+        let k2 = rotate(
+            &LocalFs::new(root.clone()),
+            &k1,
+            &Words::parse("zoom zoom zoom zoom zoom zoom").unwrap(),
+            kdf(),
+            Arc::new(ManualClock::at(T)),
+        )
+        .await
+        .unwrap();
+        *device_key.lock().unwrap() = Some(k2.clone());
+        assert!(
+            refresh_once(&opener, &mut store, &mut cache, base, now())
+                .await
+                .is_err()
+        );
+        refresh_once(&opener, &mut store, &mut cache, base, now())
+            .await
+            .unwrap();
+        let saved = cache.unwrap();
+        assert_eq!(
+            saved.store,
+            ListCache::identity_for(base, Some(k2.key_id()))
+        );
+        assert_eq!(saved.items.len(), items.len());
+    }
+
+    #[test]
+    fn the_base_of_an_identity_drops_only_its_key() {
+        for base in [
+            "ssh u@h:22 /srv",
+            "ssh u@h:22 /a key b",
+            "ssh u@h:22 /x plain",
+        ] {
+            assert_eq!(ListCache::base_of(&format!("{base} plain")), base);
+            let key = crate::crypto::DataKey::generate().unwrap().key_id();
+            assert_eq!(
+                ListCache::base_of(&ListCache::identity_for(base, Some(key))),
+                base
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn a_failed_refresh_leaves_the_cache_as_it_was() {
         let (_dir, store, items) = fixture(&["a", "b"]).await;
         let mut cache = ListCache::new("s".into(), now(), items[1..].to_vec());
@@ -500,14 +628,14 @@ mod tests {
         let task = tokio::spawn(refresh_loop(
             opener(dir.path(), clock.clone(), opens.clone()),
             path.clone(),
-            "s".into(),
+            "s plain".into(),
             every,
             clock.clone(),
             stopped,
         ));
         tokio::time::sleep(Duration::from_secs(1)).await;
         let first = ListCache::load(&path).expect("written at start");
-        assert_eq!((first.store.as_str(), &first.items), ("s", &items));
+        assert_eq!((first.store.as_str(), &first.items), ("s plain", &items));
         assert_eq!(first.checked_at, now());
 
         store
@@ -556,14 +684,14 @@ mod tests {
         let task = tokio::spawn(refresh_loop(
             opener(dir.path(), clock.clone(), Arc::default()),
             path.clone(),
-            "s".into(),
+            "s plain".into(),
             Duration::from_secs(60),
             clock,
             stopped,
         ));
         tokio::time::sleep(Duration::from_secs(1)).await;
         let cache = ListCache::load(&path).unwrap();
-        assert_eq!((cache.store.as_str(), cache.items), ("s", items));
+        assert_eq!((cache.store.as_str(), cache.items), ("s plain", items));
         drop(stop);
         tokio::time::timeout(Duration::from_secs(1), task)
             .await

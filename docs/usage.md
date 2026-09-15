@@ -444,6 +444,13 @@ that cannot be reached is retried at the next check without skipping
 anything. Pull mode remembers which items it has already handled, so an
 item from a device whose clock runs behind is still applied, once.
 
+In an encrypted store, an item that does not open yet is tried again at
+the next check while it is less than five minutes old, since its files may
+still be arriving through a synced folder; the items after it are applied
+meanwhile. An older item that does not open is damaged: it is logged,
+skipped for good, and never written to the clipboard or the download
+folder.
+
 ### Running `serve` in the background
 
 Only one `serve` runs at a time: a second one exits with

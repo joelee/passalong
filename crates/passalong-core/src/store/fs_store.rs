@@ -39,7 +39,7 @@ const SEALED_TMP_DIR: &str = "v2/tmp";
 const SEALED_SCHEMA: u32 = 2;
 /// How long after its creation a sealed item that does not open counts as
 /// still arriving, rather than corrupt.
-const INCOMPLETE_GRACE_SECS: i64 = 5 * 60;
+pub(crate) const INCOMPLETE_GRACE_SECS: i64 = 5 * 60;
 const CONTENT_FILE: &str = "content";
 const META_FILE: &str = "meta.json";
 const CHUNK_SIZE: usize = 64 * 1024;

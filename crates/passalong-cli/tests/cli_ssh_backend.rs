@@ -5,7 +5,13 @@
 use std::path::{Path, PathBuf};
 
 use assert_cmd::Command;
+use passalong_core::config;
+use passalong_core::crypto::{KdfParams, Words};
+use passalong_core::encryption::{self, SystemGit};
 use passalong_core::random::{RandomSource, StdRandom};
+use passalong_core::testing::MapEnv;
+use passalong_ssh::connect::SshParams;
+use passalong_ssh::sftp_fs::SftpFs;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
@@ -240,7 +246,7 @@ fn scripted_init_pins_the_confirmed_key_and_connects() {
         .success()
         .stdout(
             predicate::str::contains(&fingerprint).and(predicate::str::ends_with(
-                "connected: 0 items on the server\n",
+                "connected: 0 items on the server\nTo encrypt this store, run `passalong encrypt`.\n",
             )),
         );
     let pinned = std::fs::read_to_string(&target).unwrap();
@@ -254,4 +260,82 @@ fn scripted_init_pins_the_confirmed_key_and_connects() {
         .assert()
         .success()
         .stdout("no items\n");
+}
+
+#[test]
+#[ignore = "needs the Docker SSH server: just test-integration"]
+fn the_binary_uses_an_encrypted_store_over_ssh_with_its_key_only() {
+    let dir = TempDir::new().unwrap();
+    let config_path = write_config(dir.path(), &var("PASSALONG_IT_SSH_HOST_KEY"));
+    let env = MapEnv::new().with("HOME", dir.path().to_str().unwrap());
+    let parsed = config::load(&config_path, &env).unwrap();
+    let ssh = parsed.server.ssh.clone().unwrap();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let key = runtime.block_on(async {
+        let fs = SftpFs::open(&SshParams::from_config(&ssh).unwrap(), &ssh.remote_path)
+            .await
+            .unwrap();
+        let kdf = KdfParams {
+            m_kib: 64,
+            t: 1,
+            p: 1,
+            salt: [4; 16],
+        };
+        let words = Words::parse("zoom zoom zoom zoom zoom zoom").unwrap();
+        encryption::set_up(&fs, &words, kdf).await.unwrap()
+    });
+    let key_file = parsed.client.key_file.clone().unwrap();
+    encryption::save_key_file(&key_file, &key, &SystemGit::new()).unwrap();
+
+    let id = String::from_utf8(
+        passalong(dir.path(), &config_path)
+            .args(["clipboard", "--stdin"])
+            .write_stdin("sealed over ssh")
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    )
+    .unwrap()
+    .trim()
+    .to_owned();
+    passalong(dir.path(), &config_path)
+        .args(["list", "--nocache"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(&id));
+    let dest = dir.path().join("out");
+    std::fs::create_dir_all(&dest).unwrap();
+    passalong(dir.path(), &config_path)
+        .args(["load", &id])
+        .arg(&dest)
+        .assert()
+        .success();
+    assert_eq!(
+        std::fs::read_to_string(dest.join(format!("{id}.txt"))).unwrap(),
+        "sealed over ssh"
+    );
+    passalong(dir.path(), &config_path)
+        .arg("check")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "encryption     ok    on (key {})",
+            key.key_id().short()
+        )));
+
+    // Another device with the same server settings but no key.
+    let other = TempDir::new().unwrap();
+    let text = std::fs::read_to_string(&config_path).unwrap();
+    let other_config = other.path().join("config.toml");
+    std::fs::write(&other_config, text).unwrap();
+    passalong(other.path(), &other_config)
+        .args(["list", "--nocache"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("encrypt --join"));
 }

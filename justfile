@@ -36,15 +36,17 @@ test:
     cargo test --workspace --all-targets --all-features
     cargo test -p passalong-ssh --all-targets
 
-# Run the Docker-backed SSH integration tests (ignored tests)
-test-integration: (_with-sshd "cargo test --workspace --all-features -- --ignored --skip desktop_ --skip compat_")
+# Run the Docker-backed SSH integration tests (ignored tests). At most 4
+# tests run at once: OpenSSH drops new connections while too many are still
+# logging in (MaxStartups), which made unrelated tests fail at random.
+test-integration: (_with-sshd "cargo test --workspace --all-features -- --ignored --skip desktop_ --skip compat_ --test-threads=4")
 
 # Line coverage gate (>= 80%) without Docker-backed tests
 coverage:
     cargo llvm-cov --workspace --all-features --fail-under-lines 80 --summary-only
 
 # Line coverage gate including the Docker-backed tests
-coverage-full: (_with-sshd "cargo llvm-cov --workspace --all-features --fail-under-lines 80 --summary-only -- --include-ignored --skip desktop_ --skip compat_")
+coverage-full: (_with-sshd "cargo llvm-cov --workspace --all-features --fail-under-lines 80 --summary-only -- --include-ignored --skip desktop_ --skip compat_ --test-threads=4")
 
 # Run the released v0.1.6 binary against encrypted-store layouts, which it
 # must refuse without writing item data. Downloads the release archive for

@@ -111,7 +111,9 @@ details from `PASSALONG_IT_SSH_*` variables. `just test-integration` generates
 a throwaway key pair in `tests/docker/keys/` (git-ignored), pulls the
 server image with up to 5 attempts because registries throttle shared CI
 runners, starts `tests/docker/docker-compose.yml`, exports the variables,
-runs the ignored tests, and always removes the container.
+runs the ignored tests, and always removes the container. At most 4
+tests run at once, because the server drops new connections while too many
+are still logging in.
 
 ## Compatibility test
 

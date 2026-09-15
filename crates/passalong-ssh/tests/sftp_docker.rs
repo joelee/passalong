@@ -8,11 +8,13 @@ use std::sync::Arc;
 
 use passalong_core::clock::SystemClock;
 use passalong_core::config::SshConfig;
+use passalong_core::crypto::{DataKey, KdfParams, Words};
+use passalong_core::encryption;
 use passalong_core::fs::{FsError, RemoteFs, RemotePath};
 use passalong_core::model::NewItem;
 use passalong_core::random::{RandomSource, StdRandom};
-use passalong_core::store::{FsStore, Store, WriteProbe};
-use passalong_core::testing::{FixedClock, ManualClock};
+use passalong_core::store::{FsStore, Store, StoreError, WriteProbe};
+use passalong_core::testing::{FaultyFs, FixedClock, FsOp, ManualClock};
 use passalong_ssh::connect::SshParams;
 use passalong_ssh::error::SshError;
 use passalong_ssh::fetch_host_key;
@@ -335,4 +337,150 @@ async fn probe_write_works_over_sftp_and_leaves_nothing() {
     assert_eq!(store.probe_write().await.unwrap(), WriteProbe::Verified);
     assert!(store.fs().read_dir(&p("tmp")).await.unwrap().is_empty());
     assert!(store.list_ids().await.unwrap().is_empty());
+}
+
+const W1: &str = "abacus abdomen abdominal abide abiding ability";
+const W2: &str = "zoom zoom zoom zoom zoom zoom";
+
+fn words(text: &str) -> Words {
+    Words::parse(text).unwrap()
+}
+
+fn quick() -> KdfParams {
+    KdfParams {
+        m_kib: 64,
+        t: 1,
+        p: 1,
+        salt: [3; 16],
+    }
+}
+
+async fn sftp(root: &str) -> SftpFs {
+    SftpFs::open(&SshParams::from_config(&config()).unwrap(), root)
+        .await
+        .unwrap()
+}
+
+async fn sealed(fs: SftpFs, key: Option<&DataKey>) -> Result<Box<dyn Store>, StoreError> {
+    encryption::open_with_key(
+        fs,
+        key.cloned(),
+        Arc::new(SystemClock),
+        Box::new(StdRandom::new()),
+    )
+    .await
+}
+
+fn text(body: &str) -> passalong_core::fs::BoxRead {
+    Box::new(Cursor::new(body.as_bytes().to_vec()))
+}
+
+#[tokio::test]
+#[ignore = "needs the Docker SSH server: just test-integration"]
+async fn create_dir_is_exclusive_and_remove_file_works_over_sftp() {
+    let fs = sftp(&unique_root()).await;
+    fs.create_dir_all(&p("x")).await.unwrap();
+    fs.create_dir(&p("x/lock")).await.unwrap();
+    assert!(matches!(
+        fs.create_dir(&p("x/lock")).await,
+        Err(FsError::AlreadyExists(_))
+    ));
+    let mut w = fs.open_write(&p("x/f")).await.unwrap();
+    w.write_all(b"gone soon").await.unwrap();
+    w.shutdown().await.unwrap();
+    fs.remove_file(&p("x/f")).await.unwrap();
+    assert!(fs.stat(&p("x/f")).await.unwrap().is_none());
+    fs.remove_file(&p("x/f")).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs the Docker SSH server: just test-integration"]
+async fn an_encrypted_store_works_over_sftp() {
+    let root = unique_root();
+    let fs = sftp(&root).await;
+    let key = encryption::set_up(&fs, &words(W1), quick()).await.unwrap();
+    let store = sealed(sftp(&root).await, Some(&key)).await.unwrap();
+    let first = store
+        .put(NewItem::text("it"), text("sealed over sftp"))
+        .await
+        .unwrap()
+        .meta;
+    assert_eq!(store.list().await.unwrap(), vec![first.clone()]);
+    let mut body = String::new();
+    store
+        .get(&first.id)
+        .await
+        .unwrap()
+        .1
+        .read_to_string(&mut body)
+        .await
+        .unwrap();
+    assert_eq!(body, "sealed over sftp");
+
+    // New words swap the header and keep the key: the open store goes on.
+    encryption::change_words(&fs, &words(W1), &words(W2), quick())
+        .await
+        .unwrap();
+    assert_eq!(
+        encryption::join(&fs, &words(W2)).await.unwrap().key_id(),
+        key.key_id()
+    );
+    store
+        .put(NewItem::text("it"), text("after new words"))
+        .await
+        .unwrap();
+    store.delete(&first.id).await.unwrap();
+    assert_eq!(store.list().await.unwrap().len(), 1);
+
+    assert!(matches!(
+        sealed(sftp(&root).await, None).await,
+        Err(StoreError::Encryption(_))
+    ));
+}
+
+#[tokio::test]
+#[ignore = "needs the Docker SSH server: just test-integration"]
+async fn a_cut_migration_is_finished_and_a_cut_rotation_undone_over_sftp() {
+    let root = unique_root();
+    let fs = sftp(&root).await;
+    let plain = FsStore::new(&fs, Arc::new(SystemClock), Box::new(StdRandom::new()));
+    for body in ["one", "two"] {
+        plain.put(NewItem::text("it"), text(body)).await.unwrap();
+    }
+    let clock = Arc::new(SystemClock);
+
+    // Renames: the source, two items, then the header swap, which fails.
+    let faulty = FaultyFs::new(&fs);
+    faulty.fail_nth(FsOp::Rename, 4);
+    assert!(
+        encryption::migrate(&faulty, &words(W1), quick(), clock.clone())
+            .await
+            .is_err()
+    );
+    let key = encryption::finish(&fs, &words(W1), None, None, clock.clone())
+        .await
+        .unwrap();
+    let store = FsStore::sealed(
+        &fs,
+        Arc::new(SystemClock),
+        Box::new(StdRandom::new()),
+        passalong_core::crypto::Sealer::new(key.clone()),
+    );
+    assert_eq!(store.list().await.unwrap().len(), 2);
+
+    let faulty = FaultyFs::new(&fs);
+    faulty.fail_nth(FsOp::Rename, 4);
+    assert!(
+        encryption::rotate(&faulty, &key, &words(W2), quick(), clock)
+            .await
+            .is_err()
+    );
+    encryption::undo(&fs).await.unwrap();
+    let store = FsStore::sealed(
+        &fs,
+        Arc::new(SystemClock),
+        Box::new(StdRandom::new()),
+        passalong_core::crypto::Sealer::new(key.clone()),
+    );
+    assert_eq!(store.list().await.unwrap().len(), 2);
 }

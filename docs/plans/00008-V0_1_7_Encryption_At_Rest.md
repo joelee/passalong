@@ -1107,6 +1107,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 |---|---|---|---|---|
 | 2026-09-15T14:28:02Z | PLAN-00008-STEP-04 | Sealed store behaviours are tested by a dedicated sealed_tests suite mirroring the plaintext cases, not by running every existing FsStore test a second time | None on behaviour: every listed operation and failure case has a sealed test; the plaintext suite is unchanged | None (recorded for review) |
 | 2026-09-15T15:31:50Z | PLAN-00008-STEP-09 | Two earlier SFTP tests (list_after, probe_write) failed at random with Connect 'Disconnected' once the new tests added connections: the Docker OpenSSH drops new connections while too many are still logging in (MaxStartups, inferred, not read from the image). test-integration and coverage-full now pass --test-threads=4, noted in the justfile and the developer guide; the new tests also share one connection where they can | Tooling only; no product change. The Docker-backed suites run somewhat longer | None (recorded for review) |
+| 2026-09-15T17:25:45Z | PLAN-00008-STEP-11 | AC-21 (one cloud-synced folder checked by hand on two devices) deferred by the user on 2026-09-15, for lack of a setup; recorded in docs/backlog.md under v0.2.1 and as IDEA-00001-R05-MED-01 | AC-21 is not met in v0.2.0; encrypted stores in synced folders rely on the untested 'not complete yet' handling | User (decided) |
 
 ### Verification results
 

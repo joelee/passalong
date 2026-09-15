@@ -161,11 +161,36 @@ fn work_tree(path: &Path) -> Option<PathBuf> {
         .map(Path::to_path_buf)
 }
 
+/// `path` as the filesystem reaches it: its deepest existing ancestor with
+/// symbolic links resolved, followed by the parts that do not exist yet.
+/// A config folder linked into a dotfiles work tree is then seen inside it.
+fn physical(path: &Path) -> PathBuf {
+    let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut existing = absolute.as_path();
+    let mut missing = Vec::new();
+    loop {
+        if let Ok(real) = fs::canonicalize(existing) {
+            return missing
+                .iter()
+                .rev()
+                .fold(real, |acc: PathBuf, part| acc.join(part));
+        }
+        match (existing.parent(), existing.file_name()) {
+            (Some(parent), Some(name)) => {
+                missing.push(name.to_owned());
+                existing = parent;
+            }
+            _ => return absolute,
+        }
+    }
+}
+
 fn check_git(path: &Path, git: &dyn GitCheck) -> Result<(), KeyFileError> {
-    let Some(repo) = work_tree(path) else {
+    let real = physical(path);
+    let Some(repo) = work_tree(&real) else {
         return Ok(());
     };
-    match git.is_ignored(&repo, path) {
+    match git.is_ignored(&repo, &real) {
         Ok(true) => Ok(()),
         Ok(false) => Err(KeyFileError::InGitWorkTree {
             path: shown(path),
@@ -436,6 +461,37 @@ mod tests {
             .status()
             .expect("git is needed for this test");
         assert!(status.success());
+    }
+
+    #[test]
+    fn a_key_reached_through_a_symlink_into_a_work_tree_is_refused_until_ignored() {
+        let repo = TempDir::new().unwrap();
+        git_init(repo.path());
+        fs::create_dir(repo.path().join("dotfiles")).unwrap();
+        // The config folder is a link into the dotfiles work tree, and the
+        // key's own folder does not exist yet.
+        let home = TempDir::new().unwrap();
+        std::os::unix::fs::symlink(repo.path().join("dotfiles"), home.path().join("passalong"))
+            .unwrap();
+        let path = home.path().join("passalong/keys/store.key");
+        let stored = repo.path().join("dotfiles/keys/store.key");
+        let key = DataKey::generate().unwrap();
+        let git = SystemGit::isolated();
+
+        let err = save_key_file(&path, &key, &git).unwrap_err();
+        assert!(matches!(err, KeyFileError::InGitWorkTree { .. }), "{err}");
+        assert!(!stored.exists());
+
+        fs::write(repo.path().join(".gitignore"), "*.key\n").unwrap();
+        save_key_file(&path, &key, &git).unwrap();
+        assert!(stored.exists());
+        assert!(load_key_file(&path, &git).unwrap().is_some());
+
+        fs::write(repo.path().join(".gitignore"), "").unwrap();
+        assert!(matches!(
+            load_key_file(&path, &git).unwrap_err(),
+            KeyFileError::InGitWorkTree { .. }
+        ));
     }
 
     #[test]

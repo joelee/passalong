@@ -49,33 +49,41 @@ coverage:
 coverage-full: (_with-sshd "cargo llvm-cov --workspace --all-features --fail-under-lines 80 --summary-only -- --include-ignored --skip desktop_ --skip compat_ --test-threads=4")
 
 # Run the released v0.1.6 binary against encrypted-store layouts, which it
-# must refuse without writing item data. Downloads the release archive for
-# this platform once into target/compat and checks its SHA-256.
+# must refuse without writing item data, and the released v0.2.0 binary
+# against a store this version changed, which it must still read and write.
+# Downloads each release archive for this platform once into target/compat
+# and checks its SHA-256.
 test-compat:
     #!/usr/bin/env bash
     set -euo pipefail
-    version=0.1.6
     case "$(uname -s)-$(uname -m)" in
         Linux-x86_64) target=x86_64-unknown-linux-gnu ;;
         Darwin-arm64) target=aarch64-apple-darwin ;;
-        *) echo "error: there is no v$version release binary for $(uname -s) $(uname -m)" >&2; exit 1 ;;
+        *) echo "error: there are no release binaries for $(uname -s) $(uname -m)" >&2; exit 1 ;;
     esac
-    name="passalong-$version-$target"
     dir="$PWD/target/compat"
-    if [ ! -x "$dir/$name/passalong" ]; then
-        mkdir -p "$dir"
-        base="https://github.com/joelee/passalong/releases/download/v$version"
-        curl -fsSL --retry 3 -o "$dir/$name.tar.gz" "$base/$name.tar.gz"
-        curl -fsSL --retry 3 -o "$dir/$name.tar.gz.sha256" "$base/$name.tar.gz.sha256"
-        if command -v sha256sum >/dev/null; then
-            (cd "$dir" && sha256sum -c "$name.tar.gz.sha256")
-        else
-            (cd "$dir" && shasum -a 256 -c "$name.tar.gz.sha256")
+    # Prints the path of the release binary of version $1, fetching it once.
+    fetch() {
+        local name="passalong-$1-$target"
+        if [ ! -x "$dir/$name/passalong" ]; then
+            mkdir -p "$dir"
+            local base="https://github.com/joelee/passalong/releases/download/v$1"
+            curl -fsSL --retry 3 -o "$dir/$name.tar.gz" "$base/$name.tar.gz"
+            curl -fsSL --retry 3 -o "$dir/$name.tar.gz.sha256" "$base/$name.tar.gz.sha256"
+            if command -v sha256sum >/dev/null; then
+                (cd "$dir" && sha256sum -c "$name.tar.gz.sha256") >&2
+            else
+                (cd "$dir" && shasum -a 256 -c "$name.tar.gz.sha256") >&2
+            fi
+            tar -xzf "$dir/$name.tar.gz" -C "$dir"
         fi
-        tar -xzf "$dir/$name.tar.gz" -C "$dir"
-    fi
-    "$dir/$name/passalong" --version
-    PASSALONG_COMPAT_BIN="$dir/$name/passalong" cargo test -p passalong --test compat_v016 -- --ignored
+        "$dir/$name/passalong" --version >&2
+        echo "$dir/$name/passalong"
+    }
+    v016=$(fetch 0.1.6)
+    v020=$(fetch 0.2.0)
+    PASSALONG_COMPAT_BIN="$v016" cargo test -p passalong --test compat_v016 -- --ignored
+    PASSALONG_COMPAT_V020_BIN="$v020" cargo test -p passalong --test compat_v020 -- --ignored
 
 # Prove deploy/ssh-server works end to end: start it from a temporary
 # directory, run `init` and a round trip, check host-owned storage and a

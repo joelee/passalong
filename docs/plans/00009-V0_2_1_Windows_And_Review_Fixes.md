@@ -38,9 +38,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00009-v0.2.1"
 execution_started_at: "2026-09-15T20:39:50Z"
-execution_updated_at: "2026-09-15T21:42:22Z"
+execution_updated_at: "2026-09-15T21:49:37Z"
 execution_completed_at: null
-current_step: "PLAN-00009-STEP-07"
+current_step: "PLAN-00009-STEP-08"
 ---
 
 # Delivery Plan 00009: V0 2 1 Windows And Review Fixes
@@ -764,7 +764,7 @@ STEP-12.
 | PLAN-00009-STEP-04 | completed | 2026-09-15T21:08:39Z | 2026-09-15T21:14:29Z | Workspace tests green; `just links` ok | `encryption::{Leftovers, leftovers, remove_leftovers}` |
 | PLAN-00009-STEP-05 | completed | 2026-09-15T21:14:29Z | 2026-09-15T21:23:12Z | Workspace tests; SFTP Docker suite 16/16 | `check_key` reads the header each call; post-publish re-check and take-back; `PausingFs`; `RemoteFs for Arc<T>` |
 | PLAN-00009-STEP-06 | completed | 2026-09-15T21:23:12Z | 2026-09-15T21:42:22Z | Workspace tests green; `just links` ok | `ListCache::identity_for`; pull `Handled::{Done, Later}` |
-| PLAN-00009-STEP-07 | not-started | — | — | — | — |
+| PLAN-00009-STEP-07 | completed | 2026-09-15T21:42:22Z | 2026-09-15T21:49:37Z | Every `just ci` recipe exits 0; line coverage 93.64 % (`check`) and 94.80 % (`coverage-full`) | Review fixes complete (STEP-01..07) |
 | PLAN-00009-STEP-08 | not-started | — | — | — | — |
 | PLAN-00009-STEP-09 | not-started | — | — | — | — |
 | PLAN-00009-STEP-10 | not-started | — | — | — | — |
@@ -785,6 +785,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T21:14:29Z | STEP-04 | Completed: migration, fresh start, and set-up remove the plaintext `tmp/` once the stop file is in place; `Leftovers` counts `tmp/` entries and staged journals (D-15's `check` report); `check` and `list` report them, `prune --plain` removes them (`--dry-run` only reports), and a sealed store's `clean_staging` also clears aged `tmp/` entries; usage and architecture docs updated | Tests `a_migration_leaves_no_plaintext_staging`, `a_set_up_or_fresh_start_leaves_no_plaintext_staging` (marker scans), `leftovers_are_counted_and_removed_on_an_encrypted_store`, `delete_probe_and_staging_use_v2_tmp`, CLI `leftovers_of_cut_short_uploads_go_with_prune_plain`, check line test, `a_fresh_start_leaves_plaintext_that_list_mentions_and_prune_plain_removes` | STEP-05 |
 | 2026-09-15T21:23:12Z | STEP-05 | Completed: the stat cache is gone and the guard reads the header's key id before every `put`, `delete`, and `list_ids`; `put` checks again after its publishing rename and takes its item back on failure (a `NotFound` means a rotation took it along); the uploader already treated these as retryable store failures and keeps the local file; architecture note on the fencing argument | Tests `a_send_held_across_a_rotation_never_succeeds_under_the_old_key` (held while writing, before publishing, after publishing), `a_new_key_is_found_even_when_the_header_keeps_its_size_and_time`, `a_file_sent_across_a_rotation_is_kept_for_the_retry` (`after_send = "delete"`), SFTP `a_send_held_across_a_rotation_fails_instead_of_using_the_old_key_over_sftp` | STEP-06 |
 | 2026-09-15T21:42:22Z | STEP-06 | Completed: the list-cache refresher derives each connection's identity from its store's key and reads the list again when the key differs; pull mode defers items whose metadata or content is not complete yet, skips sealed content that does not open once the item is past the five-minute grace, and keeps retrying other read failures; usage doc updated | Tests `a_running_refresh_follows_the_store_to_a_new_key` (migration, then rotation and rejoin), `the_base_of_an_identity_drops_only_its_key`, `a_damaged_encrypted_item_is_skipped_and_the_items_after_it_still_arrive`, `a_recent_encrypted_item_that_does_not_open_is_tried_again_later`; existing `a_store_error_keeps_the_position_for_the_next_poll` | STEP-07 |
+| 2026-09-15T21:49:37Z | STEP-07 | Completed: the key-file git rule runs on the physical path (deepest existing ancestor canonicalised, missing parts appended) for save, load, and `check_key_location`; `compat_v016.rs` uses v0.1.6's real `prune --yes`, rejects usage errors for every command, checks the encrypted store's files are byte-identical, and has a positive control that prunes a plaintext store; new `compat_v020.rs`; `just test-compat` fetches and checks both releases; v0.2.0 notes corrected; developer guide updated | Tests `a_key_reached_through_a_symlink_into_a_work_tree_is_refused_until_ignored`, `compat_v016_prune_prunes_a_plaintext_store`, `compat_v016_cannot_write_into_an_encrypted_store`, `compat_v020_reads_and_writes_a_store_this_version_changed` | STEP-08 |
 
 ### Deviations and blockers
 
@@ -803,6 +804,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T21:23:12Z | STEP-05 | In an empty store a raced send fails before the post-publish check, because the rotation left no `v2/items/` to publish into; still a retryable failure with nothing published under the old key. The uploader test accepts any store failure; the SFTP test stores an item first so it exercises the take-back | Test expectation only | None |
 | 2026-09-15T21:42:22Z | STEP-06 | `refresh_loop` keeps its signature: it takes the startup identity and strips the key suffix to find the store's base. Two existing refresh-loop tests passed a bare `"s"` as identity, which no real identity is; they now use `"s plain"` | Test data only | None |
 | 2026-09-15T21:42:22Z | STEP-06 | A transport failure while reading content is still retried: the classification only treats errors carrying a `CryptoError` as damage; covered by the existing store-error poll test and by code reading rather than a new content-read fault test | None | None |
+| 2026-09-15T21:49:37Z | STEP-07 | The v0.1.6 help confirms REV-00002-LOW-01: its `prune` has `--yes` and no `--force`. `compat_v020.rs` drives this version through the library (`set_up`, `change_words`, `rotate`, puts) rather than the new CLI binary, since the words prompts need a terminal; v0.2.0 is driven through its CLI (`list --json`, `cat`, `clipboard --stdin`) | Test design within STEP-07 | None |
+| 2026-09-15T21:49:37Z | STEP-07 | On Windows `fs::canonicalize` returns `\\?\` paths, which `git -C` may not accept; the Windows CI job (STEP-08) is where this is checked | Risk noted for STEP-08 | None |
 | 2026-09-15T21:14:29Z | STEP-04 | `prune --plain` removes the leftovers without a separate confirmation (they are cut-short staging, not items); `--dry-run` only reports them. `clean_staging` clears aged `tmp/` entries for every sealed store, not only one opened through its header, because no sealed store stages there | Behaviour detail within D-12 | None |
 
 ### Verification results
@@ -821,6 +824,9 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T21:23:12Z | STEP-05 | fmt, clippy `-D warnings`, `cargo test --workspace --all-features`, `just links` | Pass | Core 299 passed, CLI 191 passed |
 | 2026-09-15T21:23:12Z | STEP-05 | SFTP Docker suite | Pass after fixing the new test's expectation (first run: 1 failed, see deviations) | 16 passed |
 | 2026-09-15T21:42:22Z | STEP-06 | fmt, clippy `-D warnings`, `cargo test --workspace --all-features`, `just links` | Pass after updating two tests' identities (first run: 2 failed, see deviations) | Core 303 passed, CLI 191 passed |
+| 2026-09-15T21:49:37Z | STEP-07 | fmt, clippy `-D warnings`, `cargo test --workspace --all-features` | Pass | Core 304 passed, CLI 191 passed |
+| 2026-09-15T21:49:37Z | STEP-07 | `just test-compat` | Pass | v0.1.6: 3 passed (with the prune positive control); v0.2.0: 1 passed |
+| 2026-09-15T21:49:37Z | STEP-07 | `just ci`, run recipe by recipe: `check`, `audit`, `lint-workflows`, `test-integration`, `test-compat`, `test-deploy`, `coverage-full`, `publish-dry-run --allow-dirty` (the tree held this step's uncommitted work) | Pass: every recipe exit 0 | Lines 93.64 % (`check`), 94.80 % (`coverage-full`); 24 Docker integration tests passed; advisories, bans, licenses, sources ok; 40 Markdown files |
 
 ### Completion summary
 

@@ -122,12 +122,22 @@ encrypted store's root holds a regular file named `items` where older
 clients expect their item directory, so their commands fail instead.
 `crates/passalong-cli/tests/compat_v016.rs` proves this with the released
 v0.1.6 binary: it runs every command that reads or writes items against
-temporary stores and checks that each one fails and that nothing it sent
-reaches the store. The tests are ignored and need the old binary in
-`PASSALONG_COMPAT_BIN`; `just test-compat` downloads the v0.1.6 archive for
-Linux x86_64 or macOS arm64 once into `target/compat/`, checks its SHA-256,
-and runs them. `just ci` includes it. `serve` is not run, because it would
-read the real clipboard.
+temporary stores and checks that each one fails at the store, not on its
+arguments, that nothing it sent reaches the store, and that an encrypted
+store's files are unchanged. A positive control runs the same `prune`
+against a plaintext store, where it must prune.
+
+The store format has not changed since v0.2.0, so the released v0.2.0
+binary must keep working with stores this version changed.
+`crates/passalong-cli/tests/compat_v020.rs` encrypts a store, changes its
+words, rotates its key, and stores items with this version; v0.2.0 then
+lists and prints every item and sends one that this version reads back.
+
+The tests are ignored and need the old binaries in `PASSALONG_COMPAT_BIN`
+and `PASSALONG_COMPAT_V020_BIN`; `just test-compat` downloads the v0.1.6
+and v0.2.0 archives for Linux x86_64 or macOS arm64 once into
+`target/compat/`, checks their SHA-256, and runs them. `just ci` includes
+it. `serve` is not run, because it would read the real clipboard.
 
 ## Encryption tests
 

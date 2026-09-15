@@ -38,7 +38,7 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00009-v0.2.1"
 execution_started_at: "2026-09-15T20:39:50Z"
-execution_updated_at: "2026-09-15T23:23:42Z"
+execution_updated_at: "2026-09-15T23:30:18Z"
 execution_completed_at: "2026-09-15T23:23:42Z"
 current_step: "PLAN-00009-STEP-12"
 ---
@@ -863,6 +863,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T23:15:24Z | STEP-11 | fmt, clippy `-D warnings`, `cargo test --workspace --all-features --no-fail-fast` | Pass after updating the four version-pinned tests (first run: 4 failed, see deviations) | 607 passed, 0 failed, 33 ignored |
 | 2026-09-15T23:23:42Z | STEP-12 | `just ci` on the committed tree (check, audit, lint-workflows, test-integration, test-compat, test-deploy, coverage-full, publish-dry-run) | Pass: exit 0 | 607 passed in 13 binaries; integration 6 + 17; compat 3 + 1; deploy OK; lines 93.57 % (`coverage`) and 94.70 % (`coverage-full`) |
 | 2026-09-15T23:23:42Z | STEP-12 | CI run 35034902875 on 2668840 | Pass: Linux (`just ci`), macOS, Xvfb, Android, Windows | Windows 567 passed, 0 failed, 32 ignored, plus the Run key and scheduler step |
+| 2026-09-15T23:30:18Z | STEP-12 | CI run 35035593006 on 76926f4, the step's completion commit | Pass: all five jobs | AC-25's "green on the final commit"; this row's own commit changes the work log only |
 | 2026-09-15T23:23:42Z | STEP-12 | Timings: release build against the Docker sshd, median of five after a warm-up | Measured; see deviations for the AC-25 bound | 10 items: 134 ms plain / 138 ms encrypted; 100 items: 174 / 180 ms; cached `list` 5-8 ms; `clipboard --stdin` 130-140 ms |
 
 ### Completion summary

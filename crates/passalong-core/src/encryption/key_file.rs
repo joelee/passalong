@@ -406,8 +406,14 @@ mod windows_tests {
         let path = dir.path().join("keys").join("store.key");
         let key = DataKey::generate().unwrap();
         save_key_file(&path, &key, &NoGit).unwrap();
-        assert!(crate::owner_only::only_owner(&path).unwrap());
-        assert!(crate::owner_only::only_owner(&dir.path().join("keys")).unwrap());
+        let keys = dir.path().join("keys");
+        for private in [&path, &keys] {
+            assert!(
+                crate::owner_only::only_owner(private).unwrap(),
+                "{}",
+                crate::owner_only::describe(private)
+            );
+        }
         let loaded = load_key_file(&path, &NoGit).unwrap().unwrap();
         assert_eq!(loaded.key_id(), key.key_id());
 

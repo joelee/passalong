@@ -319,7 +319,11 @@ mod windows_tests {
         ListCache::new("s plain".into(), Utc::now(), Vec::new())
             .save(&path)
             .unwrap();
-        assert!(crate::owner_only::only_owner(&path).unwrap());
+        assert!(
+            crate::owner_only::only_owner(&path).unwrap(),
+            "{}",
+            crate::owner_only::describe(&path)
+        );
     }
 }
 
@@ -408,6 +412,12 @@ mod tests {
         );
         let key = crate::crypto::DataKey::generate().unwrap();
         crate::encryption::save_key_file(&key_file, &key, &SystemGit::new()).unwrap();
+        #[cfg(windows)]
+        assert!(
+            crate::owner_only::only_owner(&key_file).unwrap(),
+            "{}",
+            crate::owner_only::describe(&key_file)
+        );
         assert_eq!(
             ListCache::store_identity(&config).unwrap(),
             format!("ssh pa@nas:22 /srv/passalong key {}", key.key_id())

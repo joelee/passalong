@@ -113,6 +113,27 @@ pub(crate) fn only_owner(path: &std::path::Path) -> std::io::Result<bool> {
     Ok(only(&parse_icacls(&out, &path.to_string_lossy()), &user))
 }
 
+/// What `whoami` and `icacls` report for `path`, for failing tests.
+#[cfg(all(test, windows))]
+pub(crate) fn describe(path: &std::path::Path) -> String {
+    let whoami = run(
+        "whoami",
+        &[
+            std::ffi::OsStr::new("/user"),
+            std::ffi::OsStr::new("/fo"),
+            std::ffi::OsStr::new("csv"),
+            std::ffi::OsStr::new("/nh"),
+        ],
+    );
+    let icacls = run("icacls", &[path.as_os_str()]);
+    format!(
+        "whoami: {whoami:?}\nicacls: {icacls:?}\nparsed: {:?}",
+        icacls
+            .as_deref()
+            .map(|out| parse_icacls(out, &path.to_string_lossy()))
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

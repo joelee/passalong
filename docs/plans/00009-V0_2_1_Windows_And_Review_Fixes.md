@@ -38,9 +38,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00009-v0.2.1"
 execution_started_at: "2026-09-15T20:39:50Z"
-execution_updated_at: "2026-09-15T21:49:37Z"
+execution_updated_at: "2026-09-15T22:31:32Z"
 execution_completed_at: null
-current_step: "PLAN-00009-STEP-08"
+current_step: "PLAN-00009-STEP-09"
 ---
 
 # Delivery Plan 00009: V0 2 1 Windows And Review Fixes
@@ -765,7 +765,7 @@ STEP-12.
 | PLAN-00009-STEP-05 | completed | 2026-09-15T21:14:29Z | 2026-09-15T21:23:12Z | Workspace tests; SFTP Docker suite 16/16 | `check_key` reads the header each call; post-publish re-check and take-back; `PausingFs`; `RemoteFs for Arc<T>` |
 | PLAN-00009-STEP-06 | completed | 2026-09-15T21:23:12Z | 2026-09-15T21:42:22Z | Workspace tests green; `just links` ok | `ListCache::identity_for`; pull `Handled::{Done, Later}` |
 | PLAN-00009-STEP-07 | completed | 2026-09-15T21:42:22Z | 2026-09-15T21:49:37Z | Every `just ci` recipe exits 0; line coverage 93.64 % (`check`) and 94.80 % (`coverage-full`) | Review fixes complete (STEP-01..07) |
-| PLAN-00009-STEP-08 | not-started | — | — | — | — |
+| PLAN-00009-STEP-08 | completed | 2026-09-15T21:49:37Z | 2026-09-15T22:31:32Z | CI run 35030924237 green on all five jobs; Windows: 547 passed, 0 failed, 31 ignored (Docker and compat) across 15 test binaries | AC-15, AC-16, AC-18; five iterations 26bf4f3..f535b4d |
 | PLAN-00009-STEP-09 | not-started | — | — | — | — |
 | PLAN-00009-STEP-10 | not-started | — | — | — | — |
 | PLAN-00009-STEP-11 | not-started | — | — | — | — |
@@ -792,6 +792,9 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T22:12:29Z | STEP-08 | Iteration 3 pushed as 8a8695d: journal writer closed before the rename; config and state paths need a root rather than a drive (`has_root`); TOML literal strings in test configs; systemd/launchd rendering tests and the two pid-lock tests Unix-only (pid reading under Windows locks moves to STEP-10); `testing::set_modified` opens folders on Windows; CRLF normalised in the service docs test; Windows tests run with `--no-fail-fast`. Local: 592 tests passed, core Windows clippy clean | — | Windows job result |
 | 2026-09-15T22:18:48Z | STEP-08 | Iteration 3 result, run 35029751149: Linux, macOS, Xvfb, Android green; on Windows clippy failed on the CLI tests with 2 dead-code errors: gating the systemd and launchd tests to Unix left `Rig::plist`, `Rig::remove`, and `LAUNCHD` unused there (the CLI crate cannot be checked for Windows from Linux) | `gh run view --job 104585214622 --log-failed` | Iteration 4 |
 | 2026-09-15T22:18:48Z | STEP-08 | Iteration 4 pushed as 46b2ac8: those helpers Unix-only too. Local: 592 tests passed | — | Windows job result |
+| 2026-09-15T22:26:00Z | STEP-08 | Iteration 4 result, run 35030307597: Linux, macOS, Xvfb, Android green; on Windows clippy passed and every test binary ran: CLI unit 184/184, SSH 21/21, `serve_local` 12/12, core 296/298, `cli_local_backend` 28/31, and the link-check and release-tag script tests failed because `bash` on the runner resolves to WSL without a distribution. The other failures were test-side: paths joined with `/` inside one component, `File::open` on a folder, a Windows path in an unquoted `.env` value, and the list cache looked for under the Unix state folder | `gh run view --job 104587018937 --log-failed` | Iteration 5 |
+| 2026-09-15T22:26:00Z | STEP-08 | Iteration 5 pushed as f535b4d (with the README installation commit dd20343, made at the user's request): the script tests Unix-only, and those four tests fixed. Local: 592 tests passed, core Windows clippy clean | — | Windows job result |
+| 2026-09-15T22:31:32Z | STEP-08 | Iteration 5 result, run 35030924237: all five jobs green. Windows builds, lints (`-D warnings`), and tests the workspace: 547 passed, 0 failed, 31 ignored across 15 test binaries. Completed: Windows config, key, state, and `~` locations; Windows-safe file names; the `windows` CI job and `just windows-check`; the journal closes its file before renaming its folder; Windows docs in configuration and developer guide | `gh run view --job 104588981601 --log` | STEP-09 |
 
 ### Deviations and blockers
 
@@ -813,6 +816,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T21:49:37Z | STEP-07 | The v0.1.6 help confirms REV-00002-LOW-01: its `prune` has `--yes` and no `--force`. `compat_v020.rs` drives this version through the library (`set_up`, `change_words`, `rotate`, puts) rather than the new CLI binary, since the words prompts need a terminal; v0.2.0 is driven through its CLI (`list --json`, `cat`, `clipboard --stdin`) | Test design within STEP-07 | None |
 | 2026-09-15T21:49:37Z | STEP-07 | On Windows `fs::canonicalize` returns `\\?\` paths, which `git -C` may not accept; the Windows CI job (STEP-08) is where this is checked | Risk noted for STEP-08 | None |
 | 2026-09-15T22:03:10Z | STEP-08 | The SSH and CLI crates can only be built for Windows on the CI runner, so STEP-08 needs pushed commits to iterate: it is recorded as several `build: PLAN-00009-STEP-08 - …` commits, and the step's last commit carries the `build: complete PLAN-00009-STEP-08` message. `ConfigOrigin` and `SearchRoots` have no `#[non_exhaustive]`, so Windows reuses the existing origins (`HomeConfig` for `%APPDATA%`, `System` for `%ProgramData%`) instead of new variants. When `APPDATA`, `LOCALAPPDATA`, or `USERPROFILE` is unset, the Unix rules apply; real Windows always sets them, so Git Bash's `HOME` still moves nothing (D-05 intent kept) | Commit granularity; API kept semver-compatible | None |
+| 2026-09-15T22:31:32Z | STEP-08 | Carried into STEP-10: Windows file locks are mandatory, so while `serve` holds the pid lock another process cannot read the pid or `ready` from the same file; the two pid-lock tests are Unix-only until STEP-10 changes how the pid is recorded. Unix-only by nature: the systemd and launchd rendering tests and the bash script tests (Homebrew formula, link check, release tag). Path checks on config values now require a root rather than a drive (`has_root`, identical on Unix), so a `\path` on the current drive is accepted on Windows | Scope of STEP-10; small behaviour detail on Windows | None |
 | 2026-09-15T21:14:29Z | STEP-04 | `prune --plain` removes the leftovers without a separate confirmation (they are cut-short staging, not items); `--dry-run` only reports them. `clean_staging` clears aged `tmp/` entries for every sealed store, not only one opened through its header, because no sealed store stages there | Behaviour detail within D-12 | None |
 
 ### Verification results
@@ -834,6 +838,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T21:49:37Z | STEP-07 | fmt, clippy `-D warnings`, `cargo test --workspace --all-features` | Pass | Core 304 passed, CLI 191 passed |
 | 2026-09-15T21:49:37Z | STEP-07 | `just test-compat` | Pass | v0.1.6: 3 passed (with the prune positive control); v0.2.0: 1 passed |
 | 2026-09-15T21:49:37Z | STEP-07 | `just ci`, run recipe by recipe: `check`, `audit`, `lint-workflows`, `test-integration`, `test-compat`, `test-deploy`, `coverage-full`, `publish-dry-run --allow-dirty` (the tree held this step's uncommitted work) | Pass: every recipe exit 0 | Lines 93.64 % (`check`), 94.80 % (`coverage-full`); 24 Docker integration tests passed; advisories, bans, licenses, sources ok; 40 Markdown files |
+| 2026-09-15T22:31:32Z | STEP-08 | Local before each push: `cargo fmt --all`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo clippy --target x86_64-pc-windows-msvc -p passalong-core --all-targets --all-features -- -D warnings`, `cargo test --workspace --all-features`, `just links`, `just lint-workflows` | Pass | 592 tests passed on Linux |
+| 2026-09-15T22:31:32Z | STEP-08 | CI run 35030924237 on f535b4d | Pass: Linux (`just ci`), macOS, Xvfb, Android, Windows | Windows 547 passed, 0 failed, 31 ignored |
 
 ### Completion summary
 

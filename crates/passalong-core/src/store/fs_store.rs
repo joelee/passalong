@@ -19,7 +19,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::clock::Clock;
 use crate::crypto::{self, CHUNK_LEN, CONTENT_SALT_LEN, KeyId, SealedMeta, Sealer, read_full};
-use crate::encryption::{EncryptionError, REWRITE_DIR, read_header};
+use crate::encryption::{EncryptionError, PLAIN_DIR, REWRITE_DIR, read_header};
 use crate::fs::{BoxRead, FsError, RemoteFs, RemotePath};
 use crate::model::{
     ContentDigest, ContentHasher, ContentKey, ItemId, ItemKind, ItemMeta, NewItem, preview_of,
@@ -130,6 +130,34 @@ impl<F: RemoteFs> FsStore<F> {
         }
         *guard.lock().unwrap_or_else(PoisonError::into_inner) = seen;
         Ok(())
+    }
+
+    /// Warns, in a sealed store opened through its header, while plaintext
+    /// items from before a fresh start remain in `plain/items/`.
+    async fn remind_plain_left(&self) {
+        if self.guard.is_none() {
+            return;
+        }
+        let Ok(dir) = RemotePath::new(PLAIN_DIR).and_then(|plain| plain.join(ITEMS_DIR)) else {
+            return;
+        };
+        let Ok(entries) = self.fs.read_dir(&dir).await else {
+            return;
+        };
+        let n = entries
+            .iter()
+            .filter(|entry| entry.is_dir && ItemId::parse(&entry.name).is_ok())
+            .count();
+        if n > 0 {
+            let (items, them) = if n == 1 {
+                ("item remains", "it")
+            } else {
+                ("items remain", "them")
+            };
+            tracing::warn!(
+                "{n} unencrypted {items} from before encryption; remove {them} with `passalong prune --plain`"
+            );
+        }
     }
 
     /// The underlying filesystem.
@@ -435,7 +463,9 @@ impl<F: RemoteFs> Store for FsStore<F> {
     }
 
     async fn list(&self) -> Result<Vec<ItemMeta>, StoreError> {
-        self.list_after(None).await
+        let items = self.list_after(None).await?;
+        self.remind_plain_left().await;
+        Ok(items)
     }
 
     async fn list_ids(&self) -> Result<Vec<ItemId>, StoreError> {

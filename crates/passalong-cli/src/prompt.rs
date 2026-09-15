@@ -20,10 +20,6 @@ pub trait Prompt {
 
     /// Asks for a secret, such as a store's words, without echoing what is
     /// typed. The answer is trimmed and zeroised when dropped.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "`encrypt` uses it from PLAN-00008 STEP-06")
-    )]
     fn ask_secret(&mut self, question: &str) -> io::Result<Zeroizing<String>>;
 
     /// Shows what a coming question is about, where questions appear.
@@ -90,10 +86,6 @@ impl Prompt for TerminalPrompt {
 /// Reads a line from the terminal in raw mode, so nothing typed is echoed.
 /// Enter ends it, Backspace deletes, and Ctrl-C or Esc cancels. The
 /// terminal leaves raw mode on every exit path.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "`encrypt` uses it from PLAN-00008 STEP-06")
-)]
 fn read_hidden() -> io::Result<Zeroizing<String>> {
     use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
     use ratatui::crossterm::terminal;

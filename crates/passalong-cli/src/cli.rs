@@ -109,6 +109,10 @@ pub enum Command {
         /// Delete without asking; required when not running in a terminal.
         #[arg(long)]
         yes: bool,
+        /// Prune the unencrypted items a fresh start left in plain/, not
+        /// the store's items.
+        #[arg(long)]
+        plain: bool,
     },
     /// Write a config file for your SSH server, pinning its host key after
     /// you confirm its fingerprint.
@@ -116,6 +120,9 @@ pub enum Command {
     /// Check the configuration, and that the server can be reached, read,
     /// and written.
     Check,
+    /// Encrypt the store, or change its words; with --join, give this
+    /// device the key of an encrypted store.
+    Encrypt(EncryptArgs),
     /// Install `passalong serve` as a service that starts at login: a
     /// systemd user unit on Linux, a launchd agent on macOS.
     ServiceInstall(ServiceInstallArgs),
@@ -154,6 +161,7 @@ impl Command {
             Self::Prune { .. } => "prune",
             Self::Init(_) => "init",
             Self::Check => "check",
+            Self::Encrypt(_) => "encrypt",
             Self::ServiceInstall(_) => "service-install",
             Self::ServiceRemove => "service-remove",
             Self::Choose => "choose",
@@ -188,6 +196,15 @@ pub struct ServiceInstallArgs {
     /// Replace an installed unit that differs.
     #[arg(long)]
     pub force: bool,
+}
+
+/// Options of `passalong encrypt`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Args)]
+pub struct EncryptArgs {
+    /// Give this device the key of an encrypted store, by typing its six
+    /// words.
+    #[arg(long)]
+    pub join: bool,
 }
 
 /// Options of `passalong init`. Anything not given is asked for, or takes
@@ -237,6 +254,23 @@ mod tests {
 
     fn parse(args: &[&str]) -> Cli {
         Cli::try_parse_from(std::iter::once("passalong").chain(args.iter().copied())).unwrap()
+    }
+
+    #[test]
+    fn parses_encrypt_and_prune_plain() {
+        assert_eq!(
+            parse(&["encrypt"]).command,
+            Command::Encrypt(EncryptArgs::default())
+        );
+        assert_eq!(
+            parse(&["encrypt", "--join"]).command,
+            Command::Encrypt(EncryptArgs { join: true })
+        );
+        assert_eq!(parse(&["encrypt"]).command.name(), "encrypt");
+        assert!(matches!(
+            parse(&["prune", "--plain", "--keep", "0"]).command,
+            Command::Prune { plain: true, .. }
+        ));
     }
 
     #[test]
@@ -396,7 +430,8 @@ mod tests {
                 older_than: Some(std::time::Duration::from_secs(30 * 86_400)),
                 keep: Some(5),
                 dry_run: true,
-                yes: true
+                yes: true,
+                plain: false,
             }
         );
         let err = Cli::try_parse_from(["passalong", "prune", "--older-than", "soon"]).unwrap_err();
@@ -513,6 +548,7 @@ mod tests {
                 keep: None,
                 dry_run: false,
                 yes: false,
+                plain: false,
             },
             Command::Check,
             Command::ServiceInstall(ServiceInstallArgs::default()),

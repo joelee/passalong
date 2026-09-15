@@ -18,12 +18,19 @@
 //! - `plain/items/`, only after a fresh start, for the items stored before;
 //! - `.rewrite/`, only while items are re-encrypted; creating it is the lock.
 
+mod admin;
 pub(crate) mod header;
 mod key_file;
 mod open;
 
+pub use admin::{
+    StoreState, change_words, fresh_start, inspect, join, plain_store, remove_plain_if_empty,
+    set_up,
+};
 pub use header::{StoreHeader, create_header, read_header, replace_header, write_stop_file};
-pub use key_file::{GitCheck, KeyFileError, SystemGit, load_key_file, save_key_file};
+pub use key_file::{
+    GitCheck, KeyFileError, SystemGit, check_key_location, load_key_file, save_key_file,
+};
 pub use open::{open_store, open_with_key};
 
 use crate::crypto::CryptoError;
@@ -38,6 +45,8 @@ pub const STOP_FILE: &str = "items";
 pub const STOP_TEXT: &str = "This store is encrypted. Upgrade to passalong 0.2.0 or later.\n";
 /// The folder that locks the store while its items are re-encrypted.
 pub const REWRITE_DIR: &str = ".rewrite";
+/// The folder holding the plaintext items a fresh start kept.
+pub const PLAIN_DIR: &str = "plain";
 /// Where a sealed store stages uploads, and the header while it is replaced.
 pub(crate) const SEALED_TMP_DIR: &str = "v2/tmp";
 
@@ -81,6 +90,9 @@ pub enum EncryptionError {
         "this device has an encryption key, but the store is not encrypted; run `passalong encrypt` to encrypt it, or delete the key file (client.key_file)"
     )]
     KeyWithoutEncryption,
+    /// The store is not encrypted.
+    #[error("the store is not encrypted; run `passalong encrypt` to encrypt it")]
+    NotEncrypted,
     /// Another client is re-encrypting the store's items.
     #[error(
         "the store's items are being re-encrypted{}; wait for that to finish, or run `passalong encrypt --recover`",

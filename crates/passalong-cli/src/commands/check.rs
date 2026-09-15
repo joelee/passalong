@@ -6,6 +6,8 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use passalong_core::config::Config;
+use passalong_core::encryption::{self, EncryptionError, StoreState, SystemGit, load_key_file};
+use passalong_core::fs::RemoteFs;
 use passalong_core::store::{BackendRegistry, PROBE_BYTES, Store, StoreError, WriteProbe};
 
 use crate::daemon::Status;
@@ -15,6 +17,9 @@ use crate::daemon::Status;
 pub trait Opener: Send + Sync {
     /// Connects to the configured backend.
     async fn open(&self, config: &Config) -> Result<Box<dyn Store>, StoreError>;
+
+    /// Connects to the configured backend's filesystem.
+    async fn open_fs(&self, config: &Config) -> Result<Box<dyn RemoteFs>, StoreError>;
 }
 
 #[async_trait]
@@ -22,10 +27,20 @@ impl Opener for BackendRegistry {
     async fn open(&self, config: &Config) -> Result<Box<dyn Store>, StoreError> {
         BackendRegistry::open(self, config).await
     }
+
+    async fn open_fs(&self, config: &Config) -> Result<Box<dyn RemoteFs>, StoreError> {
+        BackendRegistry::open_fs(self, config).await
+    }
 }
 
 /// The checks, in the order they run.
-const CHECKS: [&str; 4] = ["config", "server", "storage read", "storage write"];
+const CHECKS: [&str; 5] = [
+    "config",
+    "server",
+    "encryption",
+    "storage read",
+    "storage write",
+];
 
 /// Prints one aligned line per check, in order.
 struct Report<'a> {
@@ -54,8 +69,9 @@ impl Report<'_> {
 }
 
 /// Checks, in order, that the config loaded, that the server it names
-/// accepts a connection, that the store can be listed, and that it accepts
-/// writes, printing one line per check. The first failure marks the
+/// accepts a connection, that this device can use the store's encryption,
+/// that the store can be listed, and that it accepts writes, printing one
+/// line per check. The first failure marks the
 /// remaining checks skipped and ends with an error. A last line always says
 /// whether `serve` runs on this machine; it is informational and never
 /// fails, so it is shown after a failure too.
@@ -92,11 +108,19 @@ async fn run_checks(
     };
     report.line("ok", &path.display().to_string())?;
     let server = describe(&config);
-    let store = match opener.open(&config).await {
-        Ok(store) => store,
+    let fs = match opener.open_fs(&config).await {
+        Ok(fs) => fs,
         Err(err) => return report.fail(&format!("{server}: {err}"), &err.to_string()),
     };
     report.line("ok", &server)?;
+    match encryption_status(fs.as_ref(), &config).await {
+        Ok((status, detail)) => report.line(status, &detail)?,
+        Err(reason) => return report.fail(&reason, &reason),
+    }
+    let store = match opener.open(&config).await {
+        Ok(store) => store,
+        Err(err) => return report.fail(&err.to_string(), &err.to_string()),
+    };
     match store.list_ids().await {
         Ok(ids) => {
             let n = ids.len();
@@ -115,6 +139,53 @@ async fn run_checks(
     }
     tracing::debug!("every check passed");
     Ok(())
+}
+
+fn refused(err: EncryptionError) -> Result<(&'static str, String), String> {
+    Err(err.to_string())
+}
+
+/// The `encryption` line: `off`, `on (key …)` with any plaintext items a
+/// fresh start left, or why this device cannot use the store.
+async fn encryption_status(
+    fs: &dyn RemoteFs,
+    config: &Config,
+) -> Result<(&'static str, String), String> {
+    let key = match &config.client.key_file {
+        Some(path) => load_key_file(path, &SystemGit::new()).map_err(|err| err.to_string())?,
+        None => None,
+    };
+    match encryption::inspect(fs)
+        .await
+        .map_err(|err| err.to_string())?
+    {
+        StoreState::Plain { .. } if key.is_some() => refused(EncryptionError::KeyWithoutEncryption),
+        StoreState::Plain { .. } => Ok(("off", "not encrypted".to_owned())),
+        StoreState::Encrypted { key_id, plain_left } => match key {
+            None => refused(EncryptionError::NoKey),
+            Some(key) if key.key_id() != key_id => refused(EncryptionError::KeyMismatch {
+                device: key.key_id().short(),
+                store: key_id.short(),
+            }),
+            Some(_) => {
+                let mut detail = format!("on (key {})", key_id.short());
+                if plain_left > 0 {
+                    let items = if plain_left == 1 {
+                        "item remains"
+                    } else {
+                        "items remain"
+                    };
+                    detail.push_str(&format!(
+                        "; {plain_left} unencrypted {items} from before encryption"
+                    ));
+                }
+                Ok(("ok", detail))
+            }
+        },
+        StoreState::Rewriting { started } => refused(EncryptionError::Rewriting { started }),
+        StoreState::Broken => refused(EncryptionError::HeaderMissing),
+        _ => Err("this store's state is not known to this version of passalong".to_owned()),
+    }
 }
 
 /// The `storage write` line: how long the probe took, and the rate that
@@ -166,6 +237,8 @@ mod tests {
     use super::*;
     use crate::commands::support::bytes;
     use passalong_core::config;
+    use passalong_core::crypto::{DataKey, KDF_SALT_LEN, KdfParams, Words};
+    use passalong_core::encryption::{open_with_key, save_key_file};
     use passalong_core::fs::{BoxRead, LocalFs};
     use passalong_core::model::{ContentKey, ItemId, ItemMeta, NewItem};
     use passalong_core::random::StdRandom;
@@ -178,20 +251,42 @@ mod tests {
     const KEY: &str =
         "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIF2M9DqIpW9GMebpvjNg+bobwAbQKRBqPVMatyvyI4gq";
 
-    /// Hands out one prepared result, as a backend would.
-    struct FakeOpener(Mutex<Option<Result<Box<dyn Store>, StoreError>>>);
+    type Fs = Result<Box<dyn RemoteFs>, StoreError>;
+    type Opened = Result<Box<dyn Store>, StoreError>;
+
+    /// Hands out one prepared filesystem and one prepared store, as a
+    /// backend would.
+    struct FakeOpener {
+        fs: Mutex<Option<Fs>>,
+        store: Mutex<Option<Opened>>,
+    }
 
     impl FakeOpener {
-        fn new(result: Result<Box<dyn Store>, StoreError>) -> Self {
-            Self(Mutex::new(Some(result)))
+        fn new(fs: Fs, store: Opened) -> Self {
+            Self {
+                fs: Mutex::new(Some(fs)),
+                store: Mutex::new(Some(store)),
+            }
         }
     }
 
     #[async_trait]
     impl Opener for FakeOpener {
-        async fn open(&self, _config: &Config) -> Result<Box<dyn Store>, StoreError> {
-            self.0.lock().unwrap().take().expect("opened once")
+        async fn open(&self, _config: &Config) -> Opened {
+            self.store.lock().unwrap().take().expect("opened once")
         }
+
+        async fn open_fs(&self, _config: &Config) -> Fs {
+            self.fs.lock().unwrap().take().expect("opened once")
+        }
+    }
+
+    fn fs_of(dir: &TempDir) -> Fs {
+        Ok(Box::new(LocalFs::new(dir.path())))
+    }
+
+    fn unused() -> StoreError {
+        StoreError::Backend("unused".into())
     }
 
     fn parse(server: &str) -> Config {
@@ -229,23 +324,25 @@ mod tests {
 
     async fn check(
         config: anyhow::Result<(PathBuf, Config)>,
-        opened: Result<Box<dyn Store>, StoreError>,
+        fs: Fs,
+        opened: Opened,
     ) -> (anyhow::Result<()>, String) {
         let mut out = Vec::new();
-        let opener = FakeOpener::new(opened);
+        let opener = FakeOpener::new(fs, opened);
         let result = run(config, &opener, Ok(Status::NotRunning), &mut out).await;
         (result, String::from_utf8(out).unwrap())
     }
 
     #[tokio::test]
     async fn a_healthy_store_passes_every_check() {
-        let (_dir, store) = store(2).await;
-        let (result, out) = check(local(), Ok(store)).await;
+        let (dir, store) = store(2).await;
+        let (result, out) = check(local(), fs_of(&dir), Ok(store)).await;
         result.unwrap();
         assert!(
             out.starts_with(
                 "config         ok    /etc/passalong/config.toml\n\
              server         ok    local /srv/share\n\
+             encryption     off   not encrypted\n\
              storage read   ok    2 items\n\
              storage write  ok    wrote and removed a 128-byte probe in "
             ),
@@ -283,12 +380,14 @@ mod tests {
         let (result, out) = check(
             Err(anyhow::anyhow!("no config file found")),
             Err(StoreError::Backend("never opened".into())),
+            Err(StoreError::Backend("never opened".into())),
         )
         .await;
         assert_eq!(
             out,
             "config         FAIL  no config file found\n\
              server         skip\n\
+             encryption     skip\n\
              storage read   skip\n\
              storage write  skip\n\
              serve          off   not running\n"
@@ -305,6 +404,7 @@ mod tests {
         let (result, out) = check(
             local(),
             Err(StoreError::Backend("host key mismatch".into())),
+            Err(unused()),
         )
         .await;
         assert!(
@@ -326,9 +426,9 @@ mod tests {
 
     #[tokio::test]
     async fn an_unreadable_store_fails_storage_read() {
-        let (_dir, store) = store(1).await;
+        let (dir, store) = store(1).await;
         store.fs().fail_next(FsOp::ReadDir, 1);
-        let (result, out) = check(local(), Ok(store)).await;
+        let (result, out) = check(local(), fs_of(&dir), Ok(store)).await;
         assert!(out.contains("storage read   FAIL  "), "{out}");
         assert!(
             out.ends_with("storage write  skip\nserve          off   not running\n"),
@@ -344,9 +444,9 @@ mod tests {
 
     #[tokio::test]
     async fn an_unwritable_store_fails_storage_write() {
-        let (_dir, store) = store(1).await;
+        let (dir, store) = store(1).await;
         store.fs().fail_next(FsOp::OpenWrite, 1);
-        let (result, out) = check(local(), Ok(store)).await;
+        let (result, out) = check(local(), fs_of(&dir), Ok(store)).await;
         assert!(out.contains("storage read   ok    1 item\n"), "{out}");
         assert!(out.contains("storage write  FAIL  "), "{out}");
         assert!(
@@ -380,16 +480,16 @@ mod tests {
                 "serve          n/a   cannot tell: pid file unreadable\n",
             ),
         ] {
-            let (_dir, store) = store(0).await;
+            let (dir, store) = store(0).await;
             let mut out = Vec::new();
-            let opener = FakeOpener::new(Ok(store));
+            let opener = FakeOpener::new(fs_of(&dir), Ok(store));
             run(local(), &opener, serve.clone(), &mut out)
                 .await
                 .unwrap();
             let out = String::from_utf8(out).unwrap();
             assert!(out.ends_with(line), "{out}");
             let mut out = Vec::new();
-            let opener = FakeOpener::new(Err(StoreError::Backend("unused".into())));
+            let opener = FakeOpener::new(Err(unused()), Err(unused()));
             let failed = run(Err(anyhow::anyhow!("no config")), &opener, serve, &mut out).await;
             assert!(failed.is_err());
             assert!(String::from_utf8(out).unwrap().ends_with(line));
@@ -444,13 +544,119 @@ mod tests {
             Arc::new(ManualClock::at("2026-09-12T09:53:11Z")),
             Box::new(StdRandom::new()),
         ));
-        let (result, out) = check(local(), Ok(Box::new(store))).await;
+        let (result, out) = check(local(), fs_of(&dir), Ok(Box::new(store))).await;
         result.unwrap();
         assert!(out.contains("storage read   ok    0 items\n"), "{out}");
         assert!(
             out.contains("storage write  n/a   not supported by this backend\n"),
             "{out}"
         );
+    }
+
+    const WORDS: &str = "zoom zoom zoom zoom zoom zoom";
+
+    fn quick() -> KdfParams {
+        KdfParams {
+            m_kib: 64,
+            t: 1,
+            p: 1,
+            salt: [6; KDF_SALT_LEN],
+        }
+    }
+
+    /// The local config, with this device's key in `key_file`.
+    fn keyed(key_file: &Path) -> anyhow::Result<(PathBuf, Config)> {
+        let text = format!(
+            "[client]\ndevice_name = \"t\"\nkey_file = \"{}\"\n\n[server]\nkind = \"local\"\n\n[server.local]\npath = \"/srv/share\"\n",
+            key_file.display()
+        );
+        let env = MapEnv::new().with("HOME", "/home/t");
+        Ok((
+            PathBuf::from("/etc/passalong/config.toml"),
+            config::parse(&text, Path::new("c.toml"), &env).unwrap(),
+        ))
+    }
+
+    #[tokio::test]
+    async fn the_encryption_line_names_the_key_and_the_plaintext_left() {
+        let dir = TempDir::new().unwrap();
+        let fs = LocalFs::new(dir.path());
+        let plain = FsStore::new(
+            fs.clone(),
+            Arc::new(ManualClock::at("2026-09-12T09:53:11Z")),
+            Box::new(StdRandom::new()),
+        );
+        plain
+            .put(NewItem::text("box"), bytes(b"old"))
+            .await
+            .unwrap();
+        let key = encryption::fresh_start(&fs, &Words::parse(WORDS).unwrap(), quick())
+            .await
+            .unwrap();
+        let keys = TempDir::new().unwrap();
+        let key_file = keys.path().join("store.key");
+        save_key_file(&key_file, &key, &SystemGit::new()).unwrap();
+        let store = open_with_key(
+            fs,
+            Some(key.clone()),
+            Arc::new(ManualClock::at("2026-09-12T09:53:11Z")),
+            Box::new(StdRandom::new()),
+        )
+        .await
+        .unwrap();
+        let (result, out) = check(keyed(&key_file), fs_of(&dir), Ok(store)).await;
+        result.unwrap();
+        assert!(
+            out.contains(&format!(
+                "encryption     ok    on (key {}); 1 unencrypted item remains from before encryption\n",
+                key.key_id().short()
+            )),
+            "{out}"
+        );
+        assert!(out.contains("storage read   ok    0 items\n"), "{out}");
+    }
+
+    #[tokio::test]
+    async fn the_encryption_line_fails_without_the_key_or_during_a_rewrite() {
+        let dir = TempDir::new().unwrap();
+        encryption::set_up(
+            &LocalFs::new(dir.path()),
+            &Words::parse(WORDS).unwrap(),
+            quick(),
+        )
+        .await
+        .unwrap();
+        let (result, out) = check(local(), fs_of(&dir), Err(unused())).await;
+        assert!(
+            out.contains("encryption     FAIL  the store is encrypted and this device has no key"),
+            "{out}"
+        );
+        assert!(out.contains("storage read   skip\n"), "{out}");
+        assert!(result.unwrap_err().to_string().contains("encrypt --join"));
+
+        let keys = TempDir::new().unwrap();
+        let other = keys.path().join("store.key");
+        save_key_file(&other, &DataKey::generate().unwrap(), &SystemGit::new()).unwrap();
+        let (_, out) = check(keyed(&other), fs_of(&dir), Err(unused())).await;
+        assert!(out.contains("is not the store's key"), "{out}");
+
+        std::fs::create_dir(dir.path().join(".rewrite")).unwrap();
+        let (_, out) = check(local(), fs_of(&dir), Err(unused())).await;
+        assert!(out.contains("encrypt --recover"), "{out}");
+    }
+
+    #[tokio::test]
+    async fn the_encryption_line_fails_for_a_key_with_a_plaintext_store() {
+        let dir = TempDir::new().unwrap();
+        let keys = TempDir::new().unwrap();
+        let key_file = keys.path().join("store.key");
+        save_key_file(&key_file, &DataKey::generate().unwrap(), &SystemGit::new()).unwrap();
+        let (result, out) = check(keyed(&key_file), fs_of(&dir), Err(unused())).await;
+        assert!(
+            out.contains("encryption     FAIL  this device has an encryption key, but the store is not encrypted"),
+            "{out}"
+        );
+        assert!(result.is_err());
     }
 
     #[test]

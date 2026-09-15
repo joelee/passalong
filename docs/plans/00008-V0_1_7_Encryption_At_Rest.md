@@ -38,9 +38,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00008-v0.2.0"
 execution_started_at: "2026-09-15T13:53:01Z"
-execution_updated_at: "2026-09-15T14:38:18Z"
+execution_updated_at: "2026-09-15T14:58:06Z"
 execution_completed_at: null
-current_step: "PLAN-00008-STEP-06"
+current_step: "PLAN-00008-STEP-07"
 ---
 
 # Delivery Plan 00008: V0 1 7 Encryption At Rest
@@ -1063,7 +1063,7 @@ passing unchanged.
 | PLAN-00008-STEP-03 | completed | 2026-09-15T14:09:32Z | 2026-09-15T14:16:20Z | Commit `build: complete PLAN-00008-STEP-03 - Key file, client.key_file, and hidden prompts`; core 230 and CLI 165 tests pass; just check green, 92.45% lines | AC-07. ClientConfig.key_file is Option<PathBuf>: the default beside default_config_path, None only without XDG_CONFIG_HOME and HOME (a config that does not use encryption must still parse; a serve test parses one with an empty environment). Key file in passalong_core::encryption (load_key_file, save_key_file, GitCheck, SystemGit, KeyFileError #[non_exhaustive]); existing folders keep their mode, new ones get 0700. Prompt::ask_secret reads in crossterm raw mode (through ratatui::crossterm) with a guard that always leaves raw mode; it is marked expect(dead_code) outside tests until STEP-06 calls it. *.key added to .gitignore. |
 | PLAN-00008-STEP-04 | completed | 2026-09-15T14:17:39Z | 2026-09-15T14:28:02Z | Commit `build: complete PLAN-00008-STEP-04 - RemoteFs additions and the sealed FsStore`; core 246 tests pass; just check green, 93.08% lines | AC-03, AC-13 (store level). FsStore::sealed over v2/items and v2/tmp; sealed meta.json {schema 2, id, nonce, sealed}, sealing the ItemMeta and the content salt; content opened with open_item_content, which refuses another item's salt; NewItem::finish_keyed; get compares the content length with crypto::sealed_len first. Not complete yet (StoreError::Encryption(EncryptionError::Incomplete)) within 5 minutes of the id's time, corrupt after; list skips such items at debug level. Deviation from the step's test note: the sealed behaviours are covered by a dedicated sealed_tests suite that mirrors the plaintext cases, rather than by running the same test functions twice. SftpFs create_dir/remove_file compile here and are exercised over Docker in STEP-09. The CLI's Recording wrapper forwards key_id and content_key. |
 | PLAN-00008-STEP-05 | completed | 2026-09-15T14:31:15Z | 2026-09-15T14:38:18Z | Commit `build: complete PLAN-00008-STEP-05 - Store header and encryption-aware opening`; core 261, cli_local_backend 34, test-compat 2 pass; just check green, 93.24% lines | AC-01 (encrypted store), AC-02. encryption::{StoreHeader, create_header, replace_header, read_header, write_stop_file, open_store, open_with_key}; EncryptionError gains NoKey, KeyMismatch, KeyWithoutEncryption, Rewriting, HeaderMissing, KeyChanged, AlreadyEncrypted, Header, Layout, KeyFile. BackendRegistry keeps register (store openers, no encryption) and adds register_fs/open_fs; local and ssh are filesystem kinds; open_ssh_store keeps its signature and opens through the header; new open_ssh_fs. FsStore::guarded (crate-private) re-checks the header size and mtime and .rewrite before put, delete, and list_ids. The header's staging and old copies live in v2/tmp. |
-| PLAN-00008-STEP-06 | not-started | — | — | — | — |
+| PLAN-00008-STEP-06 | completed | 2026-09-15T14:40:11Z | 2026-09-15T14:58:06Z | Commit `build: complete PLAN-00008-STEP-06 - init, encrypt, join, changing the words, fresh start, check`; core 269, CLI 182, cli_local_backend 36 pass; just check green, 93.55% lines | AC-08, AC-11, AC-12, AC-15. encryption::{StoreState, inspect, set_up, fresh_start, join, change_words, plain_store, remove_plain_if_empty, check_key_location}; EncryptionError::NotEncrypted; fs::SubFs and RemoteFs for &T. set_up writes the stop file before the header. CLI: encrypt (set up, fresh start for a store with items, change words asking the current ones, --join), prune --plain, check's encryption line (check now opens the filesystem first, so it reports on stores it may not open), init inspects the store after the connection test (ConnectionCheck::open returns the filesystem). The list reminder is logged by a guarded sealed store's list(), so choose and prune show it too. Migration (the [m] choice) arrives with the rewrite engine in STEP-07; until then a store with items gets the fresh start. |
 | PLAN-00008-STEP-07 | not-started | — | — | — | — |
 | PLAN-00008-STEP-08 | not-started | — | — | — | — |
 | PLAN-00008-STEP-09 | not-started | — | — | — | — |
@@ -1088,6 +1088,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T14:28:02Z | PLAN-00008-STEP-04 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00008-STEP-04 - RemoteFs additions and the sealed FsStore` | Begin PLAN-00008-STEP-05 |
 | 2026-09-15T14:31:15Z | PLAN-00008-STEP-05 | Started | — | Red phase |
 | 2026-09-15T14:38:18Z | PLAN-00008-STEP-05 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00008-STEP-05 - Store header and encryption-aware opening` | Begin PLAN-00008-STEP-06 |
+| 2026-09-15T14:40:11Z | PLAN-00008-STEP-06 | Started | — | Red phase |
+| 2026-09-15T14:58:06Z | PLAN-00008-STEP-06 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00008-STEP-06 - init, encrypt, join, changing the words, fresh start, check` | Begin PLAN-00008-STEP-07 |
 
 ### Deviations and blockers
 
@@ -1115,6 +1117,9 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T14:38:18Z | PLAN-00008-STEP-05 | cargo test -p passalong --test cli_local_backend | 34 passed | this release's binary: keyless device refused (encrypt --join), other key refused, device with the key sends/lists/cats through v2 with no plaintext on disk, key with a plaintext store refused |
 | 2026-09-15T14:38:18Z | PLAN-00008-STEP-05 | just test-compat | 2 passed: v0.1.6 refused by the stop-file store and by a real encrypted store (header, stop file, one sealed item); no marker or existing plaintext written | AC-01 complete |
 | 2026-09-15T14:38:18Z | PLAN-00008-STEP-05 | just check | exit 0; line coverage 93.24% | clippy clean |
+| 2026-09-15T14:58:06Z | PLAN-00008-STEP-06 | cargo test -p passalong-core --all-features --lib; cargo test -p passalong --bins | 269 and 182 passed | admin: inspect states, set_up once and only on an empty store, fresh start into plain/ (and merging), join with right/wrong words, new words keep the key and rewrite no item (content bytes unchanged); encrypt: set up with typed-back words, decline, three mismatches, no terminal, fresh start with items, change words (asks current words first), device without or with another key, join (retry on a malformed answer, wrong words), rewriting/broken refused; init: set up on an empty store, join an encrypted one, --yes and stores with items only hint; check: encryption line on/off, leftover count, no key, other key, rewrite, key with a plaintext store; prune --plain; SubFs; &T RemoteFs |
+| 2026-09-15T14:58:06Z | PLAN-00008-STEP-06 | cargo test -p passalong --test cli_local_backend | 36 passed | encrypt without a terminal refused; after a fresh start list warns '2 unencrypted items remain' on stderr, check shows 'on (key …); 2 unencrypted items remain', prune --plain --keep 0 --yes deletes them and removes plain/, then list no longer warns |
+| 2026-09-15T14:58:06Z | PLAN-00008-STEP-06 | just check | exit 0; line coverage 93.55% | clippy clean |
 
 ### Completion summary
 

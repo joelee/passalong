@@ -10,6 +10,8 @@ use chrono::{FixedOffset, Local, Offset, Utc};
 use passalong_core::clipboard::{ArboardClipboard, Clipboard, ClipboardError};
 use passalong_core::clock::SystemClock;
 use passalong_core::config::{self, Config, EnvProvider, SearchRoots};
+use passalong_core::crypto::{KdfParams, Words};
+use passalong_core::encryption::SystemGit;
 use passalong_core::random::StdRandom;
 use passalong_core::store::{BackendRegistry, Store};
 use passalong_core::telemetry::{self, LogLevel};
@@ -143,6 +145,21 @@ async fn dispatch(
         }
         // `serve` opens, and re-opens, its own store.
         Command::Serve(args) => commands::serve::run(context, &args, backends, out).await,
+        Command::Encrypt(args) => {
+            let fs = backends.open_fs(config).await?;
+            let key_file = config.client.key_file.as_deref().context(
+                "set client.key_file: it has no default because neither XDG_CONFIG_HOME nor HOME is set",
+            )?;
+            let git = SystemGit::new();
+            let keys = commands::encrypt::Keys {
+                key_file,
+                git: &git,
+                new_words: Words::generate,
+                new_kdf: KdfParams::generate,
+            };
+            let mut prompt = TerminalPrompt;
+            commands::encrypt::run(&args, fs.as_ref(), &keys, &mut prompt, out).await
+        }
         Command::Clipboard { stdin } => {
             let opened = backends.open(config).await?;
             let store = Recording::new(opened.as_ref());
@@ -260,7 +277,28 @@ async fn dispatch(
             keep,
             dry_run,
             yes,
+            plain,
         } => {
+            if plain {
+                let fs = backends.open_fs(config).await?;
+                let options = commands::prune::PruneOptions {
+                    older_than,
+                    keep,
+                    dry_run,
+                    yes,
+                    quiet,
+                };
+                let mut prompt = TerminalPrompt;
+                return commands::prune::run_plain(
+                    fs.as_ref(),
+                    &options,
+                    Utc::now(),
+                    &mut prompt,
+                    local_offset(),
+                    out,
+                )
+                .await;
+            }
             let opened = backends.open(config).await?;
             let store = Recording::new(opened.as_ref());
             let options = commands::prune::PruneOptions {
@@ -426,12 +464,16 @@ async fn init(
     let mut backends = BackendRegistry::with_builtin();
     passalong_ssh::register(&mut backends);
     let mut prompt = TerminalPrompt;
+    let git = SystemGit::new();
     let deps = commands::init::InitDeps {
         env,
         prompt: &mut prompt,
         keys: &commands::init::NetworkHostKeys,
         check: &commands::init::StoreCheck(backends),
         quiet,
+        git: &git,
+        new_words: Words::generate,
+        new_kdf: KdfParams::generate,
     };
     let span = telemetry::op_span("init", &mut StdRandom::new());
     commands::init::run(args, &target, deps, out)

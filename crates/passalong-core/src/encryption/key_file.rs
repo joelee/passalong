@@ -282,6 +282,16 @@ pub fn save_key_file(path: &Path, key: &DataKey, git: &dyn GitCheck) -> Result<(
     Ok(())
 }
 
+/// Refuses, before anything changes, a key file place inside a git work
+/// tree that does not ignore it.
+///
+/// # Errors
+///
+/// [`KeyFileError::InGitWorkTree`] or [`KeyFileError::GitUnavailable`].
+pub fn check_key_location(path: &Path, git: &dyn GitCheck) -> Result<(), KeyFileError> {
+    check_git(path, git)
+}
+
 fn create_private_dirs(dir: &Path) -> io::Result<()> {
     let mut builder = fs::DirBuilder::new();
     builder.recursive(true);

@@ -37,6 +37,14 @@ All notable changes to this project are documented here. The format follows
   `BackendRegistry` gains `register_fs` and `open_fs`, and `local` and `ssh`
   register their filesystems; `just test-compat` now also proves v0.1.6
   cannot write into a real encrypted store (PLAN-00008 STEP-05).
+- `passalong encrypt`: on a plaintext store it shows six new words, has
+  them typed back, and encrypts the store (a store with items gets a fresh
+  start: they stay unencrypted in `plain/` until `passalong prune
+  --plain`); on an encrypted store it changes the words without
+  re-encrypting anything; `--join` gives a device the store's key. `init`
+  offers encryption for an empty store and joins an encrypted one; `check`
+  gains an `encryption` line; `list` warns while unencrypted items remain
+  (PLAN-00008 STEP-06).
 
 ## v0.1.6 - 2026-09-14T21:14:49Z
 

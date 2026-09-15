@@ -87,7 +87,7 @@ pub async fn open_with_key<F: RemoteFs + 'static>(
 }
 
 /// When the re-encryption in progress started, from `.rewrite/plan.json`.
-async fn rewrite_started<F: RemoteFs + ?Sized>(fs: &F) -> Option<String> {
+pub(super) async fn rewrite_started<F: RemoteFs + ?Sized>(fs: &F) -> Option<String> {
     let path = RemotePath::new(REWRITE_DIR).ok()?.join("plan.json").ok()?;
     let mut bytes = Vec::new();
     fs.open_read(&path)

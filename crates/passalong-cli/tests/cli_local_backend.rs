@@ -9,6 +9,7 @@ use std::sync::Arc;
 use assert_cmd::Command;
 use chrono::Utc;
 use passalong_core::cache::ListCache;
+use passalong_core::encryption::fresh_start;
 use passalong_core::fs::LocalFs;
 use passalong_core::model::{ItemMeta, NewItem};
 use passalong_core::random::StdRandom;
@@ -1290,4 +1291,57 @@ async fn a_device_with_a_key_refuses_a_plaintext_store() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("the store is not encrypted"));
+}
+
+#[test]
+fn encrypt_needs_a_terminal() {
+    let sb = Sandbox::new();
+    sb.with_config()
+        .arg("encrypt")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("needs a terminal"));
+    assert!(!sb.path("store/encryption").exists());
+}
+
+#[tokio::test]
+async fn a_fresh_start_leaves_plaintext_that_list_mentions_and_prune_plain_removes() {
+    let sb = Sandbox::new();
+    sb.seed(&["old one", "old two"]).await;
+    let words = Words::parse("abacus zoom abdomen abacus zoom abdomen").unwrap();
+    let kdf = KdfParams {
+        m_kib: 64,
+        t: 1,
+        p: 1,
+        salt: [5; 16],
+    };
+    let key = fresh_start(&LocalFs::new(sb.path("store")), &words, kdf)
+        .await
+        .unwrap();
+    let key_file = sb.save_key(&key);
+    sb.with_key_file(&key_file)
+        .arg("list")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("2 unencrypted items remain"));
+    sb.with_key_file(&key_file)
+        .arg("check")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "on (key {}); 2 unencrypted items remain",
+            key.key_id().short()
+        )));
+    sb.with_key_file(&key_file)
+        .args(["prune", "--plain", "--keep", "0", "--yes"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("deleted 2 items"))
+        .stdout(predicate::str::contains("removed plain/"));
+    assert!(!sb.path("store/plain").exists());
+    sb.with_key_file(&key_file)
+        .arg("list")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("unencrypted").not());
 }

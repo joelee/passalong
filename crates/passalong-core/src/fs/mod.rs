@@ -219,6 +219,92 @@ pub trait RemoteFs: Send + Sync {
     }
 }
 
+/// A borrowed filesystem is a filesystem, so a store can be built on one its
+/// owner keeps using.
+#[async_trait]
+impl<T: RemoteFs + ?Sized> RemoteFs for &T {
+    async fn create_dir_all(&self, path: &RemotePath) -> Result<(), FsError> {
+        (**self).create_dir_all(path).await
+    }
+    async fn read_dir(&self, path: &RemotePath) -> Result<Vec<DirEntry>, FsError> {
+        (**self).read_dir(path).await
+    }
+    async fn open_read(&self, path: &RemotePath) -> Result<BoxRead, FsError> {
+        (**self).open_read(path).await
+    }
+    async fn open_write(&self, path: &RemotePath) -> Result<BoxWrite, FsError> {
+        (**self).open_write(path).await
+    }
+    async fn rename(&self, from: &RemotePath, to: &RemotePath) -> Result<(), FsError> {
+        (**self).rename(from, to).await
+    }
+    async fn remove_dir_all(&self, path: &RemotePath) -> Result<(), FsError> {
+        (**self).remove_dir_all(path).await
+    }
+    async fn stat(&self, path: &RemotePath) -> Result<Option<Metadata>, FsError> {
+        (**self).stat(path).await
+    }
+    async fn create_dir(&self, path: &RemotePath) -> Result<(), FsError> {
+        (**self).create_dir(path).await
+    }
+    async fn remove_file(&self, path: &RemotePath) -> Result<(), FsError> {
+        (**self).remove_file(path).await
+    }
+}
+
+/// A [`RemoteFs`] rooted at `prefix` inside another, such as the `plain/`
+/// folder where an encrypted store keeps the plaintext items it had before.
+#[derive(Debug, Clone)]
+pub struct SubFs<F> {
+    inner: F,
+    prefix: RemotePath,
+}
+
+impl<F> SubFs<F> {
+    /// Serves the tree below `prefix` in `inner`.
+    pub fn new(inner: F, prefix: RemotePath) -> Self {
+        Self { inner, prefix }
+    }
+
+    fn under(&self, path: &RemotePath) -> Result<RemotePath, FsError> {
+        path.components()
+            .try_fold(self.prefix.clone(), |acc, part| acc.join(part))
+    }
+}
+
+#[async_trait]
+impl<F: RemoteFs> RemoteFs for SubFs<F> {
+    async fn create_dir_all(&self, path: &RemotePath) -> Result<(), FsError> {
+        self.inner.create_dir_all(&self.under(path)?).await
+    }
+    async fn read_dir(&self, path: &RemotePath) -> Result<Vec<DirEntry>, FsError> {
+        self.inner.read_dir(&self.under(path)?).await
+    }
+    async fn open_read(&self, path: &RemotePath) -> Result<BoxRead, FsError> {
+        self.inner.open_read(&self.under(path)?).await
+    }
+    async fn open_write(&self, path: &RemotePath) -> Result<BoxWrite, FsError> {
+        self.inner.open_write(&self.under(path)?).await
+    }
+    async fn rename(&self, from: &RemotePath, to: &RemotePath) -> Result<(), FsError> {
+        self.inner
+            .rename(&self.under(from)?, &self.under(to)?)
+            .await
+    }
+    async fn remove_dir_all(&self, path: &RemotePath) -> Result<(), FsError> {
+        self.inner.remove_dir_all(&self.under(path)?).await
+    }
+    async fn stat(&self, path: &RemotePath) -> Result<Option<Metadata>, FsError> {
+        self.inner.stat(&self.under(path)?).await
+    }
+    async fn create_dir(&self, path: &RemotePath) -> Result<(), FsError> {
+        self.inner.create_dir(&self.under(path)?).await
+    }
+    async fn remove_file(&self, path: &RemotePath) -> Result<(), FsError> {
+        self.inner.remove_file(&self.under(path)?).await
+    }
+}
+
 /// A boxed filesystem, as a backend registry opens one, is a filesystem.
 #[async_trait]
 impl<T: RemoteFs + ?Sized> RemoteFs for Box<T> {
@@ -368,6 +454,34 @@ mod tests {
             fs.remove_file(&lock).await,
             Err(FsError::Other { .. })
         ));
+    }
+
+    #[tokio::test]
+    async fn a_sub_filesystem_stays_below_its_prefix() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let local = crate::fs::LocalFs::new(dir.path());
+        let sub = SubFs::new(&local, RemotePath::new("plain").unwrap());
+        let p = |s: &str| RemotePath::new(s).unwrap();
+        sub.create_dir_all(&p("items/a")).await.unwrap();
+        sub.create_dir(&p("items/b")).await.unwrap();
+        let mut w = sub.open_write(&p("items/a/f")).await.unwrap();
+        tokio::io::AsyncWriteExt::write_all(&mut w, b"x")
+            .await
+            .unwrap();
+        tokio::io::AsyncWriteExt::shutdown(&mut w).await.unwrap();
+        assert!(dir.path().join("plain/items/a/f").is_file());
+        assert_eq!(sub.read_dir(&p("items")).await.unwrap().len(), 2);
+        let mut r = sub.open_read(&p("items/a/f")).await.unwrap();
+        let mut got = Vec::new();
+        tokio::io::AsyncReadExt::read_to_end(&mut r, &mut got)
+            .await
+            .unwrap();
+        assert_eq!(got, b"x");
+        sub.rename(&p("items/b"), &p("items/c")).await.unwrap();
+        assert!(sub.stat(&p("items/c")).await.unwrap().unwrap().is_dir);
+        sub.remove_file(&p("items/a/f")).await.unwrap();
+        sub.remove_dir_all(&p("items")).await.unwrap();
+        assert!(!dir.path().join("plain/items").exists());
     }
 
     #[tokio::test]

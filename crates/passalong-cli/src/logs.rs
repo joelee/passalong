@@ -10,6 +10,27 @@ use std::sync::{Mutex, PoisonError};
 /// to standard error.
 static HELD: Mutex<Option<Vec<u8>>> = Mutex::new(None);
 
+/// The file records go to instead of standard error, once [`to_file`] set it.
+#[cfg(windows)]
+static FILE: Mutex<Option<std::fs::File>> = Mutex::new(None);
+
+/// Sends log records to the end of `path` from now on, instead of standard
+/// error: a background `serve` on Windows has no standard error to
+/// redirect (see `daemon::launch_detached`).
+///
+/// # Errors
+///
+/// When `path` cannot be opened.
+#[cfg(windows)]
+pub fn to_file(path: &std::path::Path) -> io::Result<()> {
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    *FILE.lock().unwrap_or_else(PoisonError::into_inner) = Some(file);
+    Ok(())
+}
+
 /// The writer given to telemetry: standard error, or the hold buffer.
 pub fn writer() -> LogWriter {
     LogWriter
@@ -26,10 +47,18 @@ impl Write for LogWriter {
             return Ok(buf.len());
         }
         drop(held);
+        #[cfg(windows)]
+        if let Some(file) = FILE.lock().unwrap_or_else(PoisonError::into_inner).as_mut() {
+            return file.write(buf);
+        }
         io::stderr().write(buf)
     }
 
     fn flush(&mut self) -> io::Result<()> {
+        #[cfg(windows)]
+        if let Some(file) = FILE.lock().unwrap_or_else(PoisonError::into_inner).as_mut() {
+            return file.flush();
+        }
         io::stderr().flush()
     }
 }

@@ -173,7 +173,7 @@ impl Command {
 /// Options of `passalong serve`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Args)]
 pub struct ServeArgs {
-    /// Run in the background, logging to a file (Linux and macOS).
+    /// Run in the background, logging to a file.
     #[arg(long, conflicts_with_all = ["status", "stop"])]
     pub daemon: bool,
     /// Report whether serve is running; exit code 3 when it is not.
@@ -196,6 +196,10 @@ pub struct ServiceInstallArgs {
     /// Replace an installed unit that differs.
     #[arg(long)]
     pub force: bool,
+    /// Windows: register a Task Scheduler task, which restarts serve if it
+    /// fails, instead of the Run key; needs an administrator prompt.
+    #[arg(long)]
+    pub scheduler: bool,
 }
 
 /// Options of `passalong encrypt`.
@@ -504,6 +508,14 @@ mod tests {
             Command::ServiceInstall(ServiceInstallArgs {
                 no_start: true,
                 force: true,
+                scheduler: false,
+            })
+        );
+        assert_eq!(
+            parse(&["service-install", "--scheduler"]).command,
+            Command::ServiceInstall(ServiceInstallArgs {
+                scheduler: true,
+                ..ServiceInstallArgs::default()
             })
         );
         assert_eq!(parse(&["service-remove"]).command, Command::ServiceRemove);

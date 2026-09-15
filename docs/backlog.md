@@ -40,6 +40,11 @@ Future work not covered by an active plan. Completed items are removed.
 - **Android client and desktop GUI** on top of `passalong-core` and
   `passalong-ssh`.
 - **Windows support.**
+- **A windowless Windows launcher** (PLAN-00009 D-07). The Task Scheduler
+  task from `service-install --scheduler` runs `serve` in the foreground,
+  so its console window stays open while it runs. A small `windows`
+  subsystem launcher, or `serve --daemon` under the task with restarts
+  handled another way, would hide it.
 - **Cloud-sync hardening.** Encrypted stores treat a recent item that does
   not open as not complete; check each provider (Dropbox, Google Drive,
   OneDrive) for conflicted copies of `encryption/header.json` and warn.

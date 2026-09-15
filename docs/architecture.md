@@ -345,6 +345,28 @@ of the log. `serve --status` reads the pid file and exits 3 when nothing is
 running. `serve --stop` sends SIGTERM and waits for the pid file to be
 released.
 
+Windows differs in three ways:
+
+- **Detaching:** std's `Command` lets a child inherit every inheritable
+  handle, so a copy started directly would keep the caller's output pipe
+  open, and a script reading `serve --daemon`'s output would wait until
+  `serve` stops. PowerShell's `Start-Process` starts the copy through the
+  shell instead: it passes on no handles, and the copy gets a hidden
+  console. The copy opens the log file itself and logs its final error
+  there. PowerShell's start-up counts against the wait, which is 15 seconds
+  on Windows. A copy that exits during start-up is noticed through
+  `tasklist`.
+- **Reading the pid:** Windows locks are mandatory, so nothing else can
+  read the locked pid file. The lock holder also writes its pid and `ready`
+  line to `serve.state`, which `--status` reads instead.
+- **Stopping:** there is no SIGTERM. `--stop` creates `serve.stop`, which
+  `serve` checks for every second and removes before shutting down; a stale
+  one is removed at start-up.
+
+`service-install` there writes the per-user Run key, or with `--scheduler`
+registers a log-on task. It never installs a Windows service, because
+services run in session 0, which has no clipboard.
+
 `service-install` renders a systemd user unit or a launchd agent from the
 templates in `crates/passalong-cli/src/service.rs`, running the same binary's
 `serve` from the home directory, and loads it with `systemctl --user` or

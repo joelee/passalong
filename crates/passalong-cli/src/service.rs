@@ -13,6 +13,114 @@ pub const SYSTEMD_UNIT: &str = "passalong-serve.service";
 pub const LAUNCHD_LABEL: &str = "com.passalong.serve";
 /// The first line of every plist.
 pub const XML_DECLARATION: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+/// The per-user Run key: its programs start when the user logs in.
+pub const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+/// The Run key value `service-install` writes.
+pub const RUN_VALUE: &str = "passalong-serve";
+/// The Task Scheduler task `service-install --scheduler` registers.
+pub const TASK_NAME: &str = "passalong-serve";
+/// The most characters a Run key command may have.
+pub const RUN_KEY_MAX: usize = 260;
+
+/// The arguments that start serve: `[--config CONFIG] serve [--daemon]`.
+pub fn serve_args(config: Option<&Path>, daemon: bool) -> Vec<String> {
+    let mut args = Vec::new();
+    if let Some(config) = config {
+        args.push("--config".to_owned());
+        args.push(config.display().to_string());
+    }
+    args.push("serve".to_owned());
+    if daemon {
+        args.push("--daemon".to_owned());
+    }
+    args
+}
+
+/// `arg` quoted for a Windows command line, when it needs quotes.
+fn windows_quote(arg: &str) -> String {
+    crate::daemon::windows_arg(arg)
+}
+
+/// The Run key command: `"EXE" [--config CONFIG] serve --daemon`, the
+/// executable always quoted.
+pub fn run_key_command(exe: &Path, config: Option<&Path>) -> String {
+    let mut parts = vec![format!("\"{}\"", exe.display())];
+    parts.extend(
+        serve_args(config, true)
+            .iter()
+            .map(|arg| windows_quote(arg)),
+    );
+    parts.join(" ")
+}
+
+/// The command in `reg query` output: the text after `REG_SZ` on its line.
+pub fn parse_reg_value(output: &str) -> Option<String> {
+    output.lines().find_map(|line| {
+        line.split_once("REG_SZ")
+            .map(|(_, value)| value.trim().to_owned())
+    })
+}
+
+/// The Task Scheduler task: `exe args`, run in `user`'s session when that
+/// user logs in, restarted up to three times a minute apart when it fails,
+/// with no time limit.
+pub fn task_xml(user: &str, exe: &str, args: &[String]) -> String {
+    let arguments = args
+        .iter()
+        .map(|arg| windows_quote(arg))
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>passalong serve: send clipboard text and dropped files. Written by passalong service-install; remove it with passalong service-remove.</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>{user}</UserId>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>{user}</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>3</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>{exe}</Command>
+      <Arguments>{arguments}</Arguments>
+    </Exec>
+  </Actions>
+</Task>
+"#,
+        user = xml_escape(user),
+        exe = xml_escape(exe),
+        arguments = xml_escape(&arguments)
+    )
+}
+
+/// `text` as UTF-16 with a byte-order mark, as `schtasks /XML` reads it.
+pub fn utf16_with_bom(text: &str) -> Vec<u8> {
+    let mut bytes = vec![0xFF, 0xFE];
+    for unit in text.encode_utf16() {
+        bytes.extend_from_slice(&unit.to_le_bytes());
+    }
+    bytes
+}
 
 /// The `ExecStart=` value that runs `exe [--config CONFIG] serve`, with `%`
 /// doubled and arguments holding spaces, quotes, or backslashes quoted, as
@@ -136,6 +244,11 @@ fn xml_escape(text: &str) -> String {
 pub trait ServiceManager {
     /// Runs `program` with `args` and fails unless it succeeds.
     fn run(&mut self, program: &str, args: &[String]) -> anyhow::Result<()>;
+
+    /// Runs a query: its output when it succeeds, `None` when it exits with
+    /// status 1, which `reg query` and `schtasks /Query` give for what does
+    /// not exist, and an error otherwise.
+    fn query(&mut self, program: &str, args: &[String]) -> anyhow::Result<Option<String>>;
 }
 
 /// [`ServiceManager`] that runs the real programs. Their output is kept
@@ -154,6 +267,21 @@ impl ServiceManager for ProcessManager {
         }
         Ok(())
     }
+
+    fn query(&mut self, program: &str, args: &[String]) -> anyhow::Result<Option<String>> {
+        let output = Command::new(program)
+            .args(args)
+            .output()
+            .with_context(|| format!("cannot run `{program}`"))?;
+        match output.status.code() {
+            Some(0) => Ok(Some(String::from_utf8_lossy(&output.stdout).into_owned())),
+            Some(1) => Ok(None),
+            _ => {
+                let said = String::from_utf8_lossy(&output.stderr);
+                anyhow::bail!("{} ({})", said.trim(), output.status)
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -169,6 +297,45 @@ mod tests {
             .unwrap_or_else(|err| panic!("{}: {err}", path.display()))
             // A Windows checkout may turn line ends into CRLF.
             .replace("\r\n", "\n")
+    }
+
+    #[test]
+    fn the_docs_task_is_the_task_service_install_registers() {
+        let task = task_xml(
+            r"DOMAIN\user",
+            r"C:\Users\user\.cargo\bin\passalong.exe",
+            &serve_args(
+                Some(Path::new(
+                    r"C:\Users\user\AppData\Roaming\passalong\config.toml",
+                )),
+                false,
+            ),
+        );
+        let from_triggers = |text: &str| text[text.find("  <Triggers>").unwrap()..].to_owned();
+        assert_eq!(
+            from_triggers(&docs("passalong-serve-task.xml")),
+            from_triggers(&task)
+        );
+    }
+
+    #[test]
+    fn run_key_commands_quote_the_exe_and_paths_with_spaces() {
+        assert_eq!(
+            run_key_command(Path::new(r"C:\bin\passalong.exe"), None),
+            r#""C:\bin\passalong.exe" serve --daemon"#
+        );
+        assert_eq!(
+            run_key_command(
+                Path::new(r"C:\Program Files\passalong.exe"),
+                Some(Path::new(r"C:\my files\config.toml"))
+            ),
+            r#""C:\Program Files\passalong.exe" --config "C:\my files\config.toml" serve --daemon"#
+        );
+        assert_eq!(
+            parse_reg_value("    passalong-serve    REG_SZ    \"C:\\p.exe\" serve --daemon\r\n"),
+            Some("\"C:\\p.exe\" serve --daemon".to_owned())
+        );
+        assert_eq!(parse_reg_value("nothing here"), None);
     }
 
     #[test]

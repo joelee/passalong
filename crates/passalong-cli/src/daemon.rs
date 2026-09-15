@@ -99,6 +99,21 @@ impl StatePaths {
     }
 }
 
+impl StatePaths {
+    /// Where `serve --stop` asks a running `serve` to stop on Windows,
+    /// which has no SIGTERM: `serve.stop` beside the pid file.
+    pub fn stop_request(&self) -> PathBuf {
+        self.pid.with_file_name("serve.stop")
+    }
+}
+
+/// Where the lock holder also records its pid and start-up on Windows:
+/// Windows locks are mandatory, so while the pid file is locked no other
+/// process can read it. `serve.state` beside the pid file.
+fn state_path(pid: &Path) -> PathBuf {
+    pid.with_extension("state")
+}
+
 /// Whether a `serve` holds the pid lock.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
@@ -167,6 +182,9 @@ impl PidLock {
         }
         file.set_len(0).map_err(LockError::Io)?;
         writeln!(file, "{}", std::process::id()).map_err(LockError::Io)?;
+        #[cfg(windows)]
+        std::fs::write(state_path(path), format!("{}\n", std::process::id()))
+            .map_err(LockError::Io)?;
         Ok(Self {
             file,
             path: path.to_path_buf(),
@@ -181,13 +199,21 @@ impl PidLock {
     pub fn mark_ready(&self) -> io::Result<()> {
         let mut file = &self.file;
         file.seek(SeekFrom::End(0))?;
-        file.write_all(b"ready\n")
+        file.write_all(b"ready\n")?;
+        #[cfg(windows)]
+        OpenOptions::new()
+            .append(true)
+            .open(state_path(&self.path))?
+            .write_all(b"ready\n")?;
+        Ok(())
     }
 }
 
 impl Drop for PidLock {
     fn drop(&mut self) {
         // Still holding the lock, so no other process is using this file.
+        #[cfg(windows)]
+        let _ = std::fs::remove_file(state_path(&self.path));
         let _ = std::fs::remove_file(&self.path);
     }
 }
@@ -215,6 +241,14 @@ pub fn status(path: &Path) -> io::Result<Status> {
 
 fn read_state(path: &Path) -> (Option<u32>, bool) {
     std::fs::read_to_string(path)
+        // Windows refuses to read the locked pid file.
+        .or_else(|err| {
+            if cfg!(windows) {
+                std::fs::read_to_string(state_path(path))
+            } else {
+                Err(err)
+            }
+        })
         .map(|text| parse_state(&text))
         .unwrap_or((None, false))
 }
@@ -227,8 +261,6 @@ pub fn parse_state(text: &str) -> (Option<u32>, bool) {
 }
 
 /// The last `lines` lines written to `log` after byte `offset`.
-// Only `serve --daemon` reads the log, and it does not run on Windows yet.
-#[cfg_attr(not(unix), allow(dead_code))]
 pub fn log_tail(log: &Path, offset: u64, lines: usize) -> String {
     let mut text = String::new();
     if let Ok(mut file) = File::open(log) {
@@ -248,6 +280,107 @@ pub fn detached_command(exe: &Path) -> std::process::Command {
     let mut command = std::process::Command::new(exe);
     command.process_group(0).stdout(std::process::Stdio::null());
     command
+}
+
+/// The PowerShell command [`launch_detached`] runs: the program and its
+/// command line come from the environment, so nothing needs quoting for
+/// PowerShell, and it prints the new process's id.
+#[cfg(windows)]
+const LAUNCH: &str = "$ErrorActionPreference = 'Stop'; (Start-Process -FilePath $env:PASSALONG_LAUNCH_EXE -ArgumentList $env:PASSALONG_LAUNCH_ARGS -WindowStyle Hidden -PassThru).Id";
+
+/// Starts `exe args` in the background with a hidden console, and returns
+/// its process id. The process inherits none of this one's handles.
+///
+/// std's `Command` lets every child inherit every inheritable handle, so a
+/// `serve` started directly would hold open the pipe of whoever runs
+/// `serve --daemon`, and a script reading its output would wait until
+/// `serve` stops. PowerShell's `Start-Process` starts it through the shell
+/// instead, which passes on no handles. Standard error is then not the log
+/// file, so the background `serve` opens the log itself.
+///
+/// # Errors
+///
+/// When PowerShell cannot be run, fails, or reports no process id.
+#[cfg(windows)]
+pub fn launch_detached(exe: &Path, args: &[String]) -> anyhow::Result<u32> {
+    use anyhow::Context as _;
+    let powershell = std::env::var_os("SystemRoot")
+        .map(|root| PathBuf::from(root).join(r"System32\WindowsPowerShell\v1.0\powershell.exe"))
+        .filter(|path| path.exists())
+        .unwrap_or_else(|| PathBuf::from("powershell.exe"));
+    let line = args
+        .iter()
+        .map(|arg| windows_arg(arg))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let output = std::process::Command::new(powershell)
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            LAUNCH,
+        ])
+        .env("PASSALONG_LAUNCH_EXE", exe)
+        .env("PASSALONG_LAUNCH_ARGS", line)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .context("cannot run PowerShell to start serve in the background")?;
+    if !output.status.success() {
+        let said = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "PowerShell could not start serve in the background ({}): {}",
+            output.status,
+            said.trim()
+        );
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse()
+        .context("PowerShell did not report the background serve's process id")
+}
+
+/// Whether process `pid` is running, as `tasklist` reports it; `true` when
+/// `tasklist` cannot tell.
+#[cfg(windows)]
+pub fn process_exists(pid: u32) -> bool {
+    std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_or(true, |output| {
+            // A match is a CSV row with the pid quoted; the no-match notice
+            // is in the system's language but has no quoted pid.
+            String::from_utf8_lossy(&output.stdout).contains(&format!("\"{pid}\""))
+        })
+}
+
+/// `arg` as one argument of a Windows command line: unchanged unless it
+/// is empty or has a space, tab, or double quote, and otherwise quoted,
+/// with backslashes doubled where they precede a quote.
+pub fn windows_arg(arg: &str) -> String {
+    if !arg.is_empty() && !arg.contains([' ', '\t', '"']) {
+        return arg.to_owned();
+    }
+    let mut quoted = String::from('"');
+    let mut backslashes = 0;
+    for c in arg.chars() {
+        if c == '\\' {
+            backslashes += 1;
+            continue;
+        }
+        let run = if c == '"' {
+            backslashes * 2 + 1
+        } else {
+            backslashes
+        };
+        quoted.extend(std::iter::repeat_n('\\', run));
+        quoted.push(c);
+        backslashes = 0;
+    }
+    quoted.extend(std::iter::repeat_n('\\', backslashes * 2));
+    quoted.push('"');
+    quoted
 }
 
 #[cfg(test)]
@@ -317,9 +450,21 @@ mod tests {
         );
     }
 
-    // Windows locks are mandatory, so the pid cannot be read back while
-    // the lock is held; Windows serve is handled with background serve.
-    #[cfg(unix)]
+    #[test]
+    fn windows_arguments_are_quoted_only_when_needed() {
+        for (arg, quoted) in [
+            ("serve", "serve"),
+            (r"C:\x\config.toml", r"C:\x\config.toml"),
+            ("", r#""""#),
+            (r"C:\my files\config.toml", r#""C:\my files\config.toml""#),
+            (r"C:\my dir\", r#""C:\my dir\\""#),
+            (r#"say "hi""#, r#""say \"hi\"""#),
+            (r#"a\"b c"#, r#""a\\\"b c""#),
+        ] {
+            assert_eq!(windows_arg(arg), quoted, "{arg}");
+        }
+    }
+
     #[test]
     fn only_one_holder_of_the_pid_lock() {
         let dir = TempDir::new().unwrap();
@@ -354,6 +499,7 @@ mod tests {
         assert_eq!(status(&path).unwrap(), Status::NotRunning);
     }
 
+    // Reads the pid file while its lock is held, which Windows refuses.
     #[cfg(unix)]
     #[test]
     fn a_stale_pid_file_is_taken_over() {

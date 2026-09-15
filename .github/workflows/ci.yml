@@ -75,6 +75,9 @@ jobs:
       - run: cargo build --locked --workspace --all-targets --all-features
       - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
       - run: cargo test --locked --workspace --all-features --no-fail-fast
+      # Writes this user's Run key and a scheduled task, then removes them:
+      # fine on a throwaway runner, so ignored everywhere else.
+      - run: cargo test --locked -p passalong --test cli_local_backend -- --ignored windows_service_
 
   android:
     # The library crates must keep building for Android, the planned mobile

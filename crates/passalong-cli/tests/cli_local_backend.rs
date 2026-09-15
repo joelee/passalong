@@ -888,6 +888,137 @@ impl Drop for DaemonGuard {
     }
 }
 
+/// Ends a background `serve` left running by a failed test.
+#[cfg(windows)]
+struct WindowsDaemonGuard(u32);
+
+#[cfg(windows)]
+impl Drop for WindowsDaemonGuard {
+    fn drop(&mut self) {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &self.0.to_string(), "/F"])
+            .output();
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn serve_daemon_starts_reports_refuses_a_second_copy_and_stops_on_windows() {
+    use std::time::{Duration, Instant};
+    let sb = Sandbox::new();
+    let started = sb
+        .with_config()
+        .args(["serve", "--daemon"])
+        .timeout(Duration::from_secs(30))
+        .assert()
+        .success();
+    let out = String::from_utf8(started.get_output().stdout.clone()).unwrap();
+    assert!(out.starts_with("serve started (pid "), "{out}");
+    let pid: u32 = out["serve started (pid ".len()..]
+        .split(',')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let _guard = WindowsDaemonGuard(pid);
+    // The sandbox's LOCALAPPDATA.
+    let state = sb.path("home/AppData/Local").join("passalong");
+    assert!(
+        out.contains(&state.join("serve.log").display().to_string()),
+        "{out}"
+    );
+    sb.with_config()
+        .args(["serve", "--status"])
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with(format!("running (pid {pid}")));
+    sb.with_config()
+        .args(["serve", "--daemon"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains(format!(
+            "serve is already running (pid {pid})"
+        )));
+
+    std::fs::write(sb.path("drop/daemon.txt"), b"sent by the daemon").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !sb.path("drop/sent/daemon.txt").exists() {
+        assert!(Instant::now() < deadline, "the daemon never sent the file");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    sb.with_config()
+        .args(["serve", "--stop"])
+        .timeout(Duration::from_secs(30))
+        .assert()
+        .success()
+        .stdout("stopped\n");
+    sb.with_config()
+        .args(["serve", "--status"])
+        .assert()
+        .code(3)
+        .stdout("not running\n");
+    assert!(
+        !state.join("serve.pid").exists(),
+        "--stop leaves no pid file"
+    );
+    assert!(
+        !state.join("serve.stop").exists(),
+        "the stop request is taken"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+#[ignore = "changes this user's Run key and scheduled tasks; the Windows CI job runs it"]
+fn windows_service_install_and_remove_use_the_run_key_and_task_scheduler() {
+    let sb = Sandbox::new();
+    let run_value = || {
+        std::process::Command::new("reg")
+            .args([
+                "query",
+                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                "/v",
+                "passalong-serve",
+            ])
+            .output()
+            .unwrap()
+    };
+    sb.with_config()
+        .args(["service-install", "--no-start"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("serve starts when you log in"));
+    let found = run_value();
+    assert!(found.status.success());
+    assert!(String::from_utf8_lossy(&found.stdout).contains("serve --daemon"));
+    sb.with_config()
+        .arg("service-remove")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("removed passalong-serve"));
+    assert!(!run_value().status.success());
+
+    let task = || {
+        std::process::Command::new("schtasks")
+            .args(["/Query", "/TN", "passalong-serve"])
+            .output()
+            .unwrap()
+    };
+    sb.with_config()
+        .args(["service-install", "--scheduler", "--no-start"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("registered the scheduled task"));
+    assert!(task().status.success());
+    sb.with_config()
+        .arg("service-remove")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("removed the scheduled task"));
+    assert!(!task().status.success());
+}
+
 #[tokio::test]
 async fn list_prints_a_fresh_cache_without_connecting_and_nocache_connects() {
     let sb = Sandbox::new();

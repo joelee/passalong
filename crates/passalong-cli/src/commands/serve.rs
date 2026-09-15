@@ -2,11 +2,9 @@
 //! files dropped into the drop folder; with `--daemon`, in the background.
 
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
-#[cfg(unix)]
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
 use passalong_core::cache::{self, ListCache};
@@ -22,26 +20,23 @@ use crate::cli::ServeArgs;
 use crate::commands::QuietExit;
 use crate::daemon::{self, Os, PidLock, StatePaths, Status};
 
-// `--daemon` and `--stop` do not run on Windows yet, so what only they use
-// is unused there.
-/// How long `--daemon` waits for the background process to start.
-#[cfg_attr(not(unix), allow(dead_code))]
-const START_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long `--daemon` waits for the background process to start; on
+/// Windows that includes starting PowerShell, which launches it.
+const START_TIMEOUT: Duration = Duration::from_secs(if cfg!(windows) { 15 } else { 5 });
 /// How long `--stop` waits for `serve` to exit.
-#[cfg_attr(not(unix), allow(dead_code))]
 const STOP_TIMEOUT: Duration = Duration::from_secs(10);
-#[cfg_attr(not(unix), allow(dead_code))]
 const POLL: Duration = Duration::from_millis(100);
+/// How often `serve` on Windows looks for a stop request.
+#[cfg(not(unix))]
+const STOP_CHECK: Duration = Duration::from_secs(1);
 
 /// What `serve` needs from start-up.
 pub struct ServeContext<'a> {
     /// The loaded configuration.
     pub config: &'a Config,
     /// Where it was loaded from, passed on to the background process.
-    #[cfg_attr(not(unix), allow(dead_code))]
     pub config_path: &'a Path,
     /// The effective log level, passed on to the background process.
-    #[cfg_attr(not(unix), allow(dead_code))]
     pub log_level: LogLevel,
     /// Environment, for the pid and log file locations.
     pub env: &'a dyn EnvProvider,
@@ -65,7 +60,20 @@ pub async fn run(
     if args.daemon {
         return start_daemon(&paths, &context, out).await;
     }
-    run_foreground(context.config, backends, &paths, args.daemon_child).await
+    #[cfg(windows)]
+    if args.daemon_child {
+        crate::logs::to_file(&paths.log)
+            .with_context(|| format!("cannot open {}", paths.log.display()))?;
+    }
+    let result = run_foreground(context.config, backends, &paths, args.daemon_child).await;
+    if cfg!(windows)
+        && args.daemon_child
+        && let Err(err) = &result
+    {
+        // Its standard error goes nowhere, so the log is the only record.
+        tracing::error!(error = %format!("{err:#}"), "serve stopped");
+    }
+    result
 }
 
 async fn run_foreground(
@@ -101,8 +109,11 @@ async fn run_foreground(
         Box::pin(async move { backends.open(&config).await })
     });
     let (stop, stopped) = watch::channel(false);
+    let request = paths.stop_request();
+    // A request left by a serve that stopped before it read it.
+    let _ = std::fs::remove_file(&request);
     tokio::spawn(async move {
-        wait_for_stop_signal().await;
+        wait_for_stop_signal(request).await;
         tracing::info!("stop requested");
         let _ = stop.send(true);
     });
@@ -200,12 +211,36 @@ async fn stop(paths: &StatePaths, out: &mut dyn Write) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Windows has no SIGTERM: `--stop` leaves a request that a running
+/// `serve` takes within a second, then waits for it to exit.
 #[cfg(not(unix))]
-async fn stop(_paths: &StatePaths, _out: &mut dyn Write) -> anyhow::Result<()> {
-    anyhow::bail!("serve --stop is supported on Linux and macOS only")
+async fn stop(paths: &StatePaths, out: &mut dyn Write) -> anyhow::Result<()> {
+    let pid = match daemon::status(&paths.pid)? {
+        Status::NotRunning => {
+            writeln!(out, "not running")?;
+            return Ok(());
+        }
+        Status::Running { pid, .. } => pid,
+    };
+    let request = paths.stop_request();
+    std::fs::write(&request, b"stop\n")
+        .with_context(|| format!("cannot write {}", request.display()))?;
+    let deadline = Instant::now() + STOP_TIMEOUT;
+    while daemon::status(&paths.pid)? != Status::NotRunning {
+        if Instant::now() >= deadline {
+            let _ = std::fs::remove_file(&request);
+            let pid = pid.map_or_else(String::new, |pid| format!(" (pid {pid})"));
+            anyhow::bail!(
+                "serve{pid} is still running after {} s",
+                STOP_TIMEOUT.as_secs()
+            );
+        }
+        tokio::time::sleep(POLL).await;
+    }
+    writeln!(out, "stopped")?;
+    Ok(())
 }
 
-#[cfg(unix)]
 async fn start_daemon(
     paths: &StatePaths,
     context: &ServeContext<'_>,
@@ -225,24 +260,35 @@ async fn start_daemon(
     let offset = log.metadata().map(|meta| meta.len()).unwrap_or(0);
     let exe = std::env::current_exe().context("cannot find the passalong executable")?;
     let config_path = std::path::absolute(context.config_path)?;
+    let args = [
+        "--config".to_owned(),
+        config_path.display().to_string(),
+        "--log-level".to_owned(),
+        context.log_level.as_str().to_owned(),
+        "serve".to_owned(),
+        "--daemon-child".to_owned(),
+    ];
+    #[cfg(unix)]
     let mut child = daemon::detached_command(&exe)
-        .arg("--config")
-        .arg(&config_path)
-        .args([
-            "--log-level",
-            context.log_level.as_str(),
-            "serve",
-            "--daemon-child",
-        ])
+        .args(&args)
         .stdin(std::process::Stdio::null())
         .stderr(std::process::Stdio::from(log))
         .spawn()
         .context("cannot start the background process")?;
+    #[cfg(windows)]
+    let pid = {
+        drop(log);
+        daemon::launch_detached(&exe, &args)?
+    };
     let deadline = Instant::now() + START_TIMEOUT;
     loop {
-        if let Some(status) = child.try_wait()? {
+        #[cfg(unix)]
+        let stopped = child.try_wait()?.map(|status| status.to_string());
+        #[cfg(windows)]
+        let stopped = (!daemon::process_exists(pid)).then(|| format!("pid {pid} exited"));
+        if let Some(how) = stopped {
             let tail = daemon::log_tail(&paths.log, offset, 8);
-            anyhow::bail!("serve stopped during start-up ({status}); last log lines:\n{tail}");
+            anyhow::bail!("serve stopped during start-up ({how}); last log lines:\n{tail}");
         }
         if let Status::Running {
             pid: Some(pid),
@@ -266,19 +312,13 @@ async fn start_daemon(
     }
 }
 
-#[cfg(not(unix))]
-async fn start_daemon(
-    _paths: &StatePaths,
-    _context: &ServeContext<'_>,
-    _out: &mut dyn Write,
-) -> anyhow::Result<()> {
-    anyhow::bail!("serve --daemon is supported on Linux and macOS only")
-}
-
-/// Resolves on Ctrl-C, or on SIGTERM, which systemd and launchd send.
-async fn wait_for_stop_signal() {
+/// Resolves on Ctrl-C; on Unix also on SIGTERM, which systemd and launchd
+/// send, and on Windows, which has no SIGTERM, also when `serve --stop`
+/// leaves a request at `request`.
+async fn wait_for_stop_signal(request: PathBuf) {
     #[cfg(unix)]
     {
+        let _ = request;
         use tokio::signal::unix::{SignalKind, signal};
         match signal(SignalKind::terminate()) {
             Ok(mut terminate) => {
@@ -294,7 +334,26 @@ async fn wait_for_stop_signal() {
     }
     #[cfg(not(unix))]
     {
-        let _ = tokio::signal::ctrl_c().await;
+        let ctrl_c = async {
+            // A background serve has no console to take Ctrl-C from.
+            if tokio::signal::ctrl_c().await.is_err() {
+                std::future::pending::<()>().await;
+            }
+        };
+        let requested = async {
+            let mut tick = tokio::time::interval(STOP_CHECK);
+            loop {
+                tick.tick().await;
+                if request.exists() {
+                    let _ = std::fs::remove_file(&request);
+                    return;
+                }
+            }
+        };
+        tokio::select! {
+            () = ctrl_c => {}
+            () = requested => {}
+        }
     }
 }
 
@@ -321,5 +380,21 @@ mod tests {
         assert_eq!(list_cache_identity(&off), None);
         let local = parse("[server]\nkind = \"local\"\n\n[server.local]\npath = \"/srv/share\"\n");
         assert_eq!(list_cache_identity(&local), None);
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_stop_request_stops_serve_and_is_taken() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let request = dir.path().join("serve.stop");
+        let waiting = tokio::spawn(wait_for_stop_signal(request.clone()));
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        assert!(!waiting.is_finished(), "no request yet");
+        std::fs::write(&request, b"stop\n").unwrap();
+        tokio::time::timeout(STOP_CHECK * 3, waiting)
+            .await
+            .expect("serve stops within a few checks")
+            .unwrap();
+        assert!(!request.exists(), "the request is taken");
     }
 }

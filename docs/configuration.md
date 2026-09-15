@@ -120,6 +120,10 @@ The pid file is locked while `serve` runs, which is how a second copy is
 refused. A pid file left behind by a crash is harmless and is reused. The
 log file grows without rotation.
 
+On Windows a locked file cannot be read, so `serve` also writes its pid to
+`serve.state` beside the pid file, and `serve --stop` asks it to stop by
+creating `serve.stop` there. Both are removed when `serve` stops.
+
 ## Encrypted stores
 
 `passalong encrypt` changes a store's layout. An encrypted store's root

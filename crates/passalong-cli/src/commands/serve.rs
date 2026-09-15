@@ -4,7 +4,9 @@
 use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(unix)]
+use std::time::Instant;
 
 use anyhow::Context as _;
 use passalong_core::cache::{self, ListCache};
@@ -20,10 +22,15 @@ use crate::cli::ServeArgs;
 use crate::commands::QuietExit;
 use crate::daemon::{self, Os, PidLock, StatePaths, Status};
 
+// `--daemon` and `--stop` do not run on Windows yet, so what only they use
+// is unused there.
 /// How long `--daemon` waits for the background process to start.
+#[cfg_attr(not(unix), allow(dead_code))]
 const START_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long `--stop` waits for `serve` to exit.
+#[cfg_attr(not(unix), allow(dead_code))]
 const STOP_TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg_attr(not(unix), allow(dead_code))]
 const POLL: Duration = Duration::from_millis(100);
 
 /// What `serve` needs from start-up.
@@ -31,8 +38,10 @@ pub struct ServeContext<'a> {
     /// The loaded configuration.
     pub config: &'a Config,
     /// Where it was loaded from, passed on to the background process.
+    #[cfg_attr(not(unix), allow(dead_code))]
     pub config_path: &'a Path,
     /// The effective log level, passed on to the background process.
+    #[cfg_attr(not(unix), allow(dead_code))]
     pub log_level: LogLevel,
     /// Environment, for the pid and log file locations.
     pub env: &'a dyn EnvProvider,

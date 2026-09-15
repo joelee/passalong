@@ -91,6 +91,33 @@ for API level 24 (Android 7.0) and its `llvm-ar`. It only checks the code
 uses `ring` rather than `aws-lc-rs` so that no CMake or extra toolchain is
 needed.
 
+## Windows
+
+Windows x86_64 (`x86_64-pc-windows-msvc`) is built and tested by the
+`windows` CI job, which runs what `just windows-check` runs: a build,
+clippy with warnings as errors, and the tests. The SSH integration tests
+need Docker, so they run on Linux only.
+
+To build on Windows, install the toolchain above with the MSVC target and
+the Microsoft C++ build tools, which ring needs for its C code. `just`
+recipes run in Git Bash.
+
+On Windows the config is looked for and written in `%APPDATA%\passalong\`,
+the system config is under `%ProgramData%`, `serve`'s pid, log, and list
+cache go to `%LOCALAPPDATA%\passalong\`, and `~` expands from
+`%USERPROFILE%`. When one of those variables is unset, which a real Windows
+system never does, the Unix rules apply. The crate-private `*_on(Platform)`
+functions in `passalong-core/src/config.rs`, and
+`StatePaths::resolve(env, Os::Windows)` in the CLI, let unit tests check
+the Windows locations on every platform; the CLI tests point all of these
+variables into their sandbox.
+
+From Linux, only the core crate can be checked for Windows:
+`rustup target add x86_64-pc-windows-msvc`, then
+`cargo check --target x86_64-pc-windows-msvc -p passalong-core
+--all-targets`. The SSH and CLI crates need the Windows SDK headers for
+ring, so the CI job is their check.
+
 ## Test-driven workflow
 
 1. Write a failing test for the next behaviour and run it; confirm it fails

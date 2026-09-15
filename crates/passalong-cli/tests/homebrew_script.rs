@@ -1,6 +1,8 @@
 //! Tests for `scripts/update-homebrew-formula.sh`, which points the Homebrew
 //! tap's formula at a new release. They pass `--sha256`, so crates.io is
-//! never asked.
+//! never asked. The script is a bash script for the macOS and Linux
+//! releases, so the tests run on Unix only.
+#![cfg(unix)]
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

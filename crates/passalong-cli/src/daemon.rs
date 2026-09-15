@@ -227,6 +227,8 @@ pub fn parse_state(text: &str) -> (Option<u32>, bool) {
 }
 
 /// The last `lines` lines written to `log` after byte `offset`.
+// Only `serve --daemon` reads the log, and it does not run on Windows yet.
+#[cfg_attr(not(unix), allow(dead_code))]
 pub fn log_tail(log: &Path, offset: u64, lines: usize) -> String {
     let mut text = String::new();
     if let Ok(mut file) = File::open(log) {

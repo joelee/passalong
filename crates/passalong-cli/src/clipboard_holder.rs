@@ -5,7 +5,9 @@
 //! process, which serves it until another program replaces it, as `wl-copy`
 //! and `xclip` do.
 
-use std::io::{self, Write};
+use std::io;
+#[cfg(unix)]
+use std::io::Write;
 
 use passalong_core::clipboard::{Clipboard, ClipboardError, RgbaImage, encode_png};
 

@@ -186,11 +186,17 @@ reported as not complete, for stores in synced folders.
 | Store | This device | Result |
 |---|---|---|
 | `.rewrite/` present | any | refused: being re-encrypted |
-| `encryption/` present | key with the store's id | sealed store |
-| `encryption/` present | no key, or another key | refused: `encrypt --join` |
-| no header, `items` is a file | any | refused: `encrypt --recover` |
-| no header | no key | plaintext store |
-| no header | a key | refused: the store is not encrypted |
+| a header, and `items` not a folder | key with the store's id | sealed store |
+| a header, and `items` not a folder | no key, or another key | refused: `encrypt --join` |
+| part of an encrypted layout: `encryption/` without a header, a header beside an `items/` folder, or a stop file without a header | any | refused: `encrypt --recover` |
+| none of it | no key | plaintext store |
+| none of it | a key | refused: the store is not encrypted |
+
+A synced folder can deliver an encrypted layout in pieces, so any piece
+without the rest counts as broken, never as plaintext. A plaintext store,
+once open, checks before every `put`, `delete`, and `list_ids` that no
+lock and no part of an encrypted layout appeared since, so it never adds
+plaintext to a store another device is encrypting.
 
 A sealed store opened this way re-checks, before `put`, `delete`, and
 `list_ids`, that no re-encryption started and that the header still names

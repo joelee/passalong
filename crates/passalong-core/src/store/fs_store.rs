@@ -19,7 +19,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::clock::Clock;
 use crate::crypto::{self, CHUNK_LEN, CONTENT_SALT_LEN, KeyId, SealedMeta, Sealer, read_full};
-use crate::encryption::{EncryptionError, PLAIN_DIR, REWRITE_DIR, read_header};
+use crate::encryption::{ENCRYPTION_DIR, EncryptionError, PLAIN_DIR, REWRITE_DIR, read_header};
 use crate::fs::{BoxRead, FsError, RemoteFs, RemotePath};
 use crate::model::{
     ContentDigest, ContentHasher, ContentKey, ItemId, ItemKind, ItemMeta, NewItem, preview_of,
@@ -61,6 +61,8 @@ pub struct FsStore<F> {
     /// The size and modification time of the header file last checked, for
     /// a sealed store opened through its header.
     guard: Option<Mutex<(u64, Option<DateTime<Utc>>)>>,
+    /// Whether a plaintext store checks that it is still plaintext.
+    plain_guard: bool,
 }
 
 impl<F: RemoteFs> FsStore<F> {
@@ -73,6 +75,7 @@ impl<F: RemoteFs> FsStore<F> {
             rng: Mutex::new(rng),
             sealer: None,
             guard: None,
+            plain_guard: false,
         }
     }
 
@@ -89,7 +92,45 @@ impl<F: RemoteFs> FsStore<F> {
             rng: Mutex::new(rng),
             sealer: Some(sealer),
             guard: None,
+            plain_guard: false,
         }
+    }
+
+    /// Makes a plaintext store check, before every `put`, `delete`, and
+    /// `list_ids`, that it is still plaintext: no lock, no `encryption/`
+    /// folder, and no stop file where `items/` goes.
+    pub(crate) fn plain_guarded(mut self) -> Self {
+        self.plain_guard = true;
+        self
+    }
+
+    /// The check [`FsStore::plain_guarded`] describes.
+    async fn check_plain(&self) -> Result<(), StoreError> {
+        if self
+            .fs
+            .stat(&RemotePath::new(REWRITE_DIR)?)
+            .await?
+            .is_some()
+        {
+            return Err(EncryptionError::Rewriting { started: None }.into());
+        }
+        if self
+            .fs
+            .stat(&RemotePath::new(ENCRYPTION_DIR)?)
+            .await?
+            .is_some()
+        {
+            return Err(EncryptionError::NoKey.into());
+        }
+        if self
+            .fs
+            .stat(&RemotePath::new(ITEMS_DIR)?)
+            .await?
+            .is_some_and(|meta| !meta.is_dir)
+        {
+            return Err(EncryptionError::HeaderMissing.into());
+        }
+        Ok(())
     }
 
     /// Makes a sealed store check, before every `put`, `delete`, and
@@ -103,6 +144,9 @@ impl<F: RemoteFs> FsStore<F> {
     /// The check [`FsStore::guarded`] describes; the header is re-read only
     /// when its file changed.
     async fn check_key(&self) -> Result<(), StoreError> {
+        if self.plain_guard {
+            return self.check_plain().await;
+        }
         let (Some(guard), Some(sealer)) = (&self.guard, &self.sealer) else {
             return Ok(());
         };

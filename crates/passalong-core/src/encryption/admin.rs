@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use super::header::encryption_dir;
 use super::header_change::run_change;
 use super::journal::HeaderChangeKind;
 use super::open::rewrite_started;
@@ -38,8 +39,55 @@ pub enum StoreState {
         /// When that started, if known.
         started: Option<String>,
     },
-    /// `items` is a file, but there is no header.
+    /// Part of an encrypted layout without the rest, such as a stop file or
+    /// an `encryption/` folder without a header, or a header beside an
+    /// `items/` folder. It is never used as plaintext.
     Broken,
+}
+
+/// What a store's root holds, read the same way for [`inspect`] and for
+/// opening the store.
+pub(super) enum Layout {
+    /// `.rewrite/` is there.
+    Rewriting {
+        /// When the change started, if known.
+        started: Option<String>,
+    },
+    /// A readable header, and no `items/` folder beside it.
+    Encrypted(StoreHeader),
+    /// Part of an encrypted layout without the rest.
+    Broken,
+    /// Nothing of an encrypted layout.
+    Plain,
+}
+
+/// Reads the store's root and tells its layout apart. Any part of an
+/// encrypted layout without the rest, as a synced folder may deliver it,
+/// is [`Layout::Broken`], never [`Layout::Plain`].
+///
+/// # Errors
+///
+/// The filesystem's error, or [`EncryptionError::Header`] for a header that
+/// cannot be parsed.
+pub(super) async fn classify<F: RemoteFs + ?Sized>(fs: &F) -> Result<Layout, StoreError> {
+    if fs.stat(&RemotePath::new(REWRITE_DIR)?).await?.is_some() {
+        return Ok(Layout::Rewriting {
+            started: rewrite_started(fs).await,
+        });
+    }
+    let items = fs.stat(&items_path()).await?;
+    let items_folder = items.as_ref().is_some_and(|meta| meta.is_dir);
+    if fs.stat(&encryption_dir()?).await?.is_some() {
+        return Ok(match read_header(fs).await? {
+            Some(header) if !items_folder => Layout::Encrypted(header),
+            _ => Layout::Broken,
+        });
+    }
+    Ok(if items.is_some() && !items_folder {
+        Layout::Broken
+    } else {
+        Layout::Plain
+    })
 }
 
 fn items_path() -> RemotePath {
@@ -67,28 +115,19 @@ pub fn plain_store<F: RemoteFs + ?Sized>(fs: &F) -> FsStore<SubFs<&F>> {
 /// The filesystem's error, or [`EncryptionError::Header`] for a header
 /// that cannot be read.
 pub async fn inspect<F: RemoteFs + ?Sized>(fs: &F) -> Result<StoreState, StoreError> {
-    if fs.stat(&RemotePath::new(REWRITE_DIR)?).await?.is_some() {
-        return Ok(StoreState::Rewriting {
-            started: rewrite_started(fs).await,
-        });
-    }
-    if let Some(header) = read_header(fs).await? {
-        let plain_left = plain_store(fs).list_ids().await?.len();
-        return Ok(StoreState::Encrypted {
+    Ok(match classify(fs).await? {
+        Layout::Rewriting { started } => StoreState::Rewriting { started },
+        Layout::Encrypted(header) => StoreState::Encrypted {
             key_id: header.key_id(),
-            plain_left,
-        });
-    }
-    if fs
-        .stat(&items_path())
-        .await?
-        .is_some_and(|meta| !meta.is_dir)
-    {
-        return Ok(StoreState::Broken);
-    }
-    let plain = FsStore::new(fs, Arc::new(SystemClock), Box::new(StdRandom::new()));
-    Ok(StoreState::Plain {
-        items: plain.list_ids().await?.len(),
+            plain_left: plain_store(fs).list_ids().await?.len(),
+        },
+        Layout::Broken => StoreState::Broken,
+        Layout::Plain => {
+            let plain = FsStore::new(fs, Arc::new(SystemClock), Box::new(StdRandom::new()));
+            StoreState::Plain {
+                items: plain.list_ids().await?.len(),
+            }
+        }
     })
 }
 
@@ -372,6 +411,19 @@ mod tests {
             inspect(&fs).await.unwrap(),
             StoreState::Rewriting { started: None }
         );
+    }
+
+    #[tokio::test]
+    async fn parts_of_an_encrypted_layout_are_broken_never_plain() {
+        let dir = TempDir::new().unwrap();
+        let fs = LocalFs::new(dir.path());
+        seed(&fs, 1).await;
+        std::fs::create_dir(dir.path().join("encryption")).unwrap();
+        assert_eq!(inspect(&fs).await.unwrap(), StoreState::Broken);
+        // The header arrived, but `items/` is still the plaintext folder.
+        let header = crate::encryption::header::tests::quick_header(&DataKey::generate().unwrap());
+        std::fs::write(dir.path().join("encryption/header.json"), header.to_json()).unwrap();
+        assert_eq!(inspect(&fs).await.unwrap(), StoreState::Broken);
     }
 
     #[tokio::test]

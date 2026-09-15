@@ -134,14 +134,19 @@ pub(super) async fn revert<F: RemoteFs + ?Sized>(
     release_lock(fs).await
 }
 
-/// Puts back a store header that passalong 0.2.0 left under `v2/tmp/` when
-/// a change of words stopped between its two renames: the first one
-/// `words` unlock whose key opens the store's items. Returns the key; the
-/// store's words are then the ones given.
+/// Repairs a broken store with its `words`, and returns its key.
+///
+/// - A header beside an `items/` folder: the folder's items, stored by a
+///   client that never saw the stop file, move to `plain/items/`, and the
+///   stop file is written, once `words` unlock the header.
+/// - No readable header: passalong 0.2.0 may have left one under `v2/tmp/`
+///   when a change of words stopped between its two renames. The first one
+///   `words` unlock whose key opens the store's items is put in place; the
+///   store's words are then the ones given.
 ///
 /// # Errors
 ///
-/// The refusal for a store that is not broken, and
+/// The refusal for a store that is not broken, wrong words, and
 /// [`EncryptionError::Layout`], changing nothing, when no saved header fits.
 pub async fn restore_header<F: RemoteFs + ?Sized>(
     fs: &F,
@@ -150,6 +155,12 @@ pub async fn restore_header<F: RemoteFs + ?Sized>(
     match inspect(fs).await? {
         StoreState::Broken => {}
         other => return Err(refuse(other)),
+    }
+    if let Some(header) = read_header(fs).await? {
+        let key = unwrap(header.wrapped(), words)?;
+        stop_old_clients(fs).await?;
+        tracing::info!(key = %key.key_id().short(), "moved an items folder beside the header to plain/");
+        return Ok(key);
     }
     let tmp = RemotePath::new(SEALED_TMP_DIR)?;
     let entries = match fs.read_dir(&tmp).await {
@@ -446,5 +457,30 @@ mod tests {
             restore_header(&fs, &words(W1)).await,
             Err(StoreError::Encryption(EncryptionError::AlreadyEncrypted))
         ));
+    }
+
+    #[tokio::test]
+    async fn a_header_beside_an_items_folder_is_repaired_with_the_store_s_words() {
+        let dir = TempDir::new().unwrap();
+        let (key, items) = sealed_items(dir.path()).await;
+        // A client before v0.2.0 on a synced copy that never received the
+        // stop file stored items in an `items/` folder.
+        std::fs::remove_file(dir.path().join("items")).unwrap();
+        let strays = plain_items(dir.path()).await;
+        let fs = LocalFs::new(dir.path());
+        assert_eq!(inspect(&fs).await.unwrap(), StoreState::Broken);
+        assert!(restore_header(&fs, &words(W2)).await.is_err());
+        assert_eq!(inspect(&fs).await.unwrap(), StoreState::Broken);
+
+        let restored = restore_header(&fs, &words(W1)).await.unwrap();
+        assert_eq!(restored.key_id(), key.key_id());
+        assert_eq!(
+            inspect(&fs).await.unwrap(),
+            StoreState::Encrypted {
+                key_id: key.key_id(),
+                plain_left: strays.len()
+            }
+        );
+        assert_holds(dir.path(), &key, &items).await;
     }
 }

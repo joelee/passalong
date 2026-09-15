@@ -491,3 +491,28 @@ async fn a_cut_migration_is_finished_and_a_cut_rotation_undone_over_sftp() {
     );
     assert_eq!(store.list().await.unwrap().len(), 2);
 }
+
+#[tokio::test]
+#[ignore = "needs the Docker SSH server: just test-integration"]
+async fn an_encryption_folder_without_its_header_is_never_plaintext_over_sftp() {
+    let root = unique_root();
+    // Opened while the store was still plaintext.
+    let early = sealed(sftp(&root).await, None).await.unwrap();
+    early
+        .put(NewItem::text("it"), text("before"))
+        .await
+        .unwrap();
+    let fs = sftp(&root).await;
+    fs.create_dir_all(&RemotePath::new("encryption").unwrap())
+        .await
+        .unwrap();
+    assert!(matches!(
+        sealed(sftp(&root).await, None).await,
+        Err(StoreError::Encryption(
+            encryption::EncryptionError::HeaderMissing
+        ))
+    ));
+    assert!(early.put(NewItem::text("it"), text("after")).await.is_err());
+    let plain = FsStore::new(&fs, Arc::new(SystemClock), Box::new(StdRandom::new()));
+    assert_eq!(plain.list().await.unwrap().len(), 1);
+}

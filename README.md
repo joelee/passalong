@@ -43,17 +43,59 @@ flowchart LR
 - Storage sits behind a trait. Besides SSH there is a `local` backend for a
   mounted share, and others such as S3 can be added.
 
+## Installation
+
+### Homebrew (macOS)
+
+Homebrew 7 and later load formulae only from taps you trust, so trust and
+tap [joelee/oss](https://github.com/joelee/homebrew-oss) once, then
+install:
+
+```sh
+brew trust joelee/oss
+brew tap joelee/oss
+brew install passalong
+```
+
+The formula builds the release published on crates.io; `brew upgrade
+passalong` installs later ones.
+
+### Cargo (macOS and Linux)
+
+With Rust 1.98 or later, for example from [rustup](https://rustup.rs):
+
+```sh
+cargo install --locked passalong
+```
+
+This builds the release from [crates.io](https://crates.io/crates/passalong)
+and puts `passalong` in `~/.cargo/bin`. SSH keys of type RSA need an
+optional feature (see [RSA keys](https://github.com/joelee/passalong/blob/main/docs/developer-guide.md#rsa-keys)):
+
+```sh
+cargo install --locked passalong --features rsa
+```
+
+### Release binaries
+
+Each [GitHub release](https://github.com/joelee/passalong/releases) has a
+`.tar.gz` archive for Linux x86_64 and for macOS arm64, each with a
+`.sha256` file. Check the archive with `sha256sum -c` (or `shasum -a 256
+-c` on macOS), unpack it, and put the `passalong` binary on your `PATH`.
+
+### From a clone
+
+```sh
+cargo install --locked --path crates/passalong-cli
+```
+
+See [Building from source](#building-from-source) for the toolchain.
+Whichever way you install, `passalong --version` confirms it.
+
 ## Quick start
 
 1. Prepare the server once, as described in [Server setup](#server-setup).
-2. Install the client. From v0.1.1, `cargo install --locked passalong`
-   installs it from crates.io, and each GitHub release has Linux x86_64 and
-   macOS arm64 binaries. With Homebrew, run `brew trust joelee/oss` and
-   `brew tap joelee/oss` once (Homebrew 7 needs the trust), then
-   `brew install passalong` builds the crates.io release. From a clone of
-   this repository,
-   `cargo install --locked --path crates/passalong-cli` puts `passalong` in
-   `~/.cargo/bin`.
+2. Install the client, as described in [Installation](#installation).
 3. Run `passalong init`. It asks for the server's address and your key,
    shows the server's host-key fingerprint for you to confirm, writes
    `~/.config/passalong/config.toml`, and tests the connection.

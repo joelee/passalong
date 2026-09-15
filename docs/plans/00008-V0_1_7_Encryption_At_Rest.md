@@ -17,15 +17,15 @@ planner_model: "anthropic/claude-opus-5"
 triggered_by: user                 # user | agent:<agent-name>
 request_kind: idea                 # idea | review | idea-and-review | direct | unplanned-query
 repository: "joelee/passalong"
-baseline_branch: "feature/00008-v0.1.7"
+baseline_branch: "feature/00008-v0.2.0"
 baseline_commit: "43ce465a53a651766e1d3415d39fa9167f654dd0"
 source_ideas:
   - "docs/ideas/00001-Encryption_At_Rest-r04.md"
 source_reviews: []
 previous_plan: null
-requirements_count: 14
+requirements_count: 15
 steps_count: 11
-acceptance_criteria_count: 21
+acceptance_criteria_count: 22
 blocking_decisions: 0
 build_ready: false
 web_research_used: true
@@ -46,7 +46,7 @@ current_step: null
 # Delivery Plan 00008: V0 1 7 Encryption At Rest
 
 > [!abstract] Plan status: `draft`
-> Deliver `passalong` v0.1.7: optional client-side encryption of everything a
+> Deliver `passalong` v0.2.0 (renumbered from v0.1.7; D-20): optional client-side encryption of everything a
 > store holds, for both the `ssh` and `local` backends. A random data key,
 > wrapped by six generated words through Argon2id, seals item content and
 > metadata with AES-256-GCM; ids use a keyed content key. Devices join once
@@ -92,16 +92,17 @@ Security model; `crates/passalong-core/src/model.rs`). After this plan:
 | PLAN-00008-REQ-09 | Idea; user | r04 IDEA-00001-R04-MED-04; §17 fresh start | Fresh start and `prune --plain` |
 | PLAN-00008-REQ-10 | Idea; repository | r04 MED-02, MED-05, IDEA-00001-R04-INFO-02; `serve/pull.rs`, `serve/upload.rs`, `crates/passalong-cli/src/list_cache.rs` | `serve`, pull mode, uploader, list cache |
 | PLAN-00008-REQ-11 | Idea; repository | r04 §12 "Every client"; `crates/passalong-cli/src/commands/check.rs` | `check` reports encryption |
-| PLAN-00008-REQ-12 | Repository; idea | Root `AGENTS.md` "Docs to maintain", "Backlog rules", "Release workflow"; r04 IDEA-00001-R04-INFO-01 | Documentation and v0.1.7 release preparation |
+| PLAN-00008-REQ-12 | Repository; idea | Root `AGENTS.md` "Docs to maintain", "Backlog rules", "Release workflow"; r04 IDEA-00001-R04-INFO-01 | Documentation and v0.2.0 release preparation |
 | PLAN-00008-REQ-13 | Repository | Root `AGENTS.md` "Non-negotiables", "Commands" | Quality gates |
-| PLAN-00008-REQ-14 | User; idea | Road map (v0.1.x SSH-only CLI); r04 §6 Out of scope | Scope guard |
+| PLAN-00008-REQ-14 | User; idea | Road map (2026-09-15: encryption is v0.2.0; Windows and S3 move to v0.2.1); r04 §6 Out of scope | Scope guard |
+| PLAN-00008-REQ-15 | User | Decision of 2026-09-15 (D-21) | Forward-compatible public types |
 
 ## 3. Repository baseline
 
 | Field | Value |
 |---|---|
 | Repository | `joelee/passalong` |
-| Branch | `feature/00008-v0.1.7`, from `main` at `4e72760` (v0.1.6 merge) plus the idea commit; not pushed |
+| Branch | `feature/00008-v0.2.0` (renamed from `feature/00008-v0.1.7` on 2026-09-15), from `main` at `4e72760` (v0.1.6 merge) plus the idea commit; not pushed |
 | HEAD | `43ce465a53a651766e1d3415d39fa9167f654dd0` |
 | Working tree at publication | Clean before allocation; the only change is this plan file |
 | Release state | v0.1.6 released 2026-09-14 (crates.io ×3, GitHub release with Linux x86_64 and macOS arm64 archives) |
@@ -180,7 +181,8 @@ Findings from the planning research, 2026-09-15:
 - Pull mode, the uploader, and the list cache made key-aware.
 - A compatibility test against the released v0.1.6 binary
   (`just test-compat`).
-- Documentation, NOTICE, the backlog, the CHANGELOG, v0.1.7 release notes,
+- `#[non_exhaustive]` on the public error enums and config structs (D-21).
+- Documentation, NOTICE, the backlog, the CHANGELOG, v0.2.0 release notes,
   and the version bump.
 
 ### Out of scope
@@ -191,7 +193,7 @@ Findings from the planning research, 2026-09-15:
 - Typed, user-chosen passphrases (D-07).
 - OS keychains, hardware keys, several recipients per store.
 - Non-interactive set-up, join, or rotation (they need a terminal).
-- S3, Windows, GUI, and Android clients (v0.2+).
+- S3, Windows, GUI, and Android clients (v0.2.1 and later).
 - Testing each cloud-sync provider automatically. The maintainer checks one
   by hand (AC-21).
 
@@ -212,12 +214,14 @@ Findings from the planning research, 2026-09-15:
   - Only key ids are logged.
   - Tests generate every key at run time; no key or word list of a real
     store is committed.
-- **Compatibility of the published crates.** Additions only, except:
+- **Compatibility of the published crates.** v0.2.0 is a breaking release
+  (D-20). Its breaking changes are exactly:
   - `ClientConfig.key_file` (a new public field);
-  - `StoreError::Encryption` (a new variant of a public enum).
+  - `StoreError::Encryption` (a new variant of a public enum);
+  - `#[non_exhaustive]` on the types in D-21.
 
-  The release notes name both, as v0.1.2 and v0.1.6 did for new config
-  fields. `WriteProbe`, `ItemMeta` (in memory), and existing `Store`
+  Everything else is additive, and the release notes name each breaking
+  change. `WriteProbe`, `ItemMeta` (in memory), and existing `Store`
   methods keep their shapes.
 - **Tests** never touch the real clipboard, services, `serve`, the user's
   store, or the user's key file. Compatibility tests use a downloaded
@@ -228,7 +232,7 @@ Findings from the planning research, 2026-09-15:
   - coverage at least 80 %;
   - rustdoc for public items;
   - no `unsafe`.
-- **Builder** works on `feature/00008-v0.1.7`, one commit per step, without
+- **Builder** works on `feature/00008-v0.2.0`, one commit per step, without
   review pauses unless a stop condition triggers. It never tags, publishes,
   or pushes.
 
@@ -242,15 +246,15 @@ None. Unresolved matters are recorded as decisions.
 |---|---|---|---|---|
 | D-01 | What is encrypted. | **Confirmed by user (2026-09-15):** everything except the id and schema version, including the device name. | User | Resolved |
 | D-02 | How the passphrase changes. | **Confirmed by user (2026-09-15):** key wrapping. A change re-wraps the data key; no item is rewritten. | User | Resolved |
-| D-03 | Old clients. | **Confirmed by user (2026-09-15):** clients before v0.1.7 may break against an encrypted store. | User | Resolved |
+| D-03 | Old clients. | **Confirmed by user (2026-09-15):** clients before v0.2.0 may break against an encrypted store. | User | Resolved |
 | D-04 | Backends. | **Confirmed by user (2026-09-15):** `ssh` and `local`, for cloud-synced folders. | User | Resolved |
-| D-05 | Rotation. | **Confirmed by user (2026-09-15):** data key rotation is in v0.1.7. | User | Resolved |
+| D-05 | Rotation. | **Confirmed by user (2026-09-15):** data key rotation is in this release (v0.2.0). | User | Resolved |
 | D-06 | Existing plaintext items. | **Confirmed by user (2026-09-15):** `encrypt` offers migrating them or starting fresh, leaving them to `prune`. | User | Resolved |
 | D-07 | Passphrases. | **Confirmed by user (2026-09-15):** always six generated words; typing only to join or recover. | User | Resolved |
 | D-08 | Key file in a git work tree. | **Confirmed by user (2026-09-15):** refused unless git ignores it (`git check-ignore`). | User | Resolved |
 | D-09 | Argon2 strength. | **Confirmed by user (2026-09-15):** Argon2id, 64 MiB, t=3, p=4 (RFC 9106 §4, second option). | User | Resolved |
 | D-10 | Planning before acceptance. | **Confirmed by user (2026-09-15):** planning from r04 is authorised; IDEA-00001 is accepted after STEP-01 passes. | User | Resolved |
-| D-11 | Store layout. | **Resolved by planner.** An encrypted store's root holds:<br>• `encryption/header.json` — the header; a directory, because `rename` cannot replace a file;<br>• `items` — a regular file whose text says `This store is encrypted. Upgrade to passalong 0.1.7 or later.`;<br>• `v2/items/<id>/{content,meta.json}` and `v2/tmp/` — sealed items and staging;<br>• `plain/items/` — only after a fresh start, until `prune --plain` empties it;<br>• `.rewrite/` — only during a migration or rotation, holding `plan.json`, `header/`, `old-header/`, and `source/`. Creating it with an exclusive `create_dir` is the lock.<br>The header is replaced by writing `tmp/<rand>/header.json` and renaming `encryption` to `tmp/old-header-<rand>`, then `tmp/<rand>` to `encryption`. Until the swap completes, clients find no header beside the `items` file and refuse (D-14). A plaintext store keeps the v0.1.6 layout. | Planner | Resolved |
+| D-11 | Store layout. | **Resolved by planner.** An encrypted store's root holds:<br>• `encryption/header.json` — the header; a directory, because `rename` cannot replace a file;<br>• `items` — a regular file whose text says `This store is encrypted. Upgrade to passalong 0.2.0 or later.`;<br>• `v2/items/<id>/{content,meta.json}` and `v2/tmp/` — sealed items and staging;<br>• `plain/items/` — only after a fresh start, until `prune --plain` empties it;<br>• `.rewrite/` — only during a migration or rotation, holding `plan.json`, `header/`, `old-header/`, and `source/`. Creating it with an exclusive `create_dir` is the lock.<br>The header is replaced by writing `tmp/<rand>/header.json` and renaming `encryption` to `tmp/old-header-<rand>`, then `tmp/<rand>` to `encryption`. Until the swap completes, clients find no header beside the `items` file and refuse (D-14). A plaintext store keeps the v0.1.6 layout. | Planner | Resolved |
 | D-12 | Keys and formats. | **Resolved by planner:**<br>• **Data key:** 32 random bytes from `getrandom`.<br>• **Key id:** the first 8 bytes of `HKDF-SHA256(data key, info "passalong key id v1")`, shown as 16 hex digits (8 in messages).<br>• **Wrapping key:** Argon2id(words normalised to lowercase, single spaces; 16-byte random salt; m=65536 KiB, t=3, p=4) gives 32 bytes. It seals the data key with AES-256-GCM, a random 12-byte nonce, and associated data `passalong key v1` plus the key id.<br>• **Header JSON:** `{"format":1,"key_id","kdf":{"alg":"argon2id","version":19,"m_kib","t","p","salt"},"wrapped_key":{"nonce","ciphertext"}}`. Hex fields; no device name or time. Unwrapping refuses `m_kib` > 1048576, `t` > 10, or `p` > 16, so a hostile header cannot exhaust memory.<br>• **Subkeys:** `HKDF-SHA256(data key, info "passalong id v1" / "passalong meta v1")`.<br>• **Keyed content key:** `HMAC-SHA256(id key, SHA-256 of the content)`, first 6 bytes as 12 hex digits. Derived from the digest, so callers holding a `ContentDigest` get it without reading the content again.<br>• **Sealed metadata** (`v2/items/<id>/meta.json`): `{"schema":2,"id","nonce","sealed"}`. `sealed` is AES-256-GCM(meta key, random nonce, associated data `passalong meta v1` plus the id) of the `ItemMeta` JSON plus `content_salt`.<br>• **Content** (`v2/items/<id>/content`): magic `PAC1`, then a 32-byte salt, then chunks of at most 64 KiB plaintext, each with a 16-byte tag. The chunk key is `HKDF-SHA256(data key, salt, info "passalong content v1")`. The nonce is 3 zero bytes, the chunk counter as u64 big-endian, and a last-chunk flag byte (1 on the final chunk, which may be empty). Reads reject a missing final chunk, data after it, and any failed tag.<br>• **Integrity:** after decryption the SHA-256 and size are checked against the sealed metadata, as today, and the content salt must match. | Planner | Resolved |
 | D-13 | Where the code lives. | **Resolved by planner:**<br>• **`passalong_core::crypto`** (new, public): `DataKey`, `KeyId`, `Words`, `wrap`/`unwrap`, `Sealer`, and streaming seal/open adapters over `AsyncRead`.<br>• **`passalong_core::encryption`** (new, public): `StoreHeader`, `KeyFile`, `open_store`, `Admin` (set-up, join, change words, fresh start, rewrite, recover, plain-item access).<br>• **`FsStore::sealed(fs, clock, rng, sealer)`**, with `FsStore::new` unchanged.<br>• **`RemoteFs`** gains `create_dir` (exclusive; the default is stat then `create_dir_all`, documented as not atomic) and `remove_file` (the default returns `FsError::Other`); `LocalFs` and `SftpFs` override both. `impl RemoteFs for Box<dyn RemoteFs>`.<br>• **`BackendRegistry`** gains `register_fs(kind, FsOpener)` and `open_fs`; `open` routes filesystem kinds through `encryption::open_store`. `register` remains for other kinds (unencrypted, documented). `local` and `ssh` become filesystem kinds; `passalong_ssh::open_ssh_store` keeps its signature.<br>• **`Store`** gains `key_id() -> Option<KeyId>` and `content_key(&ContentDigest) -> ContentKey`, both with defaults.<br>• **`StoreError::Encryption(EncryptionError)`** is one new variant. | Planner | Resolved |
 | D-14 | Opening a store. | **Resolved by planner** (`encryption::open_store`; see § 8):<br>• **Plain:** no `encryption/`, no `.rewrite/`, and `items` absent or a directory. Without a key file this gives a plain `FsStore`; with a key file it is refused ("this device has a key but the store is not encrypted; remove `<key_file>` or run `passalong encrypt`").<br>• **Encrypted:** `encryption/` present and no `.rewrite/`. A matching key file gives a sealed `FsStore`. No key file is refused, naming `passalong encrypt --join`; a different key id is refused, naming both ids and `--join`.<br>• **Rewriting:** `.rewrite/` present. Refused, naming the device-independent start time from `plan.json` and `passalong encrypt --recover`; only `check` and `encrypt --recover` proceed.<br>• **Broken:** `items` is a file but there is no `encryption/`. Refused, naming `passalong encrypt --recover`.<br>A sealed store re-checks before every `put`, `delete`, and `list_ids`, using the size and mtime of `encryption/header.json` and the absence of `.rewrite/`. It re-reads the header only when those change, and stops with `StoreError::Encryption` if the key id changed or a rewrite started. | Planner | Resolved |
@@ -259,7 +263,8 @@ None. Unresolved matters are recorded as decisions.
 | D-17 | `serve`, pull mode, uploader, list cache. | **Resolved by planner:**<br>• The uploader asks `store.content_key(&digest)` instead of `digest.content_key()`.<br>• `Puller` records `store.key_id()` at start. When the reopened store's key id differs, it resets its seen set to the current ids without applying anything.<br>• `ListCache::store_identity` appends ` key <key id>` or ` plain`, read from the key file, so a cache from before a migration, rotation, or join is never used.<br>• A sealed item whose metadata or content fails authentication is logged at verbose and skipped as `not yet complete` when its id is under 5 minutes old; older ones are corrupt, as today. | Planner | Resolved |
 | D-18 | Compatibility test. | **Resolved by planner:** `crates/passalong-cli/tests/compat_v016.rs`, ignored by default. It runs the binary named by `PASSALONG_COMPAT_BIN` against temporary `local` stores. `just test-compat` downloads the v0.1.6 archive for the host from `https://github.com/joelee/passalong/releases/download/v0.1.6/`, checks its `.sha256`, unpacks it under `target/compat/`, and runs the test. `just ci` and the Linux CI job run it. `serve` is not run, because it would read the real clipboard; it stores through the same `FsStore::put` as `clipboard`. | Planner | Resolved |
 | D-19 | Dependencies and the word list. | **Resolved by planner:**<br>• **Crates:** add `aes-gcm = "0.11.1"`, `argon2 = "0.6.0"`, `hkdf = "0.13.0"`, `hmac = "0.13.0"`, `zeroize = "1.9.0"`, and `getrandom = "0.4.3"` as workspace dependencies of `passalong-core`. `Cargo.lock` gains no new package name.<br>• **Word list:** EFF's large list, fetched from `https://www.eff.org/files/2016/07/18/eff_large_wordlist.txt`, stored verbatim as `crates/passalong-core/src/crypto/eff_large_wordlist.txt` and embedded with `include_str!`. It must have exactly 7,776 unique entries with dice codes 11111 to 66666; its SHA-256 goes in the work log.<br>• **Attribution** (CC BY 4.0, EFF) goes in `NOTICE` at the repository root and in `crates/passalong-core/NOTICE`, in the module docs, and in the README.<br>• **Word selection:** uniform by rejection sampling from `getrandom`. | Planner | Resolved |
-| D-20 | Branch and version. | **Resolved by planner:** v0.1.7 on `feature/00008-v0.1.7`. | Planner | Resolved |
+| D-20 | Branch and version. | **Confirmed by user (2026-09-15):** v0.2.0, a breaking release, on `feature/00008-v0.2.0` (renamed from `feature/00008-v0.1.7`). The backlog's v0.1.7 heading becomes this release; its former v0.2.0 items (Windows, S3) move to a v0.2.1 heading, and the README's roadmap line (`README.md:14`) follows. Previously resolved by planner as v0.1.7. | User | Resolved |
+| D-21 | Forward-compatible public types. | **Confirmed by user (2026-09-15):** mark `#[non_exhaustive]`:<br>• the error enums `StoreError`, `FsError`, `ConfigError`, and `ModelError`, and the new `CryptoError` and `EncryptionError` from the start;<br>• the config structs `Config`, `ClientConfig`, `ServerConfig`, `SshConfig`, `LocalConfig`, and `ServeConfig`.<br>Code outside `passalong-core` that builds these structs literally (the `passalong-ssh/src/connect.rs` tests and `passalong-ssh/tests/sftp_docker.rs`) switches to `config::parse` of TOML text, as other tests already do. Matches on these enums outside their crate gain a wildcard arm. `InitAnswers`, which callers fill in, stays exhaustive; `WriteProbe` already is non-exhaustive. | User | Resolved |
 
 Blocking decisions: 0.
 
@@ -276,7 +281,8 @@ Blocking decisions: 0.
 | CLI | `crates/passalong-cli/src/{cli,app,prompt,list_cache}.rs`, `commands/{init,check,prune,list}.rs`, `commands/encrypt.rs` (new) | D-15 |
 | Tests | `crates/passalong-cli/tests/compat_v016.rs` (new), `cli_local_backend.rs`, `cli_ssh_backend.rs`, `crates/passalong-ssh/tests/sftp_docker.rs` | Compatibility, binary, and SFTP tests |
 | Tooling | `justfile` (`test-compat`), `.github/workflows/ci.yml`, `.gitignore` (`*.key`, `target/compat` is already under `target/`), `Cargo.toml` | D-18, D-19 |
-| Docs | `README.md`, `docs/{usage,configuration,architecture,developer-guide,backlog}.md`, `CHANGELOG.md`, `docs/release/v0.1.7.md` (new) | REQ-12 |
+| Docs | `README.md`, `docs/{usage,configuration,architecture,developer-guide,backlog}.md`, `CHANGELOG.md`, `docs/release/v0.2.0.md` (new) | REQ-12 |
+| Public types | `crates/passalong-core/src/{store/mod,fs/mod,config,model}.rs`, `crates/passalong-ssh/src/connect.rs`, `crates/passalong-ssh/tests/sftp_docker.rs` | D-21 |
 
 ```mermaid
 flowchart TD
@@ -325,7 +331,7 @@ pub struct Admin<F> { /* over the same fs */ }
 - **Requirement:**
   - Against a store in the D-11 layout, the released v0.1.6 binary's item
     commands fail and write no item data.
-  - v0.1.7 clients refuse per D-14.
+  - v0.2.0 clients refuse per D-14.
 - **Rationale:** The one open Major finding; the user's acceptance
   condition.
 - **Source:** IDEA-00001-R04-MAJ-01; D-03, D-10, D-18.
@@ -440,9 +446,11 @@ pub struct Admin<F> { /* over the same fs */ }
 - **Requirement:**
   - Update README, usage, configuration, architecture, the developer
     guide, the backlog, and `CHANGELOG.md`.
-  - Draft `docs/release/v0.1.7.md`.
+  - Draft `docs/release/v0.2.0.md`.
   - Add the NOTICE files.
-  - Bump the version to 0.1.7.
+  - Bump the version to 0.2.0.
+  - Move the backlog's former v0.2.0 items to v0.2.1 and update the
+    README's roadmap line (D-20).
   - The security model lists what stays visible, and that the list cache
     holds decrypted metadata.
 - **Rationale:** Root `AGENTS.md` "Docs to maintain" and "Release
@@ -466,9 +474,19 @@ pub struct Admin<F> { /* over the same fs */ }
 - **Requirement:** No S3, Windows, GUI, or Android client code; no
   decrypt-to-plaintext; no configurable Argon2; no typed passphrases; no new
   package names in `Cargo.lock`.
-- **Rationale:** v0.1.x road map; D-07, D-09, D-19.
+- **Rationale:** Road map (D-20); D-07, D-09, D-19.
 - **Source:** User road map; r04 §6.
 - **Acceptance evidence:** AC-20.
+
+### PLAN-00008-REQ-15 — Forward-compatible public types
+
+- **Requirement:** The error enums and config structs listed in D-21 are
+  `#[non_exhaustive]`. Code outside `passalong-core` uses parsing and
+  wildcard arms instead of struct literals and exhaustive matches.
+- **Rationale:** v0.2.0 breaks the API anyway. Afterwards, new variants and
+  fields, such as S3's configuration in v0.2.1, are additive.
+- **Source:** User decision of 2026-09-15; D-21.
+- **Acceptance evidence:** AC-22.
 
 ## 10. Delivery strategy
 
@@ -667,7 +685,7 @@ passing unchanged.
 
 ### PLAN-00008-STEP-05 — Store header and encryption-aware opening
 
-- **Objective:** Implement REQ-05 and the v0.1.7 half of REQ-01.
+- **Objective:** Implement REQ-05 and the v0.2.0 half of REQ-01.
 - **Requirements:** `PLAN-00008-REQ-05`, `PLAN-00008-REQ-01`
 - **Depends on:** `PLAN-00008-STEP-03`, `PLAN-00008-STEP-04`
 - **Affected components:** `crates/passalong-core/src/encryption/`,
@@ -690,7 +708,7 @@ passing unchanged.
   - **Compatibility test extended:** STEP-01's test also runs against a
     real encrypted store built with the `encryption` API, and asserts that
     no marker and no plaintext of existing items appears.
-  - **v0.1.7 binary tests:** a keyless device lists and sends nothing; a
+  - **Tests with this release's binary:** a keyless device lists and sends nothing; a
     device with a key but a plaintext store is refused.
 - **Implementation tasks:** Per D-11, D-13, and D-14. Register `local` and
   `ssh` as filesystem kinds.
@@ -832,17 +850,20 @@ passing unchanged.
 - **Builder stop conditions:** SFTP semantics differ from `LocalFs` in a
   way that breaks D-11 or D-16.
 
-### PLAN-00008-STEP-10 — Documentation and v0.1.7 release preparation
+### PLAN-00008-STEP-10 — Documentation, public types, and v0.2.0 release preparation
 
-- **Objective:** Implement REQ-12.
-- **Requirements:** `PLAN-00008-REQ-12`
+- **Objective:** Implement REQ-12 and REQ-15.
+- **Requirements:** `PLAN-00008-REQ-12`, `PLAN-00008-REQ-15`
 - **Depends on:** `PLAN-00008-STEP-09`
 - **Affected components:** `README.md`,
   `docs/{usage,configuration,architecture,developer-guide,backlog}.md`,
-  `CHANGELOG.md`, `docs/release/v0.1.7.md` (new), `Cargo.toml`,
-  `Cargo.lock`, version literals in tests
+  `CHANGELOG.md`, `docs/release/v0.2.0.md` (new), `Cargo.toml`,
+  `Cargo.lock`, version literals in tests, and the D-21 types with their
+  users outside `passalong-core`
 - **Preconditions:** None.
-- **Test or evidence first:** `passalong --version` test expects 0.1.7.
+- **Test or evidence first:** the `passalong --version` test expects 0.2.0.
+  Out-of-crate struct literals and matches (D-21) are rewritten before
+  the attributes are added, so the build stays green throughout.
 - **Implementation tasks:**
   1. **README:** an Encryption section (set-up, join, words, rotation) and
      the EFF attribution.
@@ -857,14 +878,20 @@ passing unchanged.
        decrypted metadata, and that the words are the only recovery.
   5. **Developer guide:** crypto test notes, `just test-compat`, and
      updating the word list.
-  6. **Backlog:** remove the v0.1.7 encryption item. Add follow-ups under
+  6. **Backlog and roadmap:** remove the delivered encryption item and
+     its v0.1.7 heading; move the v0.2.0 items (Windows, S3) under a
+     v0.2.1 heading; make the README's roadmap line (`README.md:14`)
+     say v0.2.1. Add follow-ups under
      "Agent suggested next steps": cloud-sync hardening per provider, key
      import for GUI and Android, several stores per machine, raising Argon2
      settings.
   7. **Changelog and release notes:** `CHANGELOG.md` `Unreleased`, and
-     `docs/release/v0.1.7.md` (draft; absolute links; API changes per § 5;
+     `docs/release/v0.2.0.md` (draft; absolute links; breaking changes per § 5;
      upgrade note for v0.1.6 devices; timings).
-  8. **Version:** bump to 0.1.7 across crates and version literals.
+  8. **Version:** bump to 0.2.0 across crates, the internal `=`
+     requirements, and version literals.
+  9. **Public types:** apply D-21, rewriting out-of-crate struct literals
+     and matches first.
 - **Documentation/configuration/operations:** As above.
 - **Verification:** `just links`; `just check`; `cargo publish --dry-run`
   via `just ci` in STEP-11.
@@ -903,7 +930,7 @@ passing unchanged.
 
 | Area | Applicability | Planned action or reason not applicable | Step or requirement |
 |---|---|---|---|
-| Compatibility and APIs | Applicable | New `crypto` and `encryption` modules; `RemoteFs` and `Store` default methods; `BackendRegistry::register_fs`/`open_fs`; `ClientConfig.key_file` and `StoreError::Encryption` named in the release notes; plaintext stores unchanged | REQ-05, REQ-06, REQ-12 |
+| Compatibility and APIs | Applicable | Breaking release v0.2.0 (D-20); `#[non_exhaustive]` public types (D-21); new `crypto` and `encryption` modules; `RemoteFs` and `Store` default methods; `BackendRegistry::register_fs`/`open_fs`; `ClientConfig.key_file` and `StoreError::Encryption` named in the release notes; plaintext stores unchanged | REQ-05, REQ-06, REQ-12, REQ-15 |
 | Data and migration | Applicable | New `v2/` layout for encrypted stores only; one-off migration or fresh start; recoverable rewrites; v0.1.6 clients fail against encrypted stores (D-03) | REQ-01, REQ-08, REQ-09 |
 | Security and privacy | Applicable | AES-256-GCM with per-item keys, Argon2id wrapping, keyed ids, fail-closed opening, key id re-checks, 0600 key file, git rule, zeroised secrets, no secrets in logs or tests | REQ-01 to REQ-06 |
 | Performance and scale | Applicable | Argon2 only on join, change, rotation; list overhead within 10 %; two extra stats per write; rewrites stream item by item | REQ-06, STEP-11 |
@@ -932,7 +959,7 @@ passing unchanged.
 ## 14. Acceptance criteria
 
 - [ ] `PLAN-00008-AC-01` `just test-compat` passes. The released v0.1.6 binary's `clipboard --stdin`, `file`, `list`, `list --json`, `load`, `delete`, `prune --force`, and `check` each exit non-zero against a stop-file store and a real encrypted store. No marker text or existing plaintext appears anywhere under either store root.
-- [ ] `PLAN-00008-AC-02` v0.1.7 refuses with a message naming the fix, and writes nothing, in each case: a store with a header but no key file; a store and key file with different key ids; a key file with a plaintext store; a store with `.rewrite/`; a store with an `items` file but no header.
+- [ ] `PLAN-00008-AC-02` This release refuses with a message naming the fix, and writes nothing, in each case: a store with a header but no key file; a store and key file with different key ids; a key file with a plaintext store; a store with `.rewrite/`; a store with an `items` file but no header.
 - [ ] `PLAN-00008-AC-03` After storing marker text, a named file, and a clipboard image, no file content or name under the encrypted store root contains the markers, the file name, the device name, a preview, a MIME type, or any 12-hex prefix of a plaintext SHA-256.
 - [ ] `PLAN-00008-AC-04` Opening fails in every tampering case: truncated, reordered, duplicated, or extra content chunks; content swapped between items; metadata moved to another id; a flipped bit in the header, metadata, or content. Wrong plaintext is never returned.
 - [ ] `PLAN-00008-AC-05` Headers use Argon2id with m=65536 KiB, t=3, p=4 and a 16-byte salt. Unwrapping refuses m > 1048576 KiB, t > 10, or p > 16 before deriving. The measured unwrap time is recorded and is under 1 s on the build machine.
@@ -970,8 +997,8 @@ passing unchanged.
   - migration and rotation with one injected fault and recovery;
   - binary send, list, and load with a key;
   - refusal without one.
-- [ ] `PLAN-00008-AC-17` README, usage, configuration, architecture, and the developer guide describe everything in STEP-10, and `just links` passes. The security model lists what stays visible. The backlog drops the v0.1.7 encryption item and lists the follow-ups.
-- [ ] `PLAN-00008-AC-18` The crates are at 0.1.7, and `passalong --version` prints `passalong 0.1.7`. CHANGELOG `Unreleased` lists the changes. `docs/release/v0.1.7.md` exists with only absolute links, names `ClientConfig.key_file` and `StoreError::Encryption`, and tells v0.1.6 users to upgrade every device before encrypting.
+- [ ] `PLAN-00008-AC-17` README, usage, configuration, architecture, and the developer guide describe everything in STEP-10, and `just links` passes. The security model lists what stays visible. The backlog drops the delivered encryption item, lists Windows and S3 under v0.2.1, and lists the follow-ups; the README's roadmap line says v0.2.1.
+- [ ] `PLAN-00008-AC-18` The crates and their internal `=` requirements are at 0.2.0, and `passalong --version` prints `passalong 0.2.0`. CHANGELOG `Unreleased` lists the changes. `docs/release/v0.2.0.md` exists with only absolute links, lists every breaking change in § 5, and tells users to upgrade every device before encrypting.
 - [ ] `PLAN-00008-AC-19` `just ci` passes locally, including `test-compat`, `test-integration`, and `android-check`. GitHub CI passes on Linux, macOS, Xvfb, and Android for the final commit. Line coverage is at least 80 %.
 - [ ] `PLAN-00008-AC-20` The diff:
   - adds no S3, Windows, GUI, or Android client code;
@@ -980,6 +1007,7 @@ passing unchanged.
   - adds no typed passphrase option;
   - adds no new package name to `Cargo.lock`.
 - [ ] `PLAN-00008-AC-21` (user, after hand-off) On one cloud-synced folder shared by two devices, an encrypted store syncs, and items sent on one device list and load on the other. No item is reported corrupt after sync completes.
+- [ ] `PLAN-00008-AC-22` The types in D-21 are `#[non_exhaustive]`. Nothing outside `passalong-core` builds them literally or matches them without a wildcard arm, and the workspace builds and passes its tests.
 
 ## 15. Risks and mitigations
 
@@ -1076,6 +1104,7 @@ None
 | Timestamp (UTC) | Plan status | Change | Reason | Requested/approved by |
 |---|---|---|---|---|
 | 2026-09-15T08:24:15Z | draft | Plan created from IDEA-00001 r04 | User asked to plan v0.1.7 and authorised planning from r04 | User |
+| 2026-09-15T13:39:50Z | draft | Release renumbered to v0.2.0 (D-20): version, release notes, backlog and README roadmap (Windows and S3 to v0.2.1). Added D-21, REQ-15, and AC-22 for `#[non_exhaustive]` public types. Branch renamed to `feature/00008-v0.2.0`; `baseline_branch` updated | Breaking changes in this release; user decisions of 2026-09-15 | User |
 
 ## 19. External references
 

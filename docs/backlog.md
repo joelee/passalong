@@ -7,6 +7,12 @@ Future work not covered by an active plan. Completed items are removed.
 ### v0.2.1
 - **Windows support**
 - **Amazon S3 support** for `serve`
+- **Check encrypted stores on a cloud-synced folder** (PLAN-00008 AC-21,
+  deferred on 2026-09-15 for lack of a setup). Two devices share one
+  Dropbox, Google Drive, or OneDrive folder as a `local` store: encrypt on
+  one, join on the other, and send text and files both ways. Every item
+  should list and load on both, and none be reported corrupt once syncing
+  is done. See IDEA-00001-R05-MED-01.
 
 
 ## Agent suggested next steps

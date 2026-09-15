@@ -33,14 +33,14 @@ confidence: medium                # high | medium | low
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; Delivery Planner initializes them.
-implementation_status: in-progress # not-started | in-progress | blocked | completed | abandoned
+implementation_status: completed # not-started | in-progress | blocked | completed | abandoned
 builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00008-v0.2.0"
 execution_started_at: "2026-09-15T13:53:01Z"
-execution_updated_at: "2026-09-15T15:37:20Z"
-execution_completed_at: null
-current_step: "PLAN-00008-STEP-11"
+execution_updated_at: "2026-09-15T15:43:23Z"
+execution_completed_at: "2026-09-15T15:43:23Z"
+current_step: null
 ---
 
 # Delivery Plan 00008: V0 1 7 Encryption At Rest
@@ -1068,7 +1068,7 @@ passing unchanged.
 | PLAN-00008-STEP-08 | completed | 2026-09-15T15:22:04Z | 2026-09-15T15:26:35Z | Commit `build: complete PLAN-00008-STEP-08 - serve, pull mode, uploader, and list cache`; core 278, serve_local 13, CLI 185 pass; just check green, 93.53% lines | AC-13 (uploader), AC-14 (behaviour). Uploader asks store.content_key(&digest). Puller records store.key_id() at start and re-baselines on a change. ListCache::store_identity reads the key file and appends ' key <id>' or ' plain' (None when the key file is unreadable), so the CLI cache and serve's refresh loop pick it up unchanged; a v0.1.6 cache file is therefore not reused after upgrading (one extra server read). The 'not yet complete' handling of D-17 shipped in STEP-04. |
 | PLAN-00008-STEP-09 | completed | 2026-09-15T15:28:02Z | 2026-09-15T15:31:50Z | Commit `build: complete PLAN-00008-STEP-09 - Encryption over SFTP`; test-integration: 6 + 15 SSH tests pass; just check green, 93.53% lines | AC-16. SftpFs create_dir/remove_file, sealed store, header swap, and cut migration/rotation recovery all exercised against the Docker sshd; scripted init over SSH now also prints the hint to encrypt; the binary test parses its written config instead of building SshConfig, ready for STEP-10's #[non_exhaustive]. |
 | PLAN-00008-STEP-10 | completed | 2026-09-15T15:33:06Z | 2026-09-15T15:37:20Z | Commit `build: complete PLAN-00008-STEP-10 - Documentation, public types, and v0.2.0 release preparation`; just links ok; just check green, 93.54% lines; test-integration green | AC-17, AC-18, AC-22. #[non_exhaustive] on StoreError, FsError, ConfigError, ModelError, Config, ClientConfig, ServerConfig, SshConfig, LocalConfig, ServeConfig; nothing outside passalong-core needed a new wildcard arm; the two SshConfig literals (connect.rs tests, sftp_docker.rs) now parse TOML. Version 0.2.0 (workspace, internal = requirements, version literals; compat and Homebrew test data keep 0.1.6). README (Encryption section, EFF attribution, v0.2.1 roadmap line, commands), usage (encrypt, init, check, list, prune --plain), configuration (Encrypted stores), architecture (encrypted layout, keys, formats, opening table, rewrite engine, security model), developer guide (encryption tests, word list), backlog (v0.2.1, follow-ups), CHANGELOG Changed, docs/release/v0.2.0.md draft (Tests, Coverage, Timings filled at STEP-11). |
-| PLAN-00008-STEP-11 | not-started | — | — | — | — |
+| PLAN-00008-STEP-11 | completed | 2026-09-15T15:38:03Z | 2026-09-15T15:43:23Z | Commit `build: complete PLAN-00008-STEP-11 - Final quality gate`; just ci recipes green (93.54 % / 94.82 %); CI green on all four jobs for 1ed9d4d; timings within budget; scope review clean | Release notes' Tests, Coverage, and Timings filled. AC-21 (a synced folder checked by hand on two devices) remains for the user. IDEA-00001's acceptance condition (STEP-01) was met at e833b59. |
 
 Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 `skipped`. A skipped step requires explicit user approval recorded in Evidence.
@@ -1098,6 +1098,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T15:31:50Z | PLAN-00008-STEP-09 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00008-STEP-09 - Encryption over SFTP` | Begin PLAN-00008-STEP-10 |
 | 2026-09-15T15:33:06Z | PLAN-00008-STEP-10 | Started | — | Red phase |
 | 2026-09-15T15:37:20Z | PLAN-00008-STEP-10 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00008-STEP-10 - Documentation, public types, and v0.2.0 release preparation` | Begin PLAN-00008-STEP-11 |
+| 2026-09-15T15:38:03Z | PLAN-00008-STEP-11 | Started | — | Red phase |
+| 2026-09-15T15:43:23Z | PLAN-00008-STEP-11 | Verified and committed (continuous execution authorised by the user) | `build: complete PLAN-00008-STEP-11 - Final quality gate` | Builder hand-off |
 
 ### Deviations and blockers
 
@@ -1138,14 +1140,18 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T15:31:50Z | PLAN-00008-STEP-09 | just check | exit 0; line coverage 93.53% | clippy clean |
 | 2026-09-15T15:37:20Z | PLAN-00008-STEP-10 | just links; just check | links ok: 36 Markdown files; just check exit 0, line coverage 93.54% | clippy clean after #[non_exhaustive] |
 | 2026-09-15T15:37:20Z | PLAN-00008-STEP-10 | just test-integration | exit 0: 6 CLI SSH and 15 SFTP tests pass with configs parsed from TOML | sftp_docker config() and connect.rs tests no longer build SshConfig literally |
+| 2026-09-15T15:43:23Z | PLAN-00008-STEP-11 | just check, audit, lint-workflows, test-integration, test-compat, test-deploy, coverage-full, publish-dry-run --allow-dirty (just ci's recipes; the plan's work log was the only uncommitted file) | all exit 0; coverage 93.54 % lines, 94.82 % full; advisories, bans, licenses, sources ok; 3 crates packaged and verified | AC-19 |
+| 2026-09-15T15:43:23Z | PLAN-00008-STEP-11 | GitHub CI run 34989758466 on 1ed9d4d | success on Linux (just ci), macOS (just check), Xvfb, Android build | the Android job is the first build of the new crypto crates for aarch64-android; an earlier run on 913658c (STEP-06) failed only scripted_init over SSH, fixed in STEP-09 (8f48937) |
+| 2026-09-15T15:43:23Z | PLAN-00008-STEP-11 | timing, release build against the Docker sshd, median of 3 | list --nocache 10 items 111 ms plain / 115 ms encrypted (+3.6 %), 100 items 135 / 136 ms; list from cache 2 ms both; clipboard --stdin 110-115 ms; Argon2 unwrap 106 ms | AC-14 timings; harness was a temporary test file, removed |
+| 2026-09-15T15:43:23Z | PLAN-00008-STEP-11 | scope review | Cargo.lock package names unchanged from 4e72760; no S3, Windows, GUI, or Android client code (keyword hits were slice .windows(), an EFF word, and a test field); no decrypt-to-plaintext command; no configurable Argon2; no typed-passphrase option | AC-20 |
 
 ### Completion summary
 
-- **Implementation status:** `not-started`
-- **Completed requirements:** None
-- **Incomplete requirements:** All
+- **Implementation status:** `completed`
+- **Completed requirements:** REQ-01 to REQ-15 (AC-01 to AC-20, AC-22)
+- **Incomplete requirements:** None in code; AC-21 is the user's manual check of one cloud-synced folder
 - **Outstanding blockers:** None
-- **Review request:** Not ready
+- **Review request:** Ready for the user's review (release workflow step 3)
 <!-- BUILDER_WORK_LOG_END -->
 
 ## 18. Planning change log

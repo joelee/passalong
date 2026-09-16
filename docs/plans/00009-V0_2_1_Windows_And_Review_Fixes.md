@@ -38,7 +38,7 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00009-v0.2.1"
 execution_started_at: "2026-09-15T20:39:50Z"
-execution_updated_at: "2026-09-15T23:30:18Z"
+execution_updated_at: "2026-09-16T21:34:14Z"
 execution_completed_at: "2026-09-15T23:23:42Z"
 current_step: "PLAN-00009-STEP-12"
 ---
@@ -802,6 +802,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T23:09:27Z | STEP-10 | Pushed as 483a083: `serve --daemon` on Windows starts the background copy through PowerShell's `Start-Process`, hidden and inheriting no handles, the copy opens the log itself, and a copy that exits during start-up is caught through `tasklist`; `serve --stop` leaves `serve.stop`, which `serve` checks every second; the pid lock holder also writes `serve.state`, readable while the pid file is locked; `service-install` writes the Run key (refused over 260 characters), or with `--scheduler` a log-on task from UTF-16 XML, and `service-remove` removes whichever exists; `ServiceManager` gains `query`; usage, configuration, and architecture docs, a docs/service task template, and the windowless-launcher backlog item. Run 35034025495: all five jobs green on the first push | `serve_daemon_starts_reports_refuses_a_second_copy_and_stops_on_windows`, `windows_service_install_and_remove_use_the_run_key_and_task_scheduler`, `a_stop_request_stops_serve_and_is_taken`, `only_one_holder_of_the_pid_lock` (now on Windows too), the Run key and scheduler fake-manager tests, `the_docs_task_is_the_task_service_install_registers`, `windows_arguments_are_quoted_only_when_needed` | STEP-11 |
 | 2026-09-15T23:15:24Z | STEP-11 | Completed: the Release workflow builds `x86_64-pc-windows-msvc` on `windows-latest` and uploads `passalong-<v>-x86_64-pc-windows-msvc.zip` (exe, LICENSE, README.md) and its `.sha256` in shasum's format; version 0.2.1 in `[workspace.package]` and the inter-crate requirements; `cargo deny` checks the Windows target; README (Windows install, PowerShell), usage (PowerShell 7.4+ piping), architecture (every change under the lock and journal, the single-admin rule, the durability limit), developer guide (release assets, deny targets), CHANGELOG Unreleased, draft `docs/release/v0.2.1.md`, and the backlog (v0.2.1 items removed) | `cargo semver-checks -p passalong-core -p passalong-ssh --baseline-version 0.2.0`; `just lint-workflows`; `just links`; `just audit` | STEP-12 |
 | 2026-09-15T23:23:42Z | STEP-12 | Completed: `just ci` exit 0 on the committed tree; CI run 35034902875 green on Linux, macOS, Xvfb, Android, and Windows; release notes' Tests (607 passed in 13 binaries, plus the recipes and the Windows job), Coverage (93.57 % and 94.70 %), and Timings filled from a release build against the Docker server, median of five after a warm-up | `docs/release/v0.2.1.md`; `/tmp` run logs | Hand-off to the user |
+| 2026-09-16T21:34:14Z | Hand-off | The user approved the work, accepted the BSL-1.0 licence allowance, and accepted the measured timings in place of AC-25's absolute `list --nocache` bound ("I approve, accept BSL-1.0 and the timings"). Release commit `release: v0.2.1 - Windows support` follows | User message | User pushes the branch and opens the PR |
 
 ### Deviations and blockers
 

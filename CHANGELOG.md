@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## v0.2.1 - 2026-09-16T21:34:14Z
+
 ### Added
 
 - Windows x86_64. The workspace builds, lints, and passes its tests on

@@ -1,0 +1,5 @@
+# Link the C runtime into Windows binaries. Otherwise passalong.exe needs
+# VCRUNTIME140.dll, which a fresh Windows does not have: without it the exe
+# exits at once, printing nothing.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

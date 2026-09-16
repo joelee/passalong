@@ -38,7 +38,7 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/00009-v0.2.1"
 execution_started_at: "2026-09-15T20:39:50Z"
-execution_updated_at: "2026-09-16T21:34:14Z"
+execution_updated_at: "2026-09-16T22:29:27Z"
 execution_completed_at: "2026-09-15T23:23:42Z"
 current_step: "PLAN-00009-STEP-12"
 ---
@@ -803,6 +803,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-15T23:15:24Z | STEP-11 | Completed: the Release workflow builds `x86_64-pc-windows-msvc` on `windows-latest` and uploads `passalong-<v>-x86_64-pc-windows-msvc.zip` (exe, LICENSE, README.md) and its `.sha256` in shasum's format; version 0.2.1 in `[workspace.package]` and the inter-crate requirements; `cargo deny` checks the Windows target; README (Windows install, PowerShell), usage (PowerShell 7.4+ piping), architecture (every change under the lock and journal, the single-admin rule, the durability limit), developer guide (release assets, deny targets), CHANGELOG Unreleased, draft `docs/release/v0.2.1.md`, and the backlog (v0.2.1 items removed) | `cargo semver-checks -p passalong-core -p passalong-ssh --baseline-version 0.2.0`; `just lint-workflows`; `just links`; `just audit` | STEP-12 |
 | 2026-09-15T23:23:42Z | STEP-12 | Completed: `just ci` exit 0 on the committed tree; CI run 35034902875 green on Linux, macOS, Xvfb, Android, and Windows; release notes' Tests (607 passed in 13 binaries, plus the recipes and the Windows job), Coverage (93.57 % and 94.70 %), and Timings filled from a release build against the Docker server, median of five after a warm-up | `docs/release/v0.2.1.md`; `/tmp` run logs | Hand-off to the user |
 | 2026-09-16T21:34:14Z | Hand-off | The user approved the work, accepted the BSL-1.0 licence allowance, and accepted the measured timings in place of AC-25's absolute `list --nocache` bound ("I approve, accept BSL-1.0 and the timings"). Release commit `release: v0.2.1 - Windows support` follows | User message | User pushes the branch and opens the PR |
+| 2026-09-16T22:29:27Z | AC-22 | The user's first run on a Windows 11 desktop (a dockur/windows VM, PowerShell 7.6.6) printed nothing, even for `--version`: the exe imported `VCRUNTIME140.dll`, which a fresh Windows lacks, and GitHub's runner has, so CI never showed it. `.cargo/config.toml` now links the C runtime statically for `x86_64-pc-windows-msvc` (`+crt-static`), which the release build uses; the rebuilt exe imports only system DLLs and runs there. Also found: `init` sets up SSH only, so a `local` store's config is written by hand; added to the backlog at the user's request | `llvm-readobj --coff-imports` before and after; user: "the rebuilt exe works" | User continues AC-22 |
 
 ### Deviations and blockers
 

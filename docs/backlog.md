@@ -13,6 +13,12 @@ Future work not covered by an active plan. Completed items are removed.
   should list and load on both, and none be reported corrupt once syncing
   is done. See IDEA-00001-R05-MED-01.
 
+### Unscheduled
+- **`passalong init` for a `local` store** (requested 2026-09-16). `init`
+  only sets up an SSH server, so a `local` store, such as a mounted share
+  or a synced folder, needs its config written by hand. `init` should offer
+  the backend, ask for the storage folder, check it can be written, and
+  then inspect it for encryption as it does for SSH.
 
 
 ## Agent suggested next steps

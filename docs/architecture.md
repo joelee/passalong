@@ -53,7 +53,7 @@ Every invocation goes through the same start-up:
 | `choose` | `Store::list`, then a full-screen list (ratatui over crossterm); `g` shows `Store::get_meta` in a dialog, `d` runs `Store::delete` and lists again, and `r` lists again; Enter and `c` run the code of `load` or `cat` after the terminal is restored; log records are held while the list is open and written when it closes |
 | `serve` | Runs the loop below until stopped; `--daemon`, `--status`, and `--stop` manage a background copy |
 | `delete` | Resolves every id first, then `Store::delete` for each |
-| `prune` | `Store::list`, selects items older than `--older-than` beyond the newest `--keep`, confirms, deletes, then `Store::clean_staging`; with `--plain`, the same on the plaintext store in `plain/` |
+| `prune` | `Store::list`, selects items older than `--older-than` beyond the newest `--keep`, confirms, deletes, then `Store::clean_staging`; with `--plain`, the same on the plaintext store in `plain/`, after removing the encryption leftovers (the plaintext `tmp/` and unused journals) |
 | `init` | Fetches the server host key without authenticating, asks you to confirm its fingerprint, writes the config file, then opens the store's filesystem as a connection test and inspects its encryption: offers to encrypt an empty store and joins an encrypted one |
 | `encrypt` | Opens the store's filesystem and inspects it: encrypts a plaintext store (set-up, fresh start, or migration), or changes an encrypted store's words; `--join`, `--rotate`, and `--recover` as in [usage](usage.md) |
 | `check` | Loads the config, opens the backend's filesystem, inspects its encryption against this device's key, opens the store, `Store::list_ids`, then `Store::probe_write`, printing one line per step, then reads `serve`'s pid lock |
@@ -154,9 +154,9 @@ cannot write into:
 ├── encryption/header.json   the wrapped data key (a folder: renames never replace files)
 ├── items                    a file saying the store is encrypted, where old clients expect a folder
 ├── v2/items/<id>/{content,meta.json}
-├── v2/tmp/                  staging, and the header while it is replaced
+├── v2/tmp/                  staging for uploads and deletions
 ├── plain/items/             after a fresh start: the earlier items, unencrypted
-└── .rewrite/                only during a migration or rotation: lock and journal
+└── .rewrite/                only while encryption changes: lock and journal
 ```
 
 **Keys.** A store has one random 256-bit data key. The header holds it
@@ -186,27 +186,77 @@ reported as not complete, for stores in synced folders.
 | Store | This device | Result |
 |---|---|---|
 | `.rewrite/` present | any | refused: being re-encrypted |
-| `encryption/` present | key with the store's id | sealed store |
-| `encryption/` present | no key, or another key | refused: `encrypt --join` |
-| no header, `items` is a file | any | refused: `encrypt --recover` |
-| no header | no key | plaintext store |
-| no header | a key | refused: the store is not encrypted |
+| a header, and `items` not a folder | key with the store's id | sealed store |
+| a header, and `items` not a folder | no key, or another key | refused: `encrypt --join` |
+| part of an encrypted layout: `encryption/` without a header, a header beside an `items/` folder, or a stop file without a header | any | refused: `encrypt --recover` |
+| none of it | no key | plaintext store |
+| none of it | a key | refused: the store is not encrypted |
+
+A synced folder can deliver an encrypted layout in pieces, so any piece
+without the rest counts as broken, never as plaintext. A plaintext store,
+once open, checks before every `put`, `delete`, and `list_ids` that no
+lock and no part of an encrypted layout appeared since, so it never adds
+plaintext to a store another device is encrypting.
+
+Encrypting also removes the plaintext staging `tmp/` once the stop file is
+in place: uploads and deletions cut short there may hold plaintext, and no
+client can publish from it any more. For stores passalong 0.2.0 encrypted,
+`check` and `list` report what remains there, `prune --plain` removes it,
+and a sealed store's `clean_staging` removes entries past the staging age.
+
+**Sends while the key changes.** A sealed store reads the header's key id
+before every `put`, `delete`, and `list_ids`, and again once `put` has
+published its item; the header's size and time are not trusted, since two
+keys under the same settings give headers of the same size, and SFTP gives
+times in whole seconds. A rotation takes the lock before it moves the items
+aside and removes it only after the new header is in place, so a send that
+raced it finds the lock or the new key at that last check. It then takes
+its item back, unless the rotation already took it along, and fails; `serve`
+keeps the file and sends it again once this device has joined with the new
+words, and the copy already moved along makes that second send a no-op.
 
 A sealed store opened this way re-checks, before `put`, `delete`, and
 `list_ids`, that no re-encryption started and that the header still names
 its key, so a device with a rotated-out key stops writing.
 
-**Changing encryption.** Set-up writes the stop file before the header;
-changing the words re-wraps the data key and swaps the header folder,
-rewriting no item. Migration and rotation share one journalled engine:
-take `.rewrite/` exclusively, write the plan and the new header there, move
-the source items into `.rewrite/source/` in one rename, seal each item into
-`v2/items/` under an id computed from its recorded SHA-256 (so a resumed run
-skips what is already there), read every copy back and compare its SHA-256,
-swap the header, and remove the source and then the lock. `encrypt
---recover` finishes the run or undoes it as long as the new header is not
-yet in place. Pull mode starts afresh when the store's key changes, and the
-list cache's identity names the key.
+**Changing encryption.** Every change runs under one lock, `.rewrite/`:
+set-up, a fresh start, a change of words, a migration, and a rotation. The
+journal (`plan.json`, the new header in `header/`, and for a change of
+words the current one in `old-header/`) is written whole into
+`.rewrite-<random>/` and then renamed to `.rewrite/`. The rename is the
+lock: both backends refuse to rename onto an existing folder, so a second
+change fails, and a cut-short start leaves either no lock or a whole
+journal. Set-up writes the stop file before the header. A change of words
+re-wraps the data key and swaps the header folder, rewriting no item.
+Migration and rotation also move the source items into `.rewrite/source/` in
+one rename. They then seal each item into `v2/items/` under an id computed
+from its recorded SHA-256, so a resumed run skips what is already there,
+and read every copy back to compare its SHA-256. Last they swap the header
+and remove the source and then the lock. A rotation's replaced header moves
+into `.rewrite/previous/`, so every header move stays inside the lock.
+
+`encrypt --recover` reads the journal's kind and finishes the change or
+undoes it; undoing is possible as long as the new header is not yet in
+place. A recovery first creates `.rewrite/recovery/`, so two never run at
+once; one found older than 10 minutes is offered for take-over. Pull mode
+starts afresh when the store's key changes, and the list cache's identity
+names the key.
+
+**One device changes encryption at a time.** On one filesystem, and over
+SFTP, the lock excludes a second change. A synced folder is different: two
+devices can each take `.rewrite/` in their own copy before either copy
+syncs, and the service then keeps one or makes conflicted copies. Run
+`encrypt` and `encrypt --recover` on one device, while the others are idle
+and in sync, and wait for its changes to sync before encrypting from another.
+
+**Interrupted clients, not lost writes.** The journal and the order of the
+steps cover a client that stops at any point: killed, cut off, or out of
+power. They assume that a write or rename the storage has acknowledged
+stays done. passalong asks for no flush to disk, except for its own key file
+and list cache. If the storage host loses power, or a synced folder loses
+an update, an acknowledged step can be undone. `encrypt --recover` repairs
+the states an interrupted client leaves, not every state such a loss can
+leave. Keep the words, and back up the store if it matters.
 
 Storing an item works like this:
 
@@ -321,6 +371,28 @@ the parent waits up to 5 seconds for that line and otherwise prints the end
 of the log. `serve --status` reads the pid file and exits 3 when nothing is
 running. `serve --stop` sends SIGTERM and waits for the pid file to be
 released.
+
+Windows differs in three ways:
+
+- **Detaching:** std's `Command` lets a child inherit every inheritable
+  handle, so a copy started directly would keep the caller's output pipe
+  open, and a script reading `serve --daemon`'s output would wait until
+  `serve` stops. PowerShell's `Start-Process` starts the copy through the
+  shell instead: it passes on no handles, and the copy gets a hidden
+  console. The copy opens the log file itself and logs its final error
+  there. PowerShell's start-up counts against the wait, which is 15 seconds
+  on Windows. A copy that exits during start-up is noticed through
+  `tasklist`.
+- **Reading the pid:** Windows locks are mandatory, so nothing else can
+  read the locked pid file. The lock holder also writes its pid and `ready`
+  line to `serve.state`, which `--status` reads instead.
+- **Stopping:** there is no SIGTERM. `--stop` creates `serve.stop`, which
+  `serve` checks for every second and removes before shutting down; a stale
+  one is removed at start-up.
+
+`service-install` there writes the per-user Run key, or with `--scheduler`
+registers a log-on task. It never installs a Windows service, because
+services run in session 0, which has no clipboard.
 
 `service-install` renders a systemd user unit or a launchd agent from the
 templates in `crates/passalong-cli/src/service.rs`, running the same binary's

@@ -1,10 +1,10 @@
 //! Re-encrypting every item: migrating a plaintext store, and rotating an
 //! encrypted store's data key. One journalled engine does both:
 //!
-//! 1. `.rewrite/` is created exclusively, which is the lock, with
-//!    `plan.json` saying what runs.
-//! 2. The new header goes to `.rewrite/header/`; a rotation also copies the
-//!    current one to `.rewrite/old-header/`.
+//! 1. `.rewrite/` appears, with `plan.json` saying what runs, in one rename
+//!    of a whole journal; it is the lock (see the `journal` module).
+//! 2. The new header comes with the journal, in `.rewrite/header/`; a
+//!    rotation also keeps the current one in `.rewrite/old-header/`.
 //! 3. The source moves into `.rewrite/source/` in one rename: `items/` for
 //!    a migration, which then writes the stop file, or `v2/items/` for a
 //!    rotation.
@@ -13,33 +13,37 @@
 //!    follows from its SHA-256, so an item already there is skipped and a
 //!    resumed run repeats nothing.
 //! 5. Every new item is read back and its SHA-256 and size compared.
-//! 6. The new header replaces the old; then `.rewrite/source/`, and last
-//!    `.rewrite/` itself, are removed.
+//! 6. The current header moves into `.rewrite/previous/` and the new one
+//!    takes its place; then `.rewrite/source/`, and last `.rewrite/`
+//!    itself, are removed.
 //!
 //! [`finish`] resumes an interrupted run; [`undo`] puts the source back as
-//! long as the new header is not yet in place.
+//! long as the new header is not yet in place. Each claims
+//! `.rewrite/recovery/` while it runs, so two recoveries never run at once.
 
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncReadExt;
 
-use super::admin::refuse;
+use super::admin::{plain_tmp, refuse};
 use super::header::{encryption_dir, read_header_in, write_header_in};
+use super::header_change::{finish_change, install, revert};
+use super::journal::{
+    Journal, NEW_HEADER, OLD_HEADER, PLAN_FILE, PREVIOUS, claim_recovery, publish, read_journal,
+    release_lock, release_unstarted, unclaim, under_rewrite, unsupported,
+};
 use super::{
-    EncryptionError, HEADER_FILE, REWRITE_DIR, SEALED_TMP_DIR, STOP_FILE, StoreHeader, StoreState,
-    inspect, read_header, write_stop_file,
+    EncryptionError, HEADER_FILE, STOP_FILE, StoreHeader, StoreState, inspect, read_header,
+    write_stop_file,
 };
 use crate::clock::Clock;
-use crate::crypto::{DataKey, KdfParams, Sealer, Words, random_bytes, unwrap, wrap};
+use crate::crypto::{DataKey, KdfParams, Sealer, Words, unwrap, wrap};
 use crate::fs::{FsError, RemoteFs, RemotePath, SubFs};
 use crate::model::ContentHasher;
 use crate::random::StdRandom;
 use crate::store::{FsStore, Store, StoreError};
 
-const PLAN_FILE: &str = "plan.json";
-const NEW_HEADER: &str = "header";
-const OLD_HEADER: &str = "old-header";
 const SOURCE: &str = "source";
 
 /// What a re-encryption does.
@@ -67,10 +71,6 @@ pub struct RewritePlan {
     pub items: usize,
 }
 
-fn under_rewrite(rel: &str) -> Result<RemotePath, FsError> {
-    RemotePath::new(&format!("{REWRITE_DIR}/{rel}"))
-}
-
 /// Where the source's items sit inside `.rewrite/source/`, and where they
 /// came from.
 fn source_items(kind: RewriteKind) -> &'static str {
@@ -84,46 +84,30 @@ fn source_items(kind: RewriteKind) -> &'static str {
 ///
 /// # Errors
 ///
-/// The filesystem's error, or [`EncryptionError::Layout`] for a plan that
-/// cannot be read.
+/// The filesystem's error, and [`EncryptionError::Layout`] for a journal
+/// that cannot be read or records another change; [`read_journal`] tells
+/// every journal apart.
 pub async fn read_plan<F: RemoteFs + ?Sized>(fs: &F) -> Result<Option<RewritePlan>, StoreError> {
-    let reader = match fs.open_read(&under_rewrite(PLAN_FILE)?).await {
-        Ok(reader) => reader,
-        Err(FsError::NotFound(_)) => return Ok(None),
-        Err(err) => return Err(err.into()),
-    };
-    let mut bytes = Vec::new();
-    reader
-        .take(64 * 1024)
-        .read_to_end(&mut bytes)
-        .await
-        .map_err(|err| EncryptionError::Layout(format!("reading {PLAN_FILE}: {err}")))?;
-    serde_json::from_slice(&bytes)
-        .map(Some)
-        .map_err(|err| EncryptionError::Layout(format!("{PLAN_FILE}: {err}")).into())
+    match read_journal(fs).await? {
+        None => Ok(None),
+        Some(Journal::Rewrite(plan)) => Ok(Some(plan)),
+        Some(Journal::Unreadable { reason }) => {
+            Err(EncryptionError::Layout(format!("{PLAN_FILE}: {reason}")).into())
+        }
+        Some(other) => Err(unsupported(&other)),
+    }
 }
 
-/// Takes the lock and writes the plan.
-async fn lock<F: RemoteFs + ?Sized>(fs: &F, plan: &RewritePlan) -> Result<(), StoreError> {
-    match fs.create_dir(&RemotePath::new(REWRITE_DIR)?).await {
-        Ok(()) => {}
-        Err(FsError::AlreadyExists(_)) => {
-            return Err(EncryptionError::Rewriting { started: None }.into());
-        }
-        Err(err) => return Err(err.into()),
+/// The plan a re-encryption's `journal` records, for resuming it.
+fn rewrite_plan(journal: Option<Journal>) -> Result<RewritePlan, StoreError> {
+    match journal {
+        Some(Journal::Rewrite(plan)) => Ok(plan),
+        None | Some(Journal::Unreadable { .. }) => Err(EncryptionError::Layout(
+            "the re-encryption stopped before its plan was saved; undo it instead".to_owned(),
+        )
+        .into()),
+        Some(other) => Err(unsupported(&other)),
     }
-    let path = under_rewrite(PLAN_FILE)?;
-    let json = serde_json::to_vec_pretty(plan).expect("the plan serialises");
-    let mut writer = fs.open_write(&path).await?;
-    writer
-        .write_all(&json)
-        .await
-        .map_err(|err| FsError::from_io(&path, err))?;
-    writer
-        .shutdown()
-        .await
-        .map_err(|err| FsError::from_io(&path, err))?;
-    Ok(())
 }
 
 fn started_at(clock: &dyn Clock) -> String {
@@ -158,8 +142,7 @@ pub async fn migrate<F: RemoteFs + ?Sized>(
         to_key: key.key_id().to_string(),
         items,
     };
-    lock(fs, &plan).await?;
-    write_header_in(fs, &under_rewrite(NEW_HEADER)?, &header).await?;
+    publish(fs, &plan, &[(NEW_HEADER, &header)]).await?;
     run(fs, RewriteKind::Migrate, &key, None, clock).await?;
     Ok(key)
 }
@@ -210,9 +193,7 @@ pub async fn rotate<F: RemoteFs + ?Sized>(
         to_key: key.key_id().to_string(),
         items,
     };
-    lock(fs, &plan).await?;
-    write_header_in(fs, &under_rewrite(OLD_HEADER)?, &current).await?;
-    write_header_in(fs, &under_rewrite(NEW_HEADER)?, &header).await?;
+    publish(fs, &plan, &[(NEW_HEADER, &header), (OLD_HEADER, &current)]).await?;
     run(fs, RewriteKind::Rotate, &key, Some(old), clock).await?;
     Ok(key)
 }
@@ -223,7 +204,8 @@ pub async fn rotate<F: RemoteFs + ?Sized>(
 ///
 /// # Errors
 ///
-/// [`EncryptionError::Layout`] when nothing is to be recovered, wrong
+/// [`EncryptionError::Layout`] when nothing is to be recovered,
+/// [`EncryptionError::Recovering`] while another recovery runs, wrong
 /// words, and any failure on the way.
 pub async fn finish<F: RemoteFs + ?Sized>(
     fs: &F,
@@ -232,7 +214,24 @@ pub async fn finish<F: RemoteFs + ?Sized>(
     old_words: Option<&Words>,
     clock: Arc<dyn Clock>,
 ) -> Result<DataKey, StoreError> {
-    let plan = read_plan(fs).await?.ok_or_else(nothing_to_recover)?;
+    claim_recovery(fs).await?;
+    let result = finish_claimed(fs, new_words, old_key, old_words, clock).await;
+    unclaim(fs, result).await
+}
+
+async fn finish_claimed<F: RemoteFs + ?Sized>(
+    fs: &F,
+    new_words: &Words,
+    old_key: Option<&DataKey>,
+    old_words: Option<&Words>,
+    clock: Arc<dyn Clock>,
+) -> Result<DataKey, StoreError> {
+    let plan = match read_journal(fs).await? {
+        Some(Journal::HeaderChange(change)) => {
+            return finish_change(fs, &change, new_words).await;
+        }
+        journal => rewrite_plan(journal)?,
+    };
     let pending = read_header_in(fs, &under_rewrite(NEW_HEADER)?).await?;
     let current = read_header(fs).await?;
     let (header, swapped) = match (pending, current) {
@@ -257,10 +256,6 @@ pub async fn finish<F: RemoteFs + ?Sized>(
     };
     run(fs, plan.kind, &key, old.as_ref(), clock).await?;
     Ok(key)
-}
-
-fn nothing_to_recover() -> StoreError {
-    EncryptionError::Layout("no re-encryption is in progress".to_owned()).into()
 }
 
 /// The old key of a rotation: `old_key` when it is the one recorded, or
@@ -290,17 +285,23 @@ async fn old_key_for<F: RemoteFs + ?Sized>(
 ///
 /// # Errors
 ///
-/// [`EncryptionError::Layout`] when nothing is to be recovered, or when the
-/// new header is already in place and only [`finish`] can complete it.
+/// [`EncryptionError::Layout`] when nothing is to be recovered, when the
+/// new header is already in place and only [`finish`] can complete it, and
+/// when a lock whose journal is missing or unreadable holds anything else;
+/// [`EncryptionError::Recovering`] while another recovery runs.
 pub async fn undo<F: RemoteFs + ?Sized>(fs: &F) -> Result<(), StoreError> {
-    let lock = RemotePath::new(REWRITE_DIR)?;
-    let Some(plan) = read_plan(fs).await? else {
-        // Locked, but stopped before anything else was written.
-        if fs.stat(&lock).await?.is_none() {
-            return Err(nothing_to_recover());
-        }
-        fs.remove_dir_all(&lock).await?;
-        return Ok(());
+    claim_recovery(fs).await?;
+    let result = undo_claimed(fs).await;
+    unclaim(fs, result).await
+}
+
+async fn undo_claimed<F: RemoteFs + ?Sized>(fs: &F) -> Result<(), StoreError> {
+    let plan = match read_journal(fs).await? {
+        Some(Journal::Rewrite(plan)) => plan,
+        Some(Journal::HeaderChange(change)) => return revert(fs, &change).await,
+        // Locked, but stopped before its plan was whole.
+        None | Some(Journal::Unreadable { .. }) => return release_unstarted(fs).await,
+        Some(other) => return Err(unsupported(&other)),
     };
     let pending = under_rewrite(&format!("{NEW_HEADER}/{HEADER_FILE}"))?;
     let swapped = fs.stat(&pending).await?.is_none()
@@ -332,21 +333,26 @@ pub async fn undo<F: RemoteFs + ?Sized>(fs: &F) -> Result<(), StoreError> {
                 fs.rename(&moved, &items).await?;
             }
             // A swap cut short leaves no header: the old one comes back.
-            if fs.stat(&encryption_dir()?).await?.is_none() {
-                let old = read_header_in(fs, &under_rewrite(OLD_HEADER)?)
-                    .await?
-                    .ok_or(EncryptionError::HeaderMissing)?;
-                write_header_in(fs, &encryption_dir()?, &old).await?;
+            let current = encryption_dir()?;
+            if fs.stat(&current).await?.is_none() {
+                let previous = under_rewrite(PREVIOUS)?;
+                if fs.stat(&previous).await?.is_some() {
+                    fs.rename(&previous, &current).await?;
+                } else {
+                    let old = read_header_in(fs, &under_rewrite(OLD_HEADER)?)
+                        .await?
+                        .ok_or(EncryptionError::HeaderMissing)?;
+                    write_header_in(fs, &current, &old).await?;
+                }
             }
         }
     }
-    fs.remove_dir_all(&RemotePath::new(REWRITE_DIR)?).await?;
-    Ok(())
+    release_lock(fs).await
 }
 
 /// Moves the folder `from` to `to`: in one rename when `to` does not exist,
 /// entry by entry otherwise, dropping entries `to` already has.
-async fn fold<F: RemoteFs + ?Sized>(
+pub(super) async fn fold<F: RemoteFs + ?Sized>(
     fs: &F,
     from: &RemotePath,
     to: &RemotePath,
@@ -400,6 +406,11 @@ async fn run<F: RemoteFs + ?Sized>(
         fold(fs, &original, &moved).await?;
         write_stop_file(fs).await?;
     }
+    if kind == RewriteKind::Migrate {
+        // With the stop file in place, nothing staged in the plaintext
+        // `tmp/` can be published any more.
+        fs.remove_dir_all(&plain_tmp()).await?;
+    }
 
     let source_fs = SubFs::new(fs, under_rewrite(SOURCE)?);
     let rng = || Box::new(StdRandom::new());
@@ -423,7 +434,7 @@ async fn run<F: RemoteFs + ?Sized>(
         verify(&target, meta).await?;
     }
     tracing::info!(items = metas.len(), key = %key.key_id().short(), "items re-encrypted and verified");
-    swap_header(fs, kind).await?;
+    install(fs).await?;
     cleanup(fs).await
 }
 
@@ -457,38 +468,15 @@ async fn verify<F: RemoteFs>(
     Ok(())
 }
 
-/// Puts the new header in place, unless an earlier run already did.
-async fn swap_header<F: RemoteFs + ?Sized>(fs: &F, kind: RewriteKind) -> Result<(), StoreError> {
-    let new = under_rewrite(NEW_HEADER)?;
-    if fs.stat(&new).await?.is_none() {
-        return Ok(());
-    }
-    let current = encryption_dir()?;
-    if kind == RewriteKind::Rotate && fs.stat(&current).await?.is_some() {
-        let token: [u8; 8] = random_bytes()?;
-        let old =
-            RemotePath::new(SEALED_TMP_DIR)?.join(&format!("old-header-{}", hex::encode(token)))?;
-        fs.create_dir_all(&RemotePath::new(SEALED_TMP_DIR)?).await?;
-        fs.rename(&current, &old).await?;
-        fs.rename(&new, &current).await?;
-        if let Err(err) = fs.remove_dir_all(&old).await {
-            tracing::warn!(path = %old, error = %err, "could not remove the previous header");
-        }
-        return Ok(());
-    }
-    fs.rename(&new, &current).await?;
-    Ok(())
-}
-
-/// Removes the source and then the lock.
+/// Removes the source, journals staged by locks never taken, and then the
+/// lock.
 async fn cleanup<F: RemoteFs + ?Sized>(fs: &F) -> Result<(), StoreError> {
     fs.remove_dir_all(&under_rewrite(SOURCE)?).await?;
-    fs.remove_dir_all(&RemotePath::new(REWRITE_DIR)?).await?;
-    Ok(())
+    release_lock(fs).await
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::crypto::KDF_SALT_LEN;
     use crate::encryption::{open_with_key, set_up};
@@ -499,9 +487,9 @@ mod tests {
     use std::path::Path;
     use tempfile::TempDir;
 
-    const W1: &str = "abacus abdomen abdominal abide abiding ability";
-    const W2: &str = "zoom zoom zoom zoom zoom zoom";
-    const OPS: [FsOp; 9] = [
+    pub(crate) const W1: &str = "abacus abdomen abdominal abide abiding ability";
+    pub(crate) const W2: &str = "zoom zoom zoom zoom zoom zoom";
+    pub(crate) const OPS: [FsOp; 9] = [
         FsOp::CreateDirAll,
         FsOp::ReadDir,
         FsOp::OpenRead,
@@ -513,11 +501,11 @@ mod tests {
         FsOp::RemoveFile,
     ];
 
-    fn words(text: &str) -> Words {
+    pub(crate) fn words(text: &str) -> Words {
         Words::parse(text).unwrap()
     }
 
-    fn quick() -> KdfParams {
+    pub(crate) fn quick() -> KdfParams {
         KdfParams {
             m_kib: 64,
             t: 1,
@@ -526,7 +514,7 @@ mod tests {
         }
     }
 
-    fn clock() -> Arc<ManualClock> {
+    pub(crate) fn clock() -> Arc<ManualClock> {
         Arc::new(ManualClock::at("2026-09-15T08:00:00Z"))
     }
 
@@ -535,7 +523,7 @@ mod tests {
     }
 
     /// A plaintext store with a text and a file, a second apart.
-    async fn plain_items(dir: &Path) -> Vec<ItemMeta> {
+    pub(crate) async fn plain_items(dir: &Path) -> Vec<ItemMeta> {
         let clock = clock();
         let store = FsStore::new(LocalFs::new(dir), clock.clone(), Box::new(StdRandom::new()));
         let first = store
@@ -563,7 +551,7 @@ mod tests {
     }
 
     /// An encrypted store with two items, and its key.
-    async fn sealed_items(dir: &Path) -> (DataKey, Vec<ItemMeta>) {
+    pub(crate) async fn sealed_items(dir: &Path) -> (DataKey, Vec<ItemMeta>) {
         let key = set_up(&LocalFs::new(dir), &words(W1), quick())
             .await
             .unwrap();
@@ -583,7 +571,7 @@ mod tests {
 
     /// Asserts the store under `key` holds `originals`, with their times,
     /// metadata, and contents.
-    async fn assert_holds(dir: &Path, key: &DataKey, originals: &[ItemMeta]) {
+    pub(crate) async fn assert_holds(dir: &Path, key: &DataKey, originals: &[ItemMeta]) {
         let store = open(dir, key).await.unwrap();
         let listed = store.list().await.unwrap();
         assert_eq!(listed.len(), originals.len(), "{listed:?}");
@@ -618,7 +606,7 @@ mod tests {
     }
 
     /// Every file and folder below `root`, except staging folders.
-    fn snapshot(root: &Path) -> BTreeMap<String, Option<Vec<u8>>> {
+    pub(crate) fn snapshot(root: &Path) -> BTreeMap<String, Option<Vec<u8>>> {
         let mut found = BTreeMap::new();
         let mut pending = vec![root.to_path_buf()];
         while let Some(dir) = pending.pop() {
@@ -643,7 +631,135 @@ mod tests {
         found
     }
 
-    fn copy_tree(from: &Path, to: &Path) {
+    /// Bytes that mark plaintext a test left where encryption must remove it.
+    pub(crate) const MARKER: &[u8] = b"staged-plaintext-4c7";
+
+    /// Fills the plaintext staging of the store at `root` with an upload and
+    /// a deletion cut short, both holding [`MARKER`].
+    pub(crate) fn seed_staging(root: &Path) {
+        for (dir, file) in [("tmp/0123", "content"), ("tmp/deleted-abc", "meta.json")] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+            std::fs::write(root.join(dir).join(file), MARKER).unwrap();
+        }
+    }
+
+    /// Whether any file below `root` holds [`MARKER`].
+    pub(crate) fn holds_marker(root: &Path) -> bool {
+        let mut pending = vec![root.to_path_buf()];
+        while let Some(dir) = pending.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    pending.push(path);
+                } else if std::fs::read(&path)
+                    .unwrap()
+                    .windows(MARKER.len())
+                    .any(|w| w == MARKER)
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Where a send is held while another client rotates the store's key:
+    /// calls counted from when the hold is set, after the store is open.
+    const HOLDS: [(FsOp, usize, &str); 3] = [
+        (FsOp::OpenWrite, 1, "while its content is written"),
+        (FsOp::Rename, 1, "just before it is published"),
+        // The first stat is the check before the send; the second, the
+        // check after publishing.
+        (FsOp::Stat, 2, "just after it is published"),
+    ];
+
+    #[tokio::test]
+    async fn a_send_held_across_a_rotation_never_succeeds_under_the_old_key() {
+        use crate::testing::PausingFs;
+        for (op, nth, at) in HOLDS {
+            let dir = TempDir::new().unwrap();
+            let (old, originals) = sealed_items(dir.path()).await;
+            let paused = Arc::new(PausingFs::new(LocalFs::new(dir.path())));
+            let store = open_with_key(
+                Arc::clone(&paused),
+                Some(old.clone()),
+                clock(),
+                Box::new(StdRandom::new()),
+            )
+            .await
+            .unwrap();
+            paused.pause_at(op, nth);
+            let send = store.put(NewItem::text("box"), text(b"raced"));
+            let rotation = async {
+                tokio::time::timeout(std::time::Duration::from_secs(10), paused.reached())
+                    .await
+                    .unwrap_or_else(|_| panic!("{at}: the send never reached its hold"));
+                if op == FsOp::Stat {
+                    let published = std::fs::read_dir(dir.path().join("v2/items"))
+                        .unwrap()
+                        .count();
+                    assert_eq!(published, originals.len() + 1, "{at}");
+                }
+                let new = rotate(
+                    &LocalFs::new(dir.path()),
+                    &old,
+                    &words(W2),
+                    quick(),
+                    clock(),
+                )
+                .await
+                .unwrap();
+                paused.release();
+                new
+            };
+            let (sent, new) = tokio::join!(send, rotation);
+            assert!(
+                matches!(
+                    sent,
+                    Err(StoreError::Encryption(
+                        EncryptionError::KeyChanged | EncryptionError::Rewriting { .. }
+                    ))
+                ),
+                "{at}: {sent:?}"
+            );
+            // Every item left opens under the new key.
+            let reopened = open(dir.path(), &new).await.unwrap();
+            for id in reopened.list_ids().await.unwrap() {
+                reopened
+                    .get_meta(&id)
+                    .await
+                    .unwrap_or_else(|err| panic!("{at}: {id}: {err}"));
+            }
+            // Sent again, it is stored under the new key, once.
+            reopened
+                .put(NewItem::text("box"), text(b"raced"))
+                .await
+                .unwrap();
+            let raced = reopened
+                .list()
+                .await
+                .unwrap()
+                .into_iter()
+                .filter(|meta| meta.size == 5)
+                .count();
+            assert_eq!(raced, 1, "{at}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_migration_leaves_no_plaintext_staging() {
+        let dir = TempDir::new().unwrap();
+        let originals = plain_items(dir.path()).await;
+        seed_staging(dir.path());
+        let key = migrate(&LocalFs::new(dir.path()), &words(W1), quick(), clock())
+            .await
+            .unwrap();
+        assert!(!dir.path().join("tmp").exists());
+        assert!(!holds_marker(dir.path()));
+        assert_holds(dir.path(), &key, &originals).await;
+    }
+
+    pub(crate) fn copy_tree(from: &Path, to: &Path) {
         std::fs::create_dir_all(to).unwrap();
         for entry in std::fs::read_dir(from).unwrap() {
             let entry = entry.unwrap();
@@ -816,6 +932,120 @@ mod tests {
             }
         }
         assert!(recovered > 10, "only {recovered} cuts needed recovery");
+    }
+
+    /// No staged journal is left in `dir`, and `.rewrite/` is absent or
+    /// holds a whole journal.
+    async fn lock_is_whole_or_absent(dir: &Path) {
+        if dir.join(".rewrite").exists() {
+            assert!(matches!(
+                read_journal(&LocalFs::new(dir)).await.unwrap(),
+                Some(Journal::Rewrite(_))
+            ));
+        }
+        let staged: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with(".rewrite-"))
+            .collect();
+        assert!(staged.is_empty(), "{staged:?}");
+    }
+
+    #[tokio::test]
+    async fn the_lock_appears_only_with_a_whole_journal() {
+        let template = TempDir::new().unwrap();
+        plain_items(template.path()).await;
+        let before = snapshot(template.path());
+        for after in [0, 1, 40, usize::MAX] {
+            let dir = TempDir::new().unwrap();
+            copy_tree(template.path(), dir.path());
+            let fs = FaultyFs::new(LocalFs::new(dir.path()));
+            // The journal is the migration's first write.
+            fs.cut_nth_write(1, after);
+            assert!(
+                migrate(&fs, &words(W1), quick(), clock()).await.is_err(),
+                "cut after {after}"
+            );
+            lock_is_whole_or_absent(dir.path()).await;
+            assert_eq!(snapshot(dir.path()), before, "cut after {after}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_lock_without_a_whole_journal_is_released_only_when_nothing_moved() {
+        let dir = TempDir::new().unwrap();
+        plain_items(dir.path()).await;
+        let fs = LocalFs::new(dir.path());
+        let lock = dir.path().join(".rewrite");
+        // passalong 0.2.0 stopped after creating its plan file.
+        std::fs::create_dir(&lock).unwrap();
+        std::fs::write(lock.join("plan.json"), "").unwrap();
+        assert!(matches!(
+            read_journal(&fs).await.unwrap(),
+            Some(Journal::Unreadable { .. })
+        ));
+        assert!(read_plan(&fs).await.is_err());
+        assert!(finish(&fs, &words(W1), None, None, clock()).await.is_err());
+        undo(&fs).await.unwrap();
+        assert!(!lock.exists());
+
+        // Half a plan, and the source already moved: nothing is touched.
+        std::fs::create_dir(&lock).unwrap();
+        std::fs::write(lock.join("plan.json"), r#"{"kind":"mig"#).unwrap();
+        std::fs::create_dir(lock.join("source")).unwrap();
+        std::fs::rename(dir.path().join("items"), lock.join("source/items")).unwrap();
+        let err = undo(&fs).await.unwrap_err();
+        assert!(err.to_string().contains("source"), "{err}");
+        assert!(lock.join("source/items").is_dir());
+        assert!(
+            !lock.join("recovery").exists(),
+            "a failed recovery gives up its claim"
+        );
+    }
+
+    #[tokio::test]
+    async fn two_recoveries_never_run_at_once() {
+        use crate::encryption::{recovery_in_progress, release_recovery};
+        let template = TempDir::new().unwrap();
+        let originals = plain_items(template.path()).await;
+        let renames = migration_calls(template.path()).await[4];
+        let dir = TempDir::new().unwrap();
+        copy_tree(template.path(), dir.path());
+        let fs = FaultyFs::new(LocalFs::new(dir.path()));
+        // The last rename puts the new header in place.
+        fs.fail_nth(FsOp::Rename, renames);
+        assert!(migrate(&fs, &words(W1), quick(), clock()).await.is_err());
+        let fs = LocalFs::new(dir.path());
+        assert_eq!(recovery_in_progress(&fs).await.unwrap(), None);
+
+        // Wrong words: the failed finish gives up its claim.
+        assert!(finish(&fs, &words(W2), None, None, clock()).await.is_err());
+        assert_eq!(recovery_in_progress(&fs).await.unwrap(), None);
+
+        // A recovery that is running shuts out a second.
+        std::fs::create_dir(dir.path().join(".rewrite/recovery")).unwrap();
+        let marker = recovery_in_progress(&fs).await.unwrap().unwrap();
+        assert!(!marker.is_stale(chrono::Utc::now()));
+        for err in [
+            undo(&fs).await.err(),
+            finish(&fs, &words(W1), None, None, clock()).await.err(),
+        ] {
+            assert!(
+                matches!(
+                    err,
+                    Some(StoreError::Encryption(EncryptionError::Recovering {
+                        started: Some(_)
+                    }))
+                ),
+                "{err:?}"
+            );
+        }
+
+        // Taken over, it finishes.
+        release_recovery(&fs).await.unwrap();
+        let key = finish(&fs, &words(W1), None, None, clock()).await.unwrap();
+        assert_holds(dir.path(), &key, &originals).await;
+        assert!(!dir.path().join(".rewrite").exists());
     }
 
     #[tokio::test]

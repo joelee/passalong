@@ -172,7 +172,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let root = dir.path().join("share/passalong");
         let cfg = config(&format!(
-            "[server]\nkind = \"local\"\n[server.local]\npath = \"{}\"\n",
+            "[server]\nkind = \"local\"\n[server.local]\npath = '{}'\n",
             root.display()
         ));
         let store = open_store(&cfg).await.unwrap();
@@ -213,7 +213,7 @@ mod tests {
         let file = dir.path().join("a-file");
         std::fs::write(&file, b"").unwrap();
         let cfg = config(&format!(
-            "[server]\nkind = \"local\"\n[server.local]\npath = \"{}/sub\"\n",
+            "[server]\nkind = \"local\"\n[server.local]\npath = '{}/sub'\n",
             file.display()
         ));
         assert!(matches!(
@@ -242,7 +242,7 @@ mod tests {
     async fn a_filesystem_backend_opens_through_the_store_header() {
         let dir = TempDir::new().unwrap();
         let cfg = config(&format!(
-            "[server]\nkind = \"local\"\n[server.local]\npath = \"{}\"\n",
+            "[server]\nkind = \"local\"\n[server.local]\npath = '{}'\n",
             dir.path().display()
         ));
         let registry = BackendRegistry::with_builtin();

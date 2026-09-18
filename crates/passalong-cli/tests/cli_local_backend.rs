@@ -44,7 +44,7 @@ impl Sandbox {
     fn config(&self) -> PathBuf {
         let path = self.path("cfg/config.toml");
         let text = format!(
-            "[client]\ndevice_name = \"test-box\"\n\n[server]\nkind = \"local\"\n\n[server.local]\npath = \"{}\"\n\n[serve]\ndrop_folder = \"{}\"\n",
+            "[client]\ndevice_name = \"test-box\"\n\n[server]\nkind = \"local\"\n\n[server.local]\npath = '{}'\n\n[serve]\ndrop_folder = '{}'\n",
             self.path("store").display(),
             self.path("drop").display()
         );
@@ -58,6 +58,10 @@ impl Sandbox {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_passalong"));
         cmd.current_dir(self.path("work"))
             .env("HOME", self.path("home"))
+            // Windows' locations, kept inside the sandbox too.
+            .env("APPDATA", self.path("home/AppData/Roaming"))
+            .env("LOCALAPPDATA", self.path("home/AppData/Local"))
+            .env("USERPROFILE", self.path("home"))
             .env_remove("XDG_CONFIG_HOME")
             .env_remove("XDG_STATE_HOME")
             .env_remove("WAYLAND_DISPLAY")
@@ -110,7 +114,7 @@ fn help_and_version() {
         .arg("--version")
         .assert()
         .success()
-        .stdout("passalong 0.2.0\n");
+        .stdout("passalong 0.2.1\n");
 }
 
 #[test]
@@ -202,7 +206,8 @@ fn config_can_come_from_dotenv_in_the_working_directory() {
     let config = sb.config();
     std::fs::write(
         sb.path("work/.env"),
-        format!("PASSALONG_CONFIG_FILE={}\n", config.display()),
+        // Single quotes keep a Windows path's backslashes.
+        format!("PASSALONG_CONFIG_FILE='{}'\n", config.display()),
     )
     .unwrap();
     sb.cmd().arg("list").assert().success().stdout("no items\n");
@@ -643,7 +648,7 @@ fn load_without_a_destination_downloads_files_into_downloads() {
     std::fs::write(&source, b"%PDF-1.7").unwrap();
     let out = sb.with_config().arg("file").arg(&source).assert().success();
     let id = String::from_utf8(out.get_output().stdout.clone()).unwrap();
-    let target = sb.path("home/Downloads/notes.pdf");
+    let target = sb.path("home").join("Downloads").join("notes.pdf");
     sb.with_config()
         .args(["load", id.trim()])
         .assert()
@@ -883,6 +888,137 @@ impl Drop for DaemonGuard {
     }
 }
 
+/// Ends a background `serve` left running by a failed test.
+#[cfg(windows)]
+struct WindowsDaemonGuard(u32);
+
+#[cfg(windows)]
+impl Drop for WindowsDaemonGuard {
+    fn drop(&mut self) {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &self.0.to_string(), "/F"])
+            .output();
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn serve_daemon_starts_reports_refuses_a_second_copy_and_stops_on_windows() {
+    use std::time::{Duration, Instant};
+    let sb = Sandbox::new();
+    let started = sb
+        .with_config()
+        .args(["serve", "--daemon"])
+        .timeout(Duration::from_secs(30))
+        .assert()
+        .success();
+    let out = String::from_utf8(started.get_output().stdout.clone()).unwrap();
+    assert!(out.starts_with("serve started (pid "), "{out}");
+    let pid: u32 = out["serve started (pid ".len()..]
+        .split(',')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let _guard = WindowsDaemonGuard(pid);
+    // The sandbox's LOCALAPPDATA.
+    let state = sb.path("home/AppData/Local").join("passalong");
+    assert!(
+        out.contains(&state.join("serve.log").display().to_string()),
+        "{out}"
+    );
+    sb.with_config()
+        .args(["serve", "--status"])
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with(format!("running (pid {pid}")));
+    sb.with_config()
+        .args(["serve", "--daemon"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains(format!(
+            "serve is already running (pid {pid})"
+        )));
+
+    std::fs::write(sb.path("drop/daemon.txt"), b"sent by the daemon").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !sb.path("drop/sent/daemon.txt").exists() {
+        assert!(Instant::now() < deadline, "the daemon never sent the file");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    sb.with_config()
+        .args(["serve", "--stop"])
+        .timeout(Duration::from_secs(30))
+        .assert()
+        .success()
+        .stdout("stopped\n");
+    sb.with_config()
+        .args(["serve", "--status"])
+        .assert()
+        .code(3)
+        .stdout("not running\n");
+    assert!(
+        !state.join("serve.pid").exists(),
+        "--stop leaves no pid file"
+    );
+    assert!(
+        !state.join("serve.stop").exists(),
+        "the stop request is taken"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+#[ignore = "changes this user's Run key and scheduled tasks; the Windows CI job runs it"]
+fn windows_service_install_and_remove_use_the_run_key_and_task_scheduler() {
+    let sb = Sandbox::new();
+    let run_value = || {
+        std::process::Command::new("reg")
+            .args([
+                "query",
+                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                "/v",
+                "passalong-serve",
+            ])
+            .output()
+            .unwrap()
+    };
+    sb.with_config()
+        .args(["service-install", "--no-start"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("serve starts when you log in"));
+    let found = run_value();
+    assert!(found.status.success());
+    assert!(String::from_utf8_lossy(&found.stdout).contains("serve --daemon"));
+    sb.with_config()
+        .arg("service-remove")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("removed passalong-serve"));
+    assert!(!run_value().status.success());
+
+    let task = || {
+        std::process::Command::new("schtasks")
+            .args(["/Query", "/TN", "passalong-serve"])
+            .output()
+            .unwrap()
+    };
+    sb.with_config()
+        .args(["service-install", "--scheduler", "--no-start"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("registered the scheduled task"));
+    assert!(task().status.success());
+    sb.with_config()
+        .arg("service-remove")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("removed the scheduled task"));
+    assert!(!task().status.success());
+}
+
 #[tokio::test]
 async fn list_prints_a_fresh_cache_without_connecting_and_nocache_connects() {
     let sb = Sandbox::new();
@@ -894,13 +1030,16 @@ async fn list_prints_a_fresh_cache_without_connecting_and_nocache_connects() {
     std::fs::write(
         &config,
         format!(
-            "[client]\ndevice_name = \"test-box\"\n\n[server]\nkind = \"ssh\"\n\n[server.ssh]\nhost = \"127.0.0.1\"\nport = 1\nuser = \"u\"\nhost_key = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMKy9BQGg0B6NYvYwyrJzGCOHCXKQBj7E/5jvWJSEDCi\"\nidentity_file = \"{}\"\nremote_path = \"/r\"\n",
+            "[client]\ndevice_name = \"test-box\"\n\n[server]\nkind = \"ssh\"\n\n[server.ssh]\nhost = \"127.0.0.1\"\nport = 1\nuser = \"u\"\nhost_key = \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMKy9BQGg0B6NYvYwyrJzGCOHCXKQBj7E/5jvWJSEDCi\"\nidentity_file = '{}'\nremote_path = \"/r\"\n",
             key.display()
         ),
     )
     .unwrap();
     let cache = if cfg!(target_os = "macos") {
         sb.path("home/Library/Application Support/passalong/list-cache.json")
+    } else if cfg!(windows) {
+        // The sandbox's LOCALAPPDATA.
+        sb.path("home/AppData/Local/passalong/list-cache.json")
     } else {
         sb.path("home/.local/state/passalong/list-cache.json")
     };
@@ -992,6 +1131,9 @@ fn serve_daemon_starts_reports_refuses_a_second_copy_and_stops() {
     }
     let cache = if cfg!(target_os = "macos") {
         sb.path("home/Library/Application Support/passalong/list-cache.json")
+    } else if cfg!(windows) {
+        // The sandbox's LOCALAPPDATA.
+        sb.path("home/AppData/Local/passalong/list-cache.json")
     } else {
         sb.path("home/.local/state/passalong/list-cache.json")
     };
@@ -1033,7 +1175,7 @@ fn serve_daemon_pulls_files_sent_by_another_device() {
     std::fs::write(
         &config,
         format!(
-            "[client]\ndevice_name = \"laptop\"\ndownload_dir = \"{}\"\n\n[server]\nkind = \"local\"\n\n[server.local]\npath = \"{}\"\n\n[serve]\ndrop_folder = \"{}\"\npull = true\npull_interval_ms = 1000\n",
+            "[client]\ndevice_name = \"laptop\"\ndownload_dir = '{}'\n\n[server]\nkind = \"local\"\n\n[server.local]\npath = '{}'\n\n[serve]\ndrop_folder = '{}'\npull = true\npull_interval_ms = 1000\n",
             sb.path("home/dl").display(),
             sb.path("store").display(),
             sb.path("drop").display()
@@ -1194,7 +1336,7 @@ impl Sandbox {
     fn with_key_file(&self, key_file: &std::path::Path) -> Command {
         let path = self.path("cfg/keyed.toml");
         let text = format!(
-            "[client]\ndevice_name = \"test-box\"\nkey_file = \"{}\"\n\n[server]\nkind = \"local\"\n\n[server.local]\npath = \"{}\"\n\n[serve]\ndrop_folder = \"{}\"\n",
+            "[client]\ndevice_name = \"test-box\"\nkey_file = '{}'\n\n[server]\nkind = \"local\"\n\n[server.local]\npath = '{}'\n\n[serve]\ndrop_folder = '{}'\n",
             key_file.display(),
             self.path("store").display(),
             self.path("drop").display()
@@ -1322,27 +1464,36 @@ async fn a_fresh_start_leaves_plaintext_that_list_mentions_and_prune_plain_remov
     let key = fresh_start(&LocalFs::new(sb.path("store")), &words, kdf)
         .await
         .unwrap();
+    // An upload passalong 0.2.0 left in the plaintext staging.
+    std::fs::create_dir_all(sb.path("store/tmp/cut-short")).unwrap();
     let key_file = sb.save_key(&key);
     sb.with_key_file(&key_file)
         .arg("list")
         .assert()
         .success()
-        .stderr(predicate::str::contains("2 unencrypted items remain"));
+        .stderr(predicate::str::contains("2 unencrypted items remain"))
+        .stderr(predicate::str::contains(
+            "1 unencrypted leftover of cut-short uploads remains",
+        ));
     sb.with_key_file(&key_file)
         .arg("check")
         .assert()
         .success()
         .stdout(predicate::str::contains(format!(
-            "on (key {}); 2 unencrypted items remain",
+            "on (key {}); 2 unencrypted items remain from before encryption; 1 unencrypted leftover of cut-short uploads",
             key.key_id().short()
         )));
     sb.with_key_file(&key_file)
         .args(["prune", "--plain", "--keep", "0", "--yes"])
         .assert()
         .success()
+        .stdout(predicate::str::contains(
+            "removed 1 unencrypted leftover of cut-short uploads",
+        ))
         .stdout(predicate::str::contains("deleted 2 items"))
         .stdout(predicate::str::contains("removed plain/"));
     assert!(!sb.path("store/plain").exists());
+    assert!(!sb.path("store/tmp").exists());
     sb.with_key_file(&key_file)
         .arg("list")
         .assert()

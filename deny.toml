@@ -4,13 +4,13 @@
 # Default features only: the optional `rsa` feature of passalong-ssh is left
 # out, because the `rsa` crate has an unfixed advisory (RUSTSEC-2023-0071).
 all-features = false
-# The platforms passalong supports. Windows is not supported before v0.2,
-# so its target-specific crates are left out of every check.
+# The platforms passalong supports; Windows since v0.2.1.
 targets = [
     "x86_64-unknown-linux-gnu",
     "aarch64-unknown-linux-gnu",
     "x86_64-apple-darwin",
     "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
 ]
 
 [advisories]
@@ -22,6 +22,9 @@ allow = [
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",
     "BSD-3-Clause",
+    # clipboard-win and error-code, arboard's Windows clipboard backend.
+    # Permissive; binaries need no notice.
+    "BSL-1.0",
     "CC0-1.0",
     "ISC",
     "MIT",
@@ -44,6 +47,7 @@ skip = [
     { crate = "miniz_oxide@0.8.9", reason = "png 0.18, for clipboard images, uses miniz_oxide 0.8 while flate2 uses 0.9" },
     { crate = "sha3@0.11.0", reason = "ml-kem 0.3, russh's post-quantum key exchange, uses sha3 0.11" },
     { crate = "syn@2.0.119", reason = "tracing-attributes, enum_dispatch, delegate, and other proc macros still use syn 2 while clap_derive and async-trait use syn 3" },
+    { crate = "windows-sys@0.60.2", reason = "arboard 3.6, the clipboard on Windows, uses windows-sys 0.60 while tempfile, rustix, and anstyle use 0.61" },
 ]
 
 [sources]

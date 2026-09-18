@@ -4,10 +4,13 @@
 
 use std::sync::Arc;
 
+use super::header::encryption_dir;
+use super::header_change::run_change;
+use super::journal::{HeaderChangeKind, count_staged, sweep_staged};
 use super::open::rewrite_started;
+use super::rewrite::fold;
 use super::{
-    EncryptionError, PLAIN_DIR, REWRITE_DIR, STOP_FILE, StoreHeader, create_header, read_header,
-    replace_header, write_stop_file,
+    EncryptionError, PLAIN_DIR, REWRITE_DIR, STOP_FILE, StoreHeader, read_header, write_stop_file,
 };
 use crate::clock::SystemClock;
 use crate::crypto::{DataKey, KdfParams, KeyId, Words, unwrap, wrap};
@@ -36,8 +39,55 @@ pub enum StoreState {
         /// When that started, if known.
         started: Option<String>,
     },
-    /// `items` is a file, but there is no header.
+    /// Part of an encrypted layout without the rest, such as a stop file or
+    /// an `encryption/` folder without a header, or a header beside an
+    /// `items/` folder. It is never used as plaintext.
     Broken,
+}
+
+/// What a store's root holds, read the same way for [`inspect`] and for
+/// opening the store.
+pub(super) enum Layout {
+    /// `.rewrite/` is there.
+    Rewriting {
+        /// When the change started, if known.
+        started: Option<String>,
+    },
+    /// A readable header, and no `items/` folder beside it.
+    Encrypted(StoreHeader),
+    /// Part of an encrypted layout without the rest.
+    Broken,
+    /// Nothing of an encrypted layout.
+    Plain,
+}
+
+/// Reads the store's root and tells its layout apart. Any part of an
+/// encrypted layout without the rest, as a synced folder may deliver it,
+/// is [`Layout::Broken`], never [`Layout::Plain`].
+///
+/// # Errors
+///
+/// The filesystem's error, or [`EncryptionError::Header`] for a header that
+/// cannot be parsed.
+pub(super) async fn classify<F: RemoteFs + ?Sized>(fs: &F) -> Result<Layout, StoreError> {
+    if fs.stat(&RemotePath::new(REWRITE_DIR)?).await?.is_some() {
+        return Ok(Layout::Rewriting {
+            started: rewrite_started(fs).await,
+        });
+    }
+    let items = fs.stat(&items_path()).await?;
+    let items_folder = items.as_ref().is_some_and(|meta| meta.is_dir);
+    if fs.stat(&encryption_dir()?).await?.is_some() {
+        return Ok(match read_header(fs).await? {
+            Some(header) if !items_folder => Layout::Encrypted(header),
+            _ => Layout::Broken,
+        });
+    }
+    Ok(if items.is_some() && !items_folder {
+        Layout::Broken
+    } else {
+        Layout::Plain
+    })
 }
 
 fn items_path() -> RemotePath {
@@ -46,6 +96,95 @@ fn items_path() -> RemotePath {
 
 fn plain_path() -> RemotePath {
     RemotePath::new(PLAIN_DIR).expect("a valid path")
+}
+
+/// `tmp/`, where a plaintext store stages uploads and deletions.
+pub(super) fn plain_tmp() -> RemotePath {
+    RemotePath::new("tmp").expect("a valid path")
+}
+
+/// What an encrypted store holds but no longer uses;
+/// `passalong prune --plain` removes it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Leftovers {
+    /// Entries of `tmp/`, the plaintext staging: uploads and deletions cut
+    /// short before encryption, which may hold plaintext.
+    pub plaintext_staging: usize,
+    /// Journals staged for locks that were never taken.
+    pub staged_journals: usize,
+}
+
+impl Leftovers {
+    /// Whether there is nothing to remove.
+    pub fn is_empty(&self) -> bool {
+        self.plaintext_staging == 0 && self.staged_journals == 0
+    }
+
+    /// Leftovers of `n` entries of plaintext staging.
+    pub(crate) fn plaintext(n: usize) -> Self {
+        Self {
+            plaintext_staging: n,
+            staged_journals: 0,
+        }
+    }
+}
+
+impl std::fmt::Display for Leftovers {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut parts = Vec::new();
+        if self.plaintext_staging > 0 {
+            let n = self.plaintext_staging;
+            let noun = if n == 1 { "leftover" } else { "leftovers" };
+            parts.push(format!("{n} unencrypted {noun} of cut-short uploads"));
+        }
+        if self.staged_journals > 0 {
+            let n = self.staged_journals;
+            let noun = if n == 1 { "journal" } else { "journals" };
+            parts.push(format!("{n} unused {noun}"));
+        }
+        if parts.is_empty() {
+            return f.write_str("no leftovers");
+        }
+        f.write_str(&parts.join(", "))
+    }
+}
+
+/// Counts an encrypted store's [`Leftovers`].
+///
+/// # Errors
+///
+/// The refusal for a store that is not encrypted, and the filesystem's
+/// error.
+pub async fn leftovers<F: RemoteFs + ?Sized>(fs: &F) -> Result<Leftovers, StoreError> {
+    match inspect(fs).await? {
+        StoreState::Encrypted { .. } => count_leftovers(fs).await,
+        other => Err(refuse(other)),
+    }
+}
+
+async fn count_leftovers<F: RemoteFs + ?Sized>(fs: &F) -> Result<Leftovers, StoreError> {
+    let plaintext_staging = match fs.read_dir(&plain_tmp()).await {
+        Ok(entries) => entries.len(),
+        Err(FsError::NotFound(_)) => 0,
+        Err(err) => return Err(err.into()),
+    };
+    Ok(Leftovers {
+        plaintext_staging,
+        staged_journals: count_staged(fs).await?,
+    })
+}
+
+/// Removes an encrypted store's [`Leftovers`], and returns what it found.
+///
+/// # Errors
+///
+/// As [`leftovers`].
+pub async fn remove_leftovers<F: RemoteFs + ?Sized>(fs: &F) -> Result<Leftovers, StoreError> {
+    let found = leftovers(fs).await?;
+    fs.remove_dir_all(&plain_tmp()).await?;
+    sweep_staged(fs).await?;
+    Ok(found)
 }
 
 /// The plaintext items a fresh start kept, as a store of their own, for
@@ -65,28 +204,19 @@ pub fn plain_store<F: RemoteFs + ?Sized>(fs: &F) -> FsStore<SubFs<&F>> {
 /// The filesystem's error, or [`EncryptionError::Header`] for a header
 /// that cannot be read.
 pub async fn inspect<F: RemoteFs + ?Sized>(fs: &F) -> Result<StoreState, StoreError> {
-    if fs.stat(&RemotePath::new(REWRITE_DIR)?).await?.is_some() {
-        return Ok(StoreState::Rewriting {
-            started: rewrite_started(fs).await,
-        });
-    }
-    if let Some(header) = read_header(fs).await? {
-        let plain_left = plain_store(fs).list_ids().await?.len();
-        return Ok(StoreState::Encrypted {
+    Ok(match classify(fs).await? {
+        Layout::Rewriting { started } => StoreState::Rewriting { started },
+        Layout::Encrypted(header) => StoreState::Encrypted {
             key_id: header.key_id(),
-            plain_left,
-        });
-    }
-    if fs
-        .stat(&items_path())
-        .await?
-        .is_some_and(|meta| !meta.is_dir)
-    {
-        return Ok(StoreState::Broken);
-    }
-    let plain = FsStore::new(fs, Arc::new(SystemClock), Box::new(StdRandom::new()));
-    Ok(StoreState::Plain {
-        items: plain.list_ids().await?.len(),
+            plain_left: plain_store(fs).list_ids().await?.len(),
+        },
+        Layout::Broken => StoreState::Broken,
+        Layout::Plain => {
+            let plain = FsStore::new(fs, Arc::new(SystemClock), Box::new(StdRandom::new()));
+            StoreState::Plain {
+                items: plain.list_ids().await?.len(),
+            }
+        }
     })
 }
 
@@ -130,19 +260,17 @@ pub async fn set_up<F: RemoteFs + ?Sized>(
         }
         other => return Err(refuse(other)),
     }
-    let (key, header) = new_key(words, kdf)?;
     let items = items_path();
-    if fs.stat(&items).await?.is_some_and(|meta| meta.is_dir) {
-        if !fs.read_dir(&items).await?.is_empty() {
-            return Err(EncryptionError::Layout(format!(
-                "`{STOP_FILE}` holds files that are not items; move them away first"
-            ))
-            .into());
-        }
-        fs.remove_dir_all(&items).await?;
+    if fs.stat(&items).await?.is_some_and(|meta| meta.is_dir)
+        && !fs.read_dir(&items).await?.is_empty()
+    {
+        return Err(EncryptionError::Layout(format!(
+            "`{STOP_FILE}` holds files that are not items; move them away first"
+        ))
+        .into());
     }
-    write_stop_file(fs).await?;
-    create_header(fs, &header).await?;
+    let (key, header) = new_key(words, kdf)?;
+    run_change(fs, HeaderChangeKind::SetUp, &header, None).await?;
     Ok(key)
 }
 
@@ -165,18 +293,56 @@ pub async fn fresh_start<F: RemoteFs + ?Sized>(
         other => return Err(refuse(other)),
     }
     let (key, header) = new_key(words, kdf)?;
-    move_items_to_plain(fs).await?;
+    run_change(fs, HeaderChangeKind::FreshStart, &header, None).await?;
+    Ok(key)
+}
+
+/// Makes way for the stop file and writes it: an empty `items/` is
+/// removed, and one holding items moves to `plain/items/`; once more when a
+/// client before v0.2.0 recreated `items/` in between. Then the plaintext
+/// staging `tmp/` goes: with the stop file in place, nothing staged there
+/// can be published any more.
+pub(super) async fn stop_old_clients<F: RemoteFs + ?Sized>(fs: &F) -> Result<(), StoreError> {
+    clear_items(fs).await?;
     if let Err(err) = write_stop_file(fs).await {
-        // A client before v0.2.0 recreated `items/` in between: move what
-        // it stored as well, once.
         if !matches!(err, StoreError::Encryption(EncryptionError::Layout(_))) {
             return Err(err);
         }
-        move_items_to_plain(fs).await?;
+        clear_items(fs).await?;
         write_stop_file(fs).await?;
     }
-    create_header(fs, &header).await?;
-    Ok(key)
+    fs.remove_dir_all(&plain_tmp()).await?;
+    Ok(())
+}
+
+async fn clear_items<F: RemoteFs + ?Sized>(fs: &F) -> Result<(), StoreError> {
+    let items = items_path();
+    if !fs.stat(&items).await?.is_some_and(|meta| meta.is_dir) {
+        return Ok(());
+    }
+    if fs.read_dir(&items).await?.is_empty() {
+        fs.remove_dir_all(&items).await?;
+        return Ok(());
+    }
+    move_items_to_plain(fs).await
+}
+
+/// Undoes [`stop_old_clients`]: removes the stop file, and moves
+/// `plain/items/` back to `items/`.
+pub(super) async fn restore_items<F: RemoteFs + ?Sized>(fs: &F) -> Result<(), StoreError> {
+    let items = items_path();
+    if fs.stat(&items).await?.is_some_and(|meta| !meta.is_dir) {
+        fs.remove_file(&items).await?;
+    }
+    let kept = plain_path().join(STOP_FILE)?;
+    if fs.stat(&kept).await?.is_some() {
+        fold(fs, &kept, &items).await?;
+    }
+    let plain = plain_path();
+    if fs.stat(&plain).await?.is_some() && fs.read_dir(&plain).await?.is_empty() {
+        fs.remove_dir_all(&plain).await?;
+    }
+    Ok(())
 }
 
 /// Moves `items/` to `plain/items/`: in one rename when there is no
@@ -239,7 +405,11 @@ pub async fn change_words<F: RemoteFs + ?Sized>(
     kdf: KdfParams,
 ) -> Result<KeyId, StoreError> {
     let key = join(fs, current).await?;
-    replace_header(fs, &StoreHeader::new(wrap(&key, new, kdf)?)).await?;
+    let old = read_header(fs)
+        .await?
+        .ok_or(EncryptionError::HeaderMissing)?;
+    let header = StoreHeader::new(wrap(&key, new, kdf)?);
+    run_change(fs, HeaderChangeKind::Words, &header, Some(&old)).await?;
     Ok(key.key_id())
 }
 
@@ -333,6 +503,46 @@ mod tests {
             inspect(&fs).await.unwrap(),
             StoreState::Rewriting { started: None }
         );
+    }
+
+    #[tokio::test]
+    async fn leftovers_are_counted_and_removed_on_an_encrypted_store() {
+        let dir = TempDir::new().unwrap();
+        let fs = LocalFs::new(dir.path());
+        assert!(is(
+            leftovers(&fs).await.unwrap_err(),
+            &EncryptionError::NotEncrypted
+        ));
+        set_up(&fs, &words(W1), quick()).await.unwrap();
+        assert!(leftovers(&fs).await.unwrap().is_empty());
+        // What passalong 0.2.0 kept: an upload and a deletion cut short
+        // before encryption, and a journal staged for a lock never taken.
+        std::fs::create_dir_all(dir.path().join("tmp/0123")).unwrap();
+        std::fs::write(dir.path().join("tmp/0123/content"), "plaintext").unwrap();
+        std::fs::create_dir_all(dir.path().join("tmp/deleted-x")).unwrap();
+        std::fs::create_dir(dir.path().join(".rewrite-00ff")).unwrap();
+        let found = leftovers(&fs).await.unwrap();
+        assert_eq!((found.plaintext_staging, found.staged_journals), (2, 1));
+        assert_eq!(
+            found.to_string(),
+            "2 unencrypted leftovers of cut-short uploads, 1 unused journal"
+        );
+        assert_eq!(remove_leftovers(&fs).await.unwrap(), found);
+        assert!(leftovers(&fs).await.unwrap().is_empty());
+        assert!(!dir.path().join("tmp").exists());
+    }
+
+    #[tokio::test]
+    async fn parts_of_an_encrypted_layout_are_broken_never_plain() {
+        let dir = TempDir::new().unwrap();
+        let fs = LocalFs::new(dir.path());
+        seed(&fs, 1).await;
+        std::fs::create_dir(dir.path().join("encryption")).unwrap();
+        assert_eq!(inspect(&fs).await.unwrap(), StoreState::Broken);
+        // The header arrived, but `items/` is still the plaintext folder.
+        let header = crate::encryption::header::tests::quick_header(&DataKey::generate().unwrap());
+        std::fs::write(dir.path().join("encryption/header.json"), header.to_json()).unwrap();
+        assert_eq!(inspect(&fs).await.unwrap(), StoreState::Broken);
     }
 
     #[tokio::test]

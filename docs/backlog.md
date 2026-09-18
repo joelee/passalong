@@ -4,8 +4,7 @@ Future work not covered by an active plan. Completed items are removed.
 
 ## @joelee road map for next releases
 
-### v0.2.1
-- **Windows support**
+### v0.2.2
 - **Amazon S3 support** for `serve`
 - **Check encrypted stores on a cloud-synced folder** (PLAN-00008 AC-21,
   deferred on 2026-09-15 for lack of a setup). Two devices share one
@@ -13,6 +12,13 @@ Future work not covered by an active plan. Completed items are removed.
   one, join on the other, and send text and files both ways. Every item
   should list and load on both, and none be reported corrupt once syncing
   is done. See IDEA-00001-R05-MED-01.
+
+### Unscheduled
+- **`passalong init` for a `local` store** (requested 2026-09-16). `init`
+  only sets up an SSH server, so a `local` store, such as a mounted share
+  or a synced folder, needs its config written by hand. `init` should offer
+  the backend, ask for the storage folder, check it can be written, and
+  then inspect it for encryption as it does for SSH.
 
 
 ## Agent suggested next steps
@@ -35,7 +41,11 @@ Future work not covered by an active plan. Completed items are removed.
   Their config sections must be added to the core configuration module.
 - **Android client and desktop GUI** on top of `passalong-core` and
   `passalong-ssh`.
-- **Windows support.**
+- **A windowless Windows launcher** (PLAN-00009 D-07). The Task Scheduler
+  task from `service-install --scheduler` runs `serve` in the foreground,
+  so its console window stays open while it runs. A small `windows`
+  subsystem launcher, or `serve --daemon` under the task with restarts
+  handled another way, would hide it.
 - **Cloud-sync hardening.** Encrypted stores treat a recent item that does
   not open as not complete; check each provider (Dropbox, Google Drive,
   OneDrive) for conflicted copies of `encryption/header.json` and warn.

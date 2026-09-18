@@ -395,6 +395,73 @@ mod tests {
         assert_eq!(puts.load(Ordering::SeqCst), 0, "nothing was uploaded");
     }
 
+    #[tokio::test]
+    async fn a_file_sent_across_a_rotation_is_kept_for_the_retry() {
+        use crate::crypto::{KDF_SALT_LEN, KdfParams, Words};
+        use crate::encryption::{open_with_key, rotate, set_up};
+        use crate::testing::{FsOp, PausingFs};
+        let dir = TempDir::new().unwrap();
+        let root = dir.path().join("store");
+        std::fs::create_dir_all(&root).unwrap();
+        let kdf = || KdfParams {
+            m_kib: 64,
+            t: 1,
+            p: 1,
+            salt: [6; KDF_SALT_LEN],
+        };
+        let old = set_up(
+            &LocalFs::new(root.clone()),
+            &Words::parse("abacus zoom abdomen abacus zoom abdomen").unwrap(),
+            kdf(),
+        )
+        .await
+        .unwrap();
+        let paused = Arc::new(PausingFs::new(LocalFs::new(root.clone())));
+        let store = open_with_key(
+            Arc::clone(&paused),
+            Some(old.clone()),
+            Arc::new(SystemClock),
+            Box::new(StdRandom::new()),
+        )
+        .await
+        .unwrap();
+        let opener: StoreOpener = Arc::new(|| -> crate::store::BackendFuture<'static> {
+            Box::pin(async { Err(StoreError::Backend("not reopened".into())) })
+        });
+        let uploader = Uploader::new(
+            store,
+            opener,
+            "box".into(),
+            AfterSend::Delete,
+            dir.path().join("sent"),
+        );
+        let file = dir.path().join("report.txt");
+        std::fs::write(&file, "the only copy").unwrap();
+        // Held while the file's content is written; meanwhile another
+        // device rotates the store's key.
+        paused.pause_at(FsOp::OpenWrite, 1);
+        let job = Job::File(file.clone());
+        let send = uploader.attempt(&job);
+        let rotation = async {
+            paused.reached().await;
+            rotate(
+                &LocalFs::new(root.clone()),
+                &old,
+                &Words::parse("zoom zoom zoom zoom zoom zoom").unwrap(),
+                kdf(),
+                Arc::new(SystemClock),
+            )
+            .await
+            .unwrap();
+            paused.release();
+        };
+        let (sent, ()) = tokio::join!(send, rotation);
+        // A store failure, so retried: the key changed, or, in this empty
+        // store, the rotation left no items folder to publish into.
+        assert!(matches!(sent, Err(Failure::Store(_))));
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "the only copy");
+    }
+
     struct Rig {
         dir: TempDir,
         failures: Arc<AtomicUsize>,

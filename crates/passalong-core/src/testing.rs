@@ -202,6 +202,62 @@ pub enum FsOp {
 struct FaultState {
     calls: HashMap<FsOp, usize>,
     failing: HashSet<(FsOp, usize)>,
+    /// Bytes each chosen `open_write` call's writer takes before failing.
+    cuts: HashMap<usize, usize>,
+}
+
+mod cut_writer {
+    use std::io;
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+
+    use tokio::io::AsyncWrite;
+
+    use crate::fs::BoxWrite;
+
+    /// A writer that takes `left` more bytes, then fails every write and
+    /// its shutdown: a write cut short part-way.
+    pub(super) struct CutWriter {
+        pub(super) inner: BoxWrite,
+        pub(super) left: usize,
+    }
+
+    fn cut() -> io::Error {
+        io::Error::other("injected write failure")
+    }
+
+    impl AsyncWrite for CutWriter {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            if self.left == 0 {
+                return Poll::Ready(Err(cut()));
+            }
+            let this = &mut *self;
+            let n = buf.len().min(this.left);
+            match Pin::new(&mut this.inner).poll_write(cx, &buf[..n]) {
+                Poll::Ready(Ok(written)) => {
+                    this.left -= written;
+                    Poll::Ready(Ok(written))
+                }
+                other => other,
+            }
+        }
+
+        fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.inner).poll_flush(cx)
+        }
+
+        fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            // The bytes taken reach the file; the caller still sees a failure.
+            match Pin::new(&mut self.inner).poll_shutdown(cx) {
+                Poll::Ready(_) => Poll::Ready(Err(cut())),
+                Poll::Pending => Poll::Pending,
+            }
+        }
+    }
 }
 
 /// [`RemoteFs`] wrapper that fails chosen calls, for testing error paths
@@ -243,6 +299,17 @@ impl<F> FaultyFs<F> {
         state.failing.extend((1..=times).map(|i| (op, done + i)));
     }
 
+    /// Makes the `nth` [`RemoteFs::open_write`] call (counting from 1)
+    /// return a writer that takes `after` bytes and then fails every write
+    /// and its shutdown, as when a connection drops part-way through.
+    pub fn cut_nth_write(&self, nth: usize, after: usize) {
+        self.state
+            .lock()
+            .expect("fault state lock")
+            .cuts
+            .insert(nth, after);
+    }
+
     /// How many times `op` has been called.
     pub fn calls(&self, op: FsOp) -> usize {
         self.state
@@ -254,7 +321,8 @@ impl<F> FaultyFs<F> {
             .unwrap_or(0)
     }
 
-    fn check(&self, op: FsOp, path: &RemotePath) -> Result<(), FsError> {
+    /// Counts a call of `op`, fails it when chosen, and returns its number.
+    fn check(&self, op: FsOp, path: &RemotePath) -> Result<usize, FsError> {
         let mut state = self.state.lock().expect("fault state lock");
         let call = state.calls.entry(op).or_insert(0);
         *call += 1;
@@ -265,7 +333,7 @@ impl<F> FaultyFs<F> {
                 message: format!("injected {op:?} failure"),
             });
         }
-        Ok(())
+        Ok(key.1)
     }
 }
 
@@ -287,8 +355,21 @@ impl<F: RemoteFs> RemoteFs for FaultyFs<F> {
     }
 
     async fn open_write(&self, path: &RemotePath) -> Result<BoxWrite, FsError> {
-        self.check(FsOp::OpenWrite, path)?;
-        self.inner.open_write(path).await
+        let call = self.check(FsOp::OpenWrite, path)?;
+        let writer = self.inner.open_write(path).await?;
+        let cut = self
+            .state
+            .lock()
+            .expect("fault state lock")
+            .cuts
+            .remove(&call);
+        Ok(match cut {
+            Some(left) => Box::new(cut_writer::CutWriter {
+                inner: writer,
+                left,
+            }),
+            None => writer,
+        })
     }
 
     async fn rename(&self, from: &RemotePath, to: &RemotePath) -> Result<(), FsError> {
@@ -313,6 +394,133 @@ impl<F: RemoteFs> RemoteFs for FaultyFs<F> {
 
     async fn remove_file(&self, path: &RemotePath) -> Result<(), FsError> {
         self.check(FsOp::RemoveFile, path)?;
+        self.inner.remove_file(path).await
+    }
+}
+
+/// Sets the modification time of the file or folder at `path`. Windows
+/// opens a folder only with a flag for it, which `File::open` does not set.
+///
+/// # Errors
+///
+/// When the path cannot be opened or its time set.
+pub fn set_modified(path: &std::path::Path, time: std::time::SystemTime) -> io::Result<()> {
+    let mut options = std::fs::OpenOptions::new();
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // FILE_WRITE_ATTRIBUTES, and FILE_FLAG_BACKUP_SEMANTICS for folders.
+        options.access_mode(0x0100).custom_flags(0x0200_0000);
+    }
+    #[cfg(not(windows))]
+    options.read(true);
+    options.open(path)?.set_modified(time)
+}
+
+#[derive(Debug, Default)]
+struct PauseState {
+    calls: HashMap<FsOp, usize>,
+    at: Option<(FsOp, usize)>,
+}
+
+/// [`RemoteFs`] wrapper that holds one chosen call until the test lets it
+/// go, for running two operations in a set order.
+#[derive(Debug, Default)]
+pub struct PausingFs<F> {
+    inner: F,
+    state: Mutex<PauseState>,
+    reached: tokio::sync::Notify,
+    released: tokio::sync::Notify,
+}
+
+impl<F> PausingFs<F> {
+    /// Wraps `inner`; nothing is held until [`PausingFs::pause_at`].
+    pub fn new(inner: F) -> Self {
+        Self {
+            inner,
+            state: Mutex::default(),
+            reached: tokio::sync::Notify::new(),
+            released: tokio::sync::Notify::new(),
+        }
+    }
+
+    /// Holds the `nth` call of `op`, counting from 1 from now, before it
+    /// runs.
+    pub fn pause_at(&self, op: FsOp, nth: usize) {
+        let mut state = self.state.lock().expect("pause state lock");
+        state.calls.clear();
+        state.at = Some((op, nth));
+    }
+
+    /// Waits until the held call arrives.
+    pub async fn reached(&self) {
+        self.reached.notified().await;
+    }
+
+    /// Lets the held call run.
+    pub fn release(&self) {
+        self.released.notify_one();
+    }
+
+    async fn hold(&self, op: FsOp) {
+        let held = {
+            let mut state = self.state.lock().expect("pause state lock");
+            let call = state.calls.entry(op).or_insert(0);
+            *call += 1;
+            let key = (op, *call);
+            state.at == Some(key)
+        };
+        if held {
+            self.reached.notify_one();
+            self.released.notified().await;
+        }
+    }
+}
+
+#[async_trait]
+impl<F: RemoteFs> RemoteFs for PausingFs<F> {
+    async fn create_dir_all(&self, path: &RemotePath) -> Result<(), FsError> {
+        self.hold(FsOp::CreateDirAll).await;
+        self.inner.create_dir_all(path).await
+    }
+
+    async fn read_dir(&self, path: &RemotePath) -> Result<Vec<DirEntry>, FsError> {
+        self.hold(FsOp::ReadDir).await;
+        self.inner.read_dir(path).await
+    }
+
+    async fn open_read(&self, path: &RemotePath) -> Result<BoxRead, FsError> {
+        self.hold(FsOp::OpenRead).await;
+        self.inner.open_read(path).await
+    }
+
+    async fn open_write(&self, path: &RemotePath) -> Result<BoxWrite, FsError> {
+        self.hold(FsOp::OpenWrite).await;
+        self.inner.open_write(path).await
+    }
+
+    async fn rename(&self, from: &RemotePath, to: &RemotePath) -> Result<(), FsError> {
+        self.hold(FsOp::Rename).await;
+        self.inner.rename(from, to).await
+    }
+
+    async fn remove_dir_all(&self, path: &RemotePath) -> Result<(), FsError> {
+        self.hold(FsOp::RemoveDirAll).await;
+        self.inner.remove_dir_all(path).await
+    }
+
+    async fn stat(&self, path: &RemotePath) -> Result<Option<Metadata>, FsError> {
+        self.hold(FsOp::Stat).await;
+        self.inner.stat(path).await
+    }
+
+    async fn create_dir(&self, path: &RemotePath) -> Result<(), FsError> {
+        self.hold(FsOp::CreateDir).await;
+        self.inner.create_dir(path).await
+    }
+
+    async fn remove_file(&self, path: &RemotePath) -> Result<(), FsError> {
+        self.hold(FsOp::RemoveFile).await;
         self.inner.remove_file(path).await
     }
 }

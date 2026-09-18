@@ -91,6 +91,33 @@ for API level 24 (Android 7.0) and its `llvm-ar`. It only checks the code
 uses `ring` rather than `aws-lc-rs` so that no CMake or extra toolchain is
 needed.
 
+## Windows
+
+Windows x86_64 (`x86_64-pc-windows-msvc`) is built and tested by the
+`windows` CI job, which runs what `just windows-check` runs: a build,
+clippy with warnings as errors, and the tests. The SSH integration tests
+need Docker, so they run on Linux only.
+
+To build on Windows, install the toolchain above with the MSVC target and
+the Microsoft C++ build tools, which ring needs for its C code. `just`
+recipes run in Git Bash.
+
+On Windows the config is looked for and written in `%APPDATA%\passalong\`,
+the system config is under `%ProgramData%`, `serve`'s pid, log, and list
+cache go to `%LOCALAPPDATA%\passalong\`, and `~` expands from
+`%USERPROFILE%`. When one of those variables is unset, which a real Windows
+system never does, the Unix rules apply. The crate-private `*_on(Platform)`
+functions in `passalong-core/src/config.rs`, and
+`StatePaths::resolve(env, Os::Windows)` in the CLI, let unit tests check
+the Windows locations on every platform; the CLI tests point all of these
+variables into their sandbox.
+
+From Linux, only the core crate can be checked for Windows:
+`rustup target add x86_64-pc-windows-msvc`, then
+`cargo check --target x86_64-pc-windows-msvc -p passalong-core
+--all-targets`. The SSH and CLI crates need the Windows SDK headers for
+ring, so the CI job is their check.
+
 ## Test-driven workflow
 
 1. Write a failing test for the next behaviour and run it; confirm it fails
@@ -122,12 +149,22 @@ encrypted store's root holds a regular file named `items` where older
 clients expect their item directory, so their commands fail instead.
 `crates/passalong-cli/tests/compat_v016.rs` proves this with the released
 v0.1.6 binary: it runs every command that reads or writes items against
-temporary stores and checks that each one fails and that nothing it sent
-reaches the store. The tests are ignored and need the old binary in
-`PASSALONG_COMPAT_BIN`; `just test-compat` downloads the v0.1.6 archive for
-Linux x86_64 or macOS arm64 once into `target/compat/`, checks its SHA-256,
-and runs them. `just ci` includes it. `serve` is not run, because it would
-read the real clipboard.
+temporary stores and checks that each one fails at the store, not on its
+arguments, that nothing it sent reaches the store, and that an encrypted
+store's files are unchanged. A positive control runs the same `prune`
+against a plaintext store, where it must prune.
+
+The store format has not changed since v0.2.0, so the released v0.2.0
+binary must keep working with stores this version changed.
+`crates/passalong-cli/tests/compat_v020.rs` encrypts a store, changes its
+words, rotates its key, and stores items with this version; v0.2.0 then
+lists and prints every item and sends one that this version reads back.
+
+The tests are ignored and need the old binaries in `PASSALONG_COMPAT_BIN`
+and `PASSALONG_COMPAT_V020_BIN`; `just test-compat` downloads the v0.1.6
+and v0.2.0 archives for Linux x86_64 or macOS arm64 once into
+`target/compat/`, checks their SHA-256, and runs them. `just ci` includes
+it. `serve` is not run, because it would read the real clipboard.
 
 ## Encryption tests
 
@@ -193,8 +230,9 @@ an RSA key under it.
 ## Duplicate dependencies
 
 `cargo deny` rejects a crate that appears in two versions, so a new
-duplicate is a decision instead of an accident. It checks the four
-supported targets: Linux and macOS on x86_64 and aarch64. Each duplicate
+duplicate is a decision instead of an accident. It checks the five
+supported targets: Linux and macOS on x86_64 and aarch64, and Windows on
+x86_64. Each duplicate
 that cannot be avoided today has a `skip` entry in `deny.toml` naming the
 older version and which dependency needs it.
 
@@ -255,8 +293,9 @@ The steps, and who does each, are in the "Release workflow" section of
 
 5. The workflow runs `scripts/check-release-tag.sh` again, which fails
    unless the tag matches the workspace version and the release records are
-   final. It then runs `cargo publish --dry-run` and builds Linux x86_64 and macOS
-   arm64 binaries with SHA-256 files. Publishing waits until a maintainer
+   final. It then runs `cargo publish --dry-run` and builds the binaries,
+   each with a SHA-256 file: `.tar.gz` archives for Linux x86_64 and macOS
+   arm64, and a `.zip` for Windows x86_64. Publishing waits until a maintainer
    approves the pending `release` deployment on the run's page. The workflow
    then publishes the three crates to crates.io, and only once that succeeds
    creates the GitHub release from `docs/release/vX.Y.Z.md` and attaches the

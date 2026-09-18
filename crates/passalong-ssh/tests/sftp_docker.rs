@@ -14,7 +14,7 @@ use passalong_core::fs::{FsError, RemoteFs, RemotePath};
 use passalong_core::model::NewItem;
 use passalong_core::random::{RandomSource, StdRandom};
 use passalong_core::store::{FsStore, Store, StoreError, WriteProbe};
-use passalong_core::testing::{FaultyFs, FixedClock, FsOp, ManualClock, MapEnv};
+use passalong_core::testing::{FaultyFs, FixedClock, FsOp, ManualClock, MapEnv, PausingFs};
 use passalong_ssh::connect::SshParams;
 use passalong_ssh::error::SshError;
 use passalong_ssh::fetch_host_key;
@@ -454,9 +454,10 @@ async fn a_cut_migration_is_finished_and_a_cut_rotation_undone_over_sftp() {
     }
     let clock = Arc::new(SystemClock);
 
-    // Renames: the source, two items, then the header swap, which fails.
+    // Renames: the lock, the source, two items, then the header swap, which
+    // fails.
     let faulty = FaultyFs::new(&fs);
-    faulty.fail_nth(FsOp::Rename, 4);
+    faulty.fail_nth(FsOp::Rename, 5);
     assert!(
         encryption::migrate(&faulty, &words(W1), quick(), clock.clone())
             .await
@@ -473,8 +474,9 @@ async fn a_cut_migration_is_finished_and_a_cut_rotation_undone_over_sftp() {
     );
     assert_eq!(store.list().await.unwrap().len(), 2);
 
+    // The same for a rotation: moving the old header aside fails.
     let faulty = FaultyFs::new(&fs);
-    faulty.fail_nth(FsOp::Rename, 4);
+    faulty.fail_nth(FsOp::Rename, 5);
     assert!(
         encryption::rotate(&faulty, &key, &words(W2), quick(), clock)
             .await
@@ -488,4 +490,78 @@ async fn a_cut_migration_is_finished_and_a_cut_rotation_undone_over_sftp() {
         passalong_core::crypto::Sealer::new(key.clone()),
     );
     assert_eq!(store.list().await.unwrap().len(), 2);
+}
+
+#[tokio::test]
+#[ignore = "needs the Docker SSH server: just test-integration"]
+async fn a_send_held_across_a_rotation_fails_instead_of_using_the_old_key_over_sftp() {
+    let root = unique_root();
+    let fs = sftp(&root).await;
+    let old = encryption::set_up(&fs, &words(W1), quick()).await.unwrap();
+    sealed(sftp(&root).await, Some(&old))
+        .await
+        .unwrap()
+        .put(NewItem::text("it"), text("kept"))
+        .await
+        .unwrap();
+    let paused = Arc::new(PausingFs::new(sftp(&root).await));
+    let store = encryption::open_with_key(
+        Arc::clone(&paused),
+        Some(old.clone()),
+        Arc::new(SystemClock),
+        Box::new(StdRandom::new()),
+    )
+    .await
+    .unwrap();
+    // Held while its content is written; another connection rotates.
+    paused.pause_at(FsOp::OpenWrite, 1);
+    let send = store.put(NewItem::text("it"), text("raced"));
+    let rotation = async {
+        paused.reached().await;
+        let new = encryption::rotate(&fs, &old, &words(W2), quick(), Arc::new(SystemClock))
+            .await
+            .unwrap();
+        paused.release();
+        new
+    };
+    let (sent, new) = tokio::join!(send, rotation);
+    assert!(
+        matches!(
+            sent,
+            Err(StoreError::Encryption(
+                encryption::EncryptionError::KeyChanged
+            ))
+        ),
+        "{sent:?}"
+    );
+    // Only the item stored before remains, under the new key.
+    let store = sealed(sftp(&root).await, Some(&new)).await.unwrap();
+    let ids = store.list_ids().await.unwrap();
+    assert_eq!(ids.len(), 1);
+    assert_eq!(store.get_meta(&ids[0]).await.unwrap().size, 4);
+}
+
+#[tokio::test]
+#[ignore = "needs the Docker SSH server: just test-integration"]
+async fn an_encryption_folder_without_its_header_is_never_plaintext_over_sftp() {
+    let root = unique_root();
+    // Opened while the store was still plaintext.
+    let early = sealed(sftp(&root).await, None).await.unwrap();
+    early
+        .put(NewItem::text("it"), text("before"))
+        .await
+        .unwrap();
+    let fs = sftp(&root).await;
+    fs.create_dir_all(&RemotePath::new("encryption").unwrap())
+        .await
+        .unwrap();
+    assert!(matches!(
+        sealed(sftp(&root).await, None).await,
+        Err(StoreError::Encryption(
+            encryption::EncryptionError::HeaderMissing
+        ))
+    ));
+    assert!(early.put(NewItem::text("it"), text("after")).await.is_err());
+    let plain = FsStore::new(&fs, Arc::new(SystemClock), Box::new(StdRandom::new()));
+    assert_eq!(plain.list().await.unwrap().len(), 1);
 }

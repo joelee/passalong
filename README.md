@@ -1,7 +1,7 @@
 # passalong
 
-A lightweight, cross-platform clipboard and file sharing tool for macOS and
-Linux, with Android planned.
+A lightweight, cross-platform clipboard and file sharing tool for macOS,
+Linux, and Windows, with Android planned.
 
 One machine you already own runs a plain SSH server with a storage
 directory. Every other device pushes clipboard text and files there, lists
@@ -10,8 +10,8 @@ and no custom server daemon.
 
 > **Status:** released versions and their notes are on the
 > [releases page](https://github.com/joelee/passalong/releases), and
-> [CHANGELOG.md](https://github.com/joelee/passalong/blob/main/CHANGELOG.md) lists what changed in each. Windows support
-> is planned for v0.2.1, and a GUI and Android after that.
+> [CHANGELOG.md](https://github.com/joelee/passalong/blob/main/CHANGELOG.md) lists what changed in each. Windows is
+> supported since v0.2.1; a GUI and Android are planned.
 
 ## How it works
 
@@ -43,17 +43,82 @@ flowchart LR
 - Storage sits behind a trait. Besides SSH there is a `local` backend for a
   mounted share, and others such as S3 can be added.
 
+## Installation
+
+### Homebrew (macOS)
+
+Homebrew 7 and later load formulae only from taps you trust, so trust and
+tap [joelee/oss](https://github.com/joelee/homebrew-oss) once, then
+install:
+
+```sh
+brew trust joelee/oss
+brew tap joelee/oss
+brew install passalong
+```
+
+The formula builds the release published on crates.io; `brew upgrade
+passalong` installs later ones.
+
+### Cargo (macOS, Linux, and Windows)
+
+With Rust 1.98 or later, for example from [rustup](https://rustup.rs):
+
+```sh
+cargo install --locked passalong
+```
+
+This builds the release from [crates.io](https://crates.io/crates/passalong)
+and puts `passalong` in `~/.cargo/bin` (`%USERPROFILE%\.cargo\bin` on
+Windows). On Windows the build needs the Microsoft C++ build tools, which
+rustup offers to install. SSH keys of type RSA need an optional feature (see
+[RSA keys](https://github.com/joelee/passalong/blob/main/docs/developer-guide.md#rsa-keys)):
+
+```sh
+cargo install --locked passalong --features rsa
+```
+
+### Release binaries
+
+Each [GitHub release](https://github.com/joelee/passalong/releases) has a
+`.tar.gz` archive for Linux x86_64 and for macOS arm64, and from v0.2.1 a
+`.zip` for Windows x86_64, each with a `.sha256` file. Check the archive
+with `sha256sum -c` (or `shasum -a 256 -c` on macOS), unpack it, and put
+the `passalong` binary on your `PATH`.
+
+On Windows, in PowerShell, compare the hash with the `.sha256` file, then
+unpack:
+
+```powershell
+$zip = "passalong-0.2.1-x86_64-pc-windows-msvc.zip"
+(Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+Get-Content "$zip.sha256"
+Expand-Archive $zip -DestinationPath "$env:LOCALAPPDATA\Programs"
+```
+
+Then add the folder holding `passalong.exe` to your user `PATH`.
+
+### Windows and PowerShell
+
+The documented shell on Windows is PowerShell. Commands that take a file or
+write one work in any shell. Piping binary data into or out of passalong,
+such as `passalong cat <ID> > photo.png`, needs PowerShell 7.4 or later:
+Windows PowerShell 5.1 re-encodes what passes through a pipe or `>`, which
+corrupts it. There, use `passalong load <ID> photo.png` instead.
+
+### From a clone
+
+```sh
+cargo install --locked --path crates/passalong-cli
+```
+
+See [Building from source](#building-from-source) for the toolchain.
+Whichever way you install, `passalong --version` confirms it.
+
 ## Quick start
 
 1. Prepare the server once, as described in [Server setup](#server-setup).
-2. Install the client. From v0.1.1, `cargo install --locked passalong`
-   installs it from crates.io, and each GitHub release has Linux x86_64 and
-   macOS arm64 binaries. With Homebrew, run `brew trust joelee/oss` and
-   `brew tap joelee/oss` once (Homebrew 7 needs the trust), then
-   `brew install passalong` builds the crates.io release. From a clone of
-   this repository,
-   `cargo install --locked --path crates/passalong-cli` puts `passalong` in
-   `~/.cargo/bin`.
+2. Install the client, as described in [Installation](#installation).
 3. Run `passalong init`. It asks for the server's address and your key,
    shows the server's host-key fingerprint for you to confirm, writes
    `~/.config/passalong/config.toml`, and tests the connection.

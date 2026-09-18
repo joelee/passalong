@@ -9,11 +9,12 @@ use passalong_core::config::EnvProvider;
 
 use crate::cli::ServiceInstallArgs;
 use crate::daemon::{Os, StatePaths, Status};
-use crate::service::{self, LAUNCHD_LABEL, SYSTEMD_UNIT, ServiceManager};
+use crate::service::{
+    self, LAUNCHD_LABEL, RUN_KEY, RUN_VALUE, SYSTEMD_UNIT, ServiceManager, TASK_NAME,
+};
 
 /// The error on platforms without a supported service manager.
-pub const UNSUPPORTED: &str =
-    "service-install and service-remove support Linux (systemd) and macOS (launchd) only";
+pub const UNSUPPORTED: &str = "service-install and service-remove support Linux (systemd), macOS (launchd), and Windows (the Run key or Task Scheduler) only";
 
 /// The service manager to install for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,11 +26,25 @@ pub enum Platform {
         /// The user's numeric id.
         uid: u32,
     },
+    /// The per-user Run key, on Windows: `serve --daemon` at log-in.
+    RunKey,
+    /// A Task Scheduler log-on task, on Windows, which restarts `serve`
+    /// when it fails; creating it needs an administrator.
+    Scheduler,
 }
 
-/// The platform this binary was built for. For launchd, the user is the
+/// The platform this binary was built for; on Windows the Task Scheduler
+/// when `scheduler`, the Run key otherwise. For launchd, the user is the
 /// owner of `home`.
-pub fn current_platform(home: &Path) -> anyhow::Result<Platform> {
+pub fn current_platform(home: &Path, scheduler: bool) -> anyhow::Result<Platform> {
+    if cfg!(windows) {
+        return Ok(if scheduler {
+            Platform::Scheduler
+        } else {
+            Platform::RunKey
+        });
+    }
+    anyhow::ensure!(!scheduler, "--scheduler is for Windows only");
     if cfg!(target_os = "linux") {
         Ok(Platform::Systemd)
     } else if cfg!(target_os = "macos") {
@@ -84,6 +99,13 @@ pub fn run(
         serve,
         manager,
     } = install;
+    match platform {
+        Platform::RunKey => return install_run_key(args, exe, config, serve, manager, out),
+        Platform::Scheduler => {
+            return install_task(args, env, exe, config, serve, manager, out);
+        }
+        Platform::Systemd | Platform::Launchd { .. } => {}
+    }
     let home = home_dir(env)?;
     let path = unit_path(platform, env, &home);
     let mut argv = vec![exe.display().to_string()];
@@ -92,7 +114,7 @@ pub fn run(
         argv.push(config.display().to_string());
     }
     argv.push("serve".to_owned());
-    let log = StatePaths::resolve(env, Os::MacOs)
+    let log = StatePaths::resolve(env, Os::Mac)
         .context("cannot find the home directory: set HOME")?
         .log;
     let text = match platform {
@@ -102,6 +124,7 @@ pub fn run(
             &home.display().to_string(),
             &log.display().to_string(),
         ),
+        Platform::RunKey | Platform::Scheduler => unreachable!("installed above"),
     };
     let existing = match std::fs::read_to_string(&path) {
         Ok(existing) => Some(existing),
@@ -121,14 +144,7 @@ pub fn run(
             None => {}
         }
     }
-    if !args.no_start
-        && let Status::Running { pid, .. } = serve
-    {
-        let pid = pid.map_or_else(String::new, |pid| format!(" (pid {pid})"));
-        anyhow::bail!(
-            "serve is already running{pid}; stop it first with `passalong serve --stop`, or with `passalong service-remove` if a service runs it"
-        );
-    }
+    refuse_if_running(args, serve)?;
     write_atomically(&path, &text)?;
     writeln!(out, "wrote {}", path.display())?;
     tracing::info!(path = %path.display(), "service unit written");
@@ -175,8 +191,189 @@ pub fn run(
             call(manager, "launchctl", &bootstrap).with_context(|| left_in_place(&path))?;
             writeln!(out, "loaded {LAUNCHD_LABEL}")?;
         }
+        Platform::RunKey | Platform::Scheduler => unreachable!("installed above"),
     }
     Ok(())
+}
+
+/// Refuses to start the service while a `serve` runs, unless it is not to
+/// be started now.
+fn refuse_if_running(args: &ServiceInstallArgs, serve: Status) -> anyhow::Result<()> {
+    if !args.no_start
+        && let Status::Running { pid, .. } = serve
+    {
+        let pid = pid.map_or_else(String::new, |pid| format!(" (pid {pid})"));
+        anyhow::bail!(
+            "serve is already running{pid}; stop it first with `passalong serve --stop`, or with `passalong service-remove` if a service runs it"
+        );
+    }
+    Ok(())
+}
+
+/// Adds `passalong-serve` to the per-user Run key, which starts
+/// `serve --daemon` at every log-in, and starts it now unless `--no-start`.
+fn install_run_key(
+    args: &ServiceInstallArgs,
+    exe: &Path,
+    config: Option<&Path>,
+    serve: Status,
+    manager: &mut dyn ServiceManager,
+    out: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let command = service::run_key_command(exe, config);
+    let length = command.chars().count();
+    anyhow::ensure!(
+        length <= service::RUN_KEY_MAX,
+        "the command that starts serve has {length} characters, over the {} a Run key command may have; use `passalong service-install --scheduler` from an administrator prompt, or a shorter config path",
+        service::RUN_KEY_MAX
+    );
+    let existing = query(manager, "reg", &["query", RUN_KEY, "/v", RUN_VALUE])?
+        .map(|found| service::parse_reg_value(&found).unwrap_or_default());
+    if !args.force {
+        match existing.as_deref() {
+            Some(existing) if existing == command => {
+                writeln!(out, "{RUN_VALUE} is already in {RUN_KEY}, unchanged")?;
+                return Ok(());
+            }
+            Some(_) => anyhow::bail!(
+                "{RUN_VALUE} is already in {RUN_KEY} and differs; use --force to replace it"
+            ),
+            None => {}
+        }
+    }
+    refuse_if_running(args, serve)?;
+    call(
+        manager,
+        "reg",
+        &[
+            "add", RUN_KEY, "/v", RUN_VALUE, "/t", "REG_SZ", "/d", &command, "/f",
+        ],
+    )?;
+    writeln!(
+        out,
+        "added {RUN_VALUE} to {RUN_KEY}: serve starts when you log in"
+    )?;
+    tracing::info!(value = RUN_VALUE, "Run key value written");
+    if args.no_start {
+        writeln!(out, "start it now with: passalong serve --daemon")?;
+        return Ok(());
+    }
+    let start = service::serve_args(config, true);
+    let start: Vec<&str> = start.iter().map(String::as_str).collect();
+    call(manager, &exe.display().to_string(), &start)
+        .context("the Run key value is in place, but starting serve now failed")?;
+    writeln!(out, "started serve")?;
+    Ok(())
+}
+
+/// Registers the Task Scheduler task `passalong-serve`, which runs `serve`
+/// when this user logs in and restarts it when it fails, and runs it now
+/// unless `--no-start`. Windows lets only an administrator create a
+/// log-on task.
+fn install_task(
+    args: &ServiceInstallArgs,
+    env: &dyn EnvProvider,
+    exe: &Path,
+    config: Option<&Path>,
+    serve: Status,
+    manager: &mut dyn ServiceManager,
+    out: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let user = windows_user(env)?;
+    let exists = query(manager, "schtasks", &["/Query", "/TN", TASK_NAME])?.is_some();
+    anyhow::ensure!(
+        !exists || args.force,
+        "the scheduled task {TASK_NAME} exists; use --force to replace it"
+    );
+    refuse_if_running(args, serve)?;
+    let xml = service::task_xml(
+        &user,
+        &exe.display().to_string(),
+        &service::serve_args(config, false),
+    );
+    let file =
+        std::env::temp_dir().join(format!("passalong-serve-task-{}.xml", std::process::id()));
+    std::fs::write(&file, service::utf16_with_bom(&xml))
+        .with_context(|| format!("cannot write {}", file.display()))?;
+    let created = call(
+        manager,
+        "schtasks",
+        &[
+            "/Create",
+            "/TN",
+            TASK_NAME,
+            "/XML",
+            &file.display().to_string(),
+            "/F",
+        ],
+    );
+    let _ = std::fs::remove_file(&file);
+    created.context(
+        "Windows lets only an administrator create a log-on task: run this from an administrator prompt, or leave out --scheduler to use the Run key",
+    )?;
+    writeln!(
+        out,
+        "registered the scheduled task {TASK_NAME}: serve starts when you log in and restarts if it fails"
+    )?;
+    tracing::info!(task = TASK_NAME, "scheduled task registered");
+    if args.no_start {
+        writeln!(out, "start it now with: schtasks /Run /TN {TASK_NAME}")?;
+        return Ok(());
+    }
+    call(manager, "schtasks", &["/Run", "/TN", TASK_NAME])?;
+    writeln!(out, "started the task")?;
+    Ok(())
+}
+
+/// `DOMAIN\name` of the user a scheduled task runs as.
+fn windows_user(env: &dyn EnvProvider) -> anyhow::Result<String> {
+    let var = |key: &str| env.var(key).filter(|value| !value.is_empty());
+    let name = var("USERNAME").context("cannot tell who you are: USERNAME is not set")?;
+    Ok(match var("USERDOMAIN") {
+        Some(domain) => format!("{domain}\\{name}"),
+        None => name,
+    })
+}
+
+/// Removes the Run key value and the scheduled task, whichever exist.
+fn remove_windows(manager: &mut dyn ServiceManager, out: &mut dyn Write) -> anyhow::Result<()> {
+    let mut removed = false;
+    if query(manager, "reg", &["query", RUN_KEY, "/v", RUN_VALUE])?.is_some() {
+        call(manager, "reg", &["delete", RUN_KEY, "/v", RUN_VALUE, "/f"])?;
+        writeln!(out, "removed {RUN_VALUE} from {RUN_KEY}")?;
+        removed = true;
+    }
+    if query(manager, "schtasks", &["/Query", "/TN", TASK_NAME])?.is_some() {
+        if let Err(err) = call(manager, "schtasks", &["/End", "/TN", TASK_NAME]) {
+            tracing::debug!(error = %format!("{err:#}"), "the task was not running");
+        }
+        call(manager, "schtasks", &["/Delete", "/TN", TASK_NAME, "/F"])?;
+        writeln!(out, "removed the scheduled task {TASK_NAME}")?;
+        removed = true;
+    }
+    if removed {
+        writeln!(
+            out,
+            "a serve started at log-in keeps running until `passalong serve --stop`"
+        )?;
+    } else {
+        writeln!(
+            out,
+            "not installed: no {RUN_VALUE} in {RUN_KEY} and no scheduled task {TASK_NAME}"
+        )?;
+    }
+    Ok(())
+}
+
+fn query(
+    manager: &mut dyn ServiceManager,
+    program: &str,
+    args: &[&str],
+) -> anyhow::Result<Option<String>> {
+    let args: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
+    manager
+        .query(program, &args)
+        .with_context(|| format!("`{program} {}` failed", args.join(" ")))
 }
 
 /// Stops, disables, and removes the installed unit, or says it is not
@@ -187,13 +384,28 @@ pub fn remove(
     manager: &mut dyn ServiceManager,
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
+    if matches!(platform, Platform::RunKey | Platform::Scheduler) {
+        return remove_windows(manager, out);
+    }
     let path = unit_path(platform, env, &home_dir(env)?);
     remove_unit(platform, &path, manager, out)
 }
 
-fn home_dir(env: &dyn EnvProvider) -> anyhow::Result<PathBuf> {
-    env.var("HOME")
-        .filter(|home| !home.is_empty())
+/// The home folder: `HOME`, or on Windows `USERPROFILE`.
+///
+/// # Errors
+///
+/// When neither is set.
+pub fn home_dir(env: &dyn EnvProvider) -> anyhow::Result<PathBuf> {
+    let var = |key: &str| env.var(key).filter(|value| !value.is_empty());
+    var("HOME")
+        .or_else(|| {
+            if cfg!(windows) {
+                var("USERPROFILE")
+            } else {
+                None
+            }
+        })
         .map(PathBuf::from)
         .context("cannot find the home directory: set HOME")
 }
@@ -227,6 +439,7 @@ fn remove_unit(
             }
             remove_file(path)?;
         }
+        Platform::RunKey | Platform::Scheduler => unreachable!("removed by remove_windows"),
     }
     writeln!(out, "removed {}", path.display())?;
     Ok(())
@@ -247,6 +460,7 @@ fn unit_path(platform: Platform, env: &dyn EnvProvider, home: &Path) -> PathBuf 
         Platform::Launchd { .. } => home
             .join("Library/LaunchAgents")
             .join(format!("{LAUNCHD_LABEL}.plist")),
+        Platform::RunKey | Platform::Scheduler => unreachable!("no unit file on Windows"),
     }
 }
 
@@ -298,6 +512,8 @@ mod tests {
     struct Recorder {
         calls: Vec<String>,
         fail: Option<usize>,
+        /// What queries find, by command line; others find nothing.
+        found: std::collections::HashMap<String, String>,
     }
 
     impl ServiceManager for Recorder {
@@ -307,6 +523,12 @@ mod tests {
                 anyhow::bail!("exit status 1");
             }
             Ok(())
+        }
+
+        fn query(&mut self, program: &str, args: &[String]) -> anyhow::Result<Option<String>> {
+            let call = format!("{program} {}", args.join(" "));
+            self.calls.push(call.clone());
+            Ok(self.found.get(&call).cloned())
         }
     }
 
@@ -321,7 +543,10 @@ mod tests {
             let dir = TempDir::new().unwrap();
             let home = dir.path().join("home");
             std::fs::create_dir_all(&home).unwrap();
-            let env = MapEnv::new().with("HOME", home.to_str().unwrap());
+            let env = MapEnv::new()
+                .with("HOME", home.to_str().unwrap())
+                .with("USERNAME", "me")
+                .with("USERDOMAIN", "DESKTOP");
             Self {
                 dir,
                 env,
@@ -338,6 +563,7 @@ mod tests {
                 .join(".config/systemd/user/passalong-serve.service")
         }
 
+        #[cfg(unix)]
         fn plist(&self) -> PathBuf {
             self.home()
                 .join("Library/LaunchAgents/com.passalong.serve.plist")
@@ -373,8 +599,172 @@ mod tests {
         ServiceInstallArgs::default()
     }
 
+    #[cfg(unix)]
     const LAUNCHD: Platform = Platform::Launchd { uid: 501 };
 
+    const START: &str = "/opt/bin/passalong --config /etc/passalong/config.toml serve --daemon";
+
+    fn run_key_query() -> String {
+        format!("reg query {RUN_KEY} /v {RUN_VALUE}")
+    }
+
+    fn task_query() -> String {
+        format!("schtasks /Query /TN {TASK_NAME}")
+    }
+
+    #[test]
+    fn a_run_key_install_adds_the_value_and_starts_serve() {
+        let mut rig = Rig::new();
+        let (result, out) = rig.run(Platform::RunKey, args(), Status::NotRunning);
+        result.unwrap();
+        assert_eq!(
+            rig.manager.calls,
+            [
+                run_key_query(),
+                format!(
+                    "reg add {RUN_KEY} /v {RUN_VALUE} /t REG_SZ /d \"/opt/bin/passalong\" --config /etc/passalong/config.toml serve --daemon /f"
+                ),
+                START.to_owned(),
+            ]
+        );
+        assert!(out.contains("serve starts when you log in"), "{out}");
+        assert!(out.ends_with("started serve\n"), "{out}");
+    }
+
+    #[test]
+    fn an_unchanged_run_key_value_is_left_alone_and_a_different_one_needs_force() {
+        let mut rig = Rig::new();
+        let command = service::run_key_command(
+            Path::new("/opt/bin/passalong"),
+            Some(Path::new("/etc/passalong/config.toml")),
+        );
+        rig.manager.found.insert(
+            run_key_query(),
+            format!("\r\n{RUN_KEY}\r\n    {RUN_VALUE}    REG_SZ    {command}\r\n\r\n"),
+        );
+        let (result, out) = rig.run(Platform::RunKey, args(), Status::NotRunning);
+        result.unwrap();
+        assert!(out.contains("unchanged"), "{out}");
+        assert_eq!(rig.manager.calls, [run_key_query()]);
+
+        rig.manager.found.insert(
+            run_key_query(),
+            format!("    {RUN_VALUE}    REG_SZ    \"C:\\old\\passalong.exe\" serve --daemon\r\n"),
+        );
+        let (result, _) = rig.run(Platform::RunKey, args(), Status::NotRunning);
+        assert!(result.unwrap_err().to_string().contains("--force"));
+        let forced = ServiceInstallArgs {
+            force: true,
+            no_start: true,
+            ..args()
+        };
+        let (result, out) = rig.run(Platform::RunKey, forced, Status::NotRunning);
+        result.unwrap();
+        assert!(
+            out.ends_with("start it now with: passalong serve --daemon\n"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn a_run_key_command_over_260_characters_is_refused() {
+        let mut rig = Rig::new();
+        let long = format!("/{}/config.toml", "x".repeat(260));
+        let mut out = Vec::new();
+        let result = run(
+            &args(),
+            Install {
+                platform: Platform::RunKey,
+                env: &rig.env,
+                exe: Path::new("/opt/bin/passalong"),
+                config: Some(Path::new(&long)),
+                serve: Status::NotRunning,
+                manager: &mut rig.manager,
+            },
+            &mut out,
+        );
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("260") && err.contains("--scheduler"), "{err}");
+        assert!(rig.manager.calls.is_empty());
+    }
+
+    #[test]
+    fn a_scheduler_install_registers_the_task_and_runs_it() {
+        let mut rig = Rig::new();
+        let (result, out) = rig.run(Platform::Scheduler, args(), Status::NotRunning);
+        result.unwrap();
+        let calls = &rig.manager.calls;
+        assert_eq!(calls[0], task_query());
+        assert!(
+            calls[1].starts_with(&format!("schtasks /Create /TN {TASK_NAME} /XML "))
+                && calls[1].ends_with(" /F"),
+            "{calls:?}"
+        );
+        assert_eq!(calls[2], format!("schtasks /Run /TN {TASK_NAME}"));
+        assert_eq!(calls.len(), 3);
+        assert!(out.contains("restarts if it fails"), "{out}");
+
+        rig.manager.found.insert(task_query(), "Folder: \\".into());
+        let (result, _) = rig.run(Platform::Scheduler, args(), Status::NotRunning);
+        assert!(result.unwrap_err().to_string().contains("--force"));
+    }
+
+    #[test]
+    fn the_task_runs_serve_at_this_user_s_log_in_and_restarts_it() {
+        let xml = service::task_xml(
+            r"DESKTOP\me",
+            r"C:\Program Files\passalong.exe",
+            &service::serve_args(Some(Path::new(r"C:\cfg & more\config.toml")), false),
+        );
+        for part in [
+            r"<UserId>DESKTOP\me</UserId>",
+            "<LogonTrigger>",
+            r"<Command>C:\Program Files\passalong.exe</Command>",
+            r"<Arguments>--config &quot;C:\cfg &amp; more\config.toml&quot; serve</Arguments>",
+            "<RestartOnFailure>",
+            "<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>",
+        ] {
+            assert!(xml.contains(part), "{part}: {xml}");
+        }
+        assert_eq!(service::utf16_with_bom("A"), [0xFF, 0xFE, b'A', 0]);
+    }
+
+    #[test]
+    fn service_remove_on_windows_removes_the_value_and_the_task() {
+        let mut rig = Rig::new();
+        let (result, out) = rig.remove(Platform::RunKey);
+        result.unwrap();
+        assert!(out.starts_with("not installed"), "{out}");
+
+        rig.manager.found.insert(run_key_query(), "found".into());
+        rig.manager.found.insert(task_query(), "found".into());
+        rig.manager.calls.clear();
+        let (result, out) = rig.remove(Platform::Scheduler);
+        result.unwrap();
+        assert_eq!(
+            rig.manager.calls,
+            [
+                run_key_query(),
+                format!("reg delete {RUN_KEY} /v {RUN_VALUE} /f"),
+                task_query(),
+                format!("schtasks /End /TN {TASK_NAME}"),
+                format!("schtasks /Delete /TN {TASK_NAME} /F"),
+            ]
+        );
+        assert!(
+            out.contains("keeps running until `passalong serve --stop`"),
+            "{out}"
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn the_scheduler_is_for_windows_only() {
+        let err = current_platform(Path::new("/home/u"), true).unwrap_err();
+        assert!(err.to_string().contains("Windows"), "{err}");
+    }
+
+    #[cfg(unix)]
     #[test]
     fn systemd_install_writes_the_unit_then_enables_and_starts_it() {
         let mut rig = Rig::new();
@@ -441,6 +831,8 @@ mod tests {
         );
     }
 
+    // systemd and launchd paths are Unix paths; Windows has its own tests.
+    #[cfg(unix)]
     #[test]
     fn an_identical_unit_is_left_alone_and_a_different_one_needs_force() {
         let mut rig = Rig::new();
@@ -513,6 +905,7 @@ mod tests {
         assert!(rig.unit().is_file());
     }
 
+    #[cfg(unix)]
     #[test]
     fn systemd_remove_disables_removes_and_reloads() {
         let mut rig = Rig::new();
@@ -538,6 +931,7 @@ mod tests {
         assert!(rig.manager.calls.is_empty());
     }
 
+    #[cfg(unix)]
     #[test]
     fn launchd_install_writes_the_agent_and_bootstraps_it() {
         let mut rig = Rig::new();
@@ -569,6 +963,7 @@ mod tests {
         assert!(out.ends_with("loaded com.passalong.serve\n"), "{out}");
     }
 
+    #[cfg(unix)]
     #[test]
     fn launchd_replacement_boots_the_old_agent_out_first() {
         let mut rig = Rig::new();
@@ -590,6 +985,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn launchd_remove_boots_out_and_removes_even_when_not_loaded() {
         let mut rig = Rig::new();
@@ -609,8 +1005,14 @@ mod tests {
     #[test]
     fn the_platform_follows_the_build_target() {
         let dir = TempDir::new().unwrap();
-        let platform = current_platform(dir.path());
-        if cfg!(target_os = "linux") {
+        let platform = current_platform(dir.path(), false);
+        if cfg!(windows) {
+            assert_eq!(platform.unwrap(), Platform::RunKey);
+            assert_eq!(
+                current_platform(dir.path(), true).unwrap(),
+                Platform::Scheduler
+            );
+        } else if cfg!(target_os = "linux") {
             assert_eq!(platform.unwrap(), Platform::Systemd);
         } else if cfg!(target_os = "macos") {
             assert!(matches!(platform.unwrap(), Platform::Launchd { .. }));
@@ -619,7 +1021,7 @@ mod tests {
         }
         assert_eq!(
             UNSUPPORTED,
-            "service-install and service-remove support Linux (systemd) and macOS (launchd) only"
+            "service-install and service-remove support Linux (systemd), macOS (launchd), and Windows (the Run key or Task Scheduler) only"
         );
     }
 }

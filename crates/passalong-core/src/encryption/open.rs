@@ -2,24 +2,25 @@
 //!
 //! | Store | This device | Result |
 //! |---|---|---|
-//! | `.rewrite/` present | any | refused: being re-encrypted |
-//! | `encryption/` present | key with the store's id | sealed store |
-//! | `encryption/` present | no key | refused: `encrypt --join` |
-//! | `encryption/` present | another key | refused: `encrypt --join` |
-//! | no header, `items` is a file | any | refused: `encrypt --recover` |
-//! | no header | no key | plaintext store, as in v0.1.6 |
-//! | no header | a key | refused: the store is not encrypted |
+//! | `.rewrite/` present | any | refused: being changed |
+//! | a header, and `items` not a folder | key with the store's id | sealed store |
+//! | a header, and `items` not a folder | no key, or another key | refused: `encrypt --join` |
+//! | part of an encrypted layout: `encryption/` without a header, a header beside an `items/` folder, or a stop file without a header | any | refused: `encrypt --recover` |
+//! | none of it | no key | plaintext store, as in v0.1.6 |
+//! | none of it | a key | refused: the store is not encrypted |
 //!
 //! A sealed store opened here also checks, before every `put`, `delete`,
-//! and `list_ids`, that no re-encryption started and that the header still
-//! names its key; it re-reads the header only when the header file changed.
+//! and `list_ids`, and again once `put` has published its item, that no
+//! change of encryption started and that the header still names its key.
+//! A plaintext store checks before the same calls that no lock and no part
+//! of an encrypted layout appeared since.
 
 use std::sync::Arc;
 
 use tokio::io::AsyncReadExt;
 
-use super::header::header_path;
-use super::{EncryptionError, REWRITE_DIR, STOP_FILE, SystemGit, load_key_file, read_header};
+use super::admin::{Layout, classify};
+use super::{EncryptionError, REWRITE_DIR, SystemGit, load_key_file};
 use crate::clock::{Clock, SystemClock};
 use crate::config::Config;
 use crate::crypto::{DataKey, Sealer};
@@ -56,34 +57,26 @@ pub async fn open_with_key<F: RemoteFs + 'static>(
     clock: Arc<dyn Clock>,
     rng: Box<dyn RandomSource>,
 ) -> Result<Box<dyn Store>, StoreError> {
-    if fs.stat(&RemotePath::new(REWRITE_DIR)?).await?.is_some() {
-        let started = rewrite_started(&fs).await;
-        return Err(EncryptionError::Rewriting { started }.into());
-    }
-    if let Some(found) = fs.stat(&header_path()?).await? {
-        let header = read_header(&fs)
-            .await?
-            .ok_or(EncryptionError::HeaderMissing)?;
-        let key = key.ok_or(EncryptionError::NoKey)?;
-        if key.key_id() != header.key_id() {
-            return Err(EncryptionError::KeyMismatch {
-                device: key.key_id().short(),
-                store: header.key_id().short(),
-            }
-            .into());
+    let header = match classify(&fs).await? {
+        Layout::Rewriting { started } => return Err(EncryptionError::Rewriting { started }.into()),
+        Layout::Broken => return Err(EncryptionError::HeaderMissing.into()),
+        Layout::Plain if key.is_some() => {
+            return Err(EncryptionError::KeyWithoutEncryption.into());
         }
-        tracing::debug!(key = %header.key_id().short(), "opened an encrypted store");
-        let store = FsStore::sealed(fs, clock, rng, Sealer::new(key));
-        return Ok(Box::new(store.guarded(found.size, found.modified)));
+        Layout::Plain => return Ok(Box::new(FsStore::new(fs, clock, rng).plain_guarded())),
+        Layout::Encrypted(header) => header,
+    };
+    let key = key.ok_or(EncryptionError::NoKey)?;
+    if key.key_id() != header.key_id() {
+        return Err(EncryptionError::KeyMismatch {
+            device: key.key_id().short(),
+            store: header.key_id().short(),
+        }
+        .into());
     }
-    let stop = fs.stat(&RemotePath::new(STOP_FILE)?).await?;
-    if stop.is_some_and(|meta| !meta.is_dir) {
-        return Err(EncryptionError::HeaderMissing.into());
-    }
-    if key.is_some() {
-        return Err(EncryptionError::KeyWithoutEncryption.into());
-    }
-    Ok(Box::new(FsStore::new(fs, clock, rng)))
+    tracing::debug!(key = %header.key_id().short(), "opened an encrypted store");
+    let store = FsStore::sealed(fs, clock, rng, Sealer::new(key));
+    Ok(Box::new(store.guarded()))
 }
 
 /// When the re-encryption in progress started, from `.rewrite/plan.json`.
@@ -237,6 +230,116 @@ mod tests {
         }
     }
 
+    /// What reaches a synced copy of a plaintext store, in some order, when
+    /// another device encrypts it.
+    #[derive(Debug, Clone, Copy)]
+    enum Part {
+        /// The stop file replaces the `items/` folder.
+        Stop,
+        /// The `encryption/` folder.
+        Folder,
+        /// `encryption/header.json`.
+        Header,
+    }
+
+    const MARKER: &[u8] = b"plaintext-marker-5b1";
+
+    /// Whether any file below `root` holds [`MARKER`].
+    fn holds_marker(root: &std::path::Path) -> bool {
+        let mut pending = vec![root.to_path_buf()];
+        while let Some(dir) = pending.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    pending.push(path);
+                } else if std::fs::read(&path)
+                    .unwrap()
+                    .windows(MARKER.len())
+                    .any(|w| w == MARKER)
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    #[tokio::test]
+    async fn an_encrypted_layout_arriving_in_any_order_never_opens_as_plaintext() {
+        let header = quick_header(&DataKey::generate().unwrap());
+        let orders = [
+            [Part::Stop, Part::Folder, Part::Header],
+            [Part::Folder, Part::Stop, Part::Header],
+            [Part::Folder, Part::Header, Part::Stop],
+        ];
+        for order in orders {
+            for arrived in 1..=order.len() {
+                let at = format!("{:?}", &order[..arrived]);
+                let fx = Fixture::new();
+                let root = fx.dir.path();
+                // Opened while the store was still plaintext.
+                let early = fx.open(None).await.unwrap();
+                early
+                    .put(NewItem::text("box"), text(b"before"))
+                    .await
+                    .unwrap();
+                for part in &order[..arrived] {
+                    match part {
+                        Part::Stop => {
+                            std::fs::remove_dir_all(root.join("items")).unwrap();
+                            std::fs::write(root.join("items"), crate::encryption::STOP_TEXT)
+                                .unwrap();
+                        }
+                        Part::Folder => std::fs::create_dir(root.join("encryption")).unwrap(),
+                        Part::Header => {
+                            std::fs::write(root.join("encryption/header.json"), header.to_json())
+                                .unwrap();
+                        }
+                    }
+                }
+                let want = if arrived == order.len() {
+                    EncryptionError::NoKey
+                } else {
+                    EncryptionError::HeaderMissing
+                };
+                assert_eq!(refusal(fx.open(None).await), want, "{at}");
+                assert!(
+                    early.put(NewItem::text("box"), text(MARKER)).await.is_err(),
+                    "{at}"
+                );
+                assert!(!holds_marker(root), "{at}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn an_opened_plaintext_store_stops_writing_once_it_is_being_encrypted() {
+        let fx = Fixture::new();
+        let store = fx.open(None).await.unwrap();
+        let kept = store
+            .put(NewItem::text("box"), text(b"one"))
+            .await
+            .unwrap()
+            .meta;
+        std::fs::create_dir(fx.dir.path().join(".rewrite")).unwrap();
+        for result in [
+            store
+                .put(NewItem::text("box"), text(b"two"))
+                .await
+                .map(|_| ()),
+            store.delete(&kept.id).await.map(|_| ()),
+            store.list_ids().await.map(|_| ()),
+        ] {
+            assert!(
+                matches!(
+                    result,
+                    Err(StoreError::Encryption(EncryptionError::Rewriting { .. }))
+                ),
+                "{result:?}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn an_opened_store_stops_writing_when_the_key_changes() {
         let fx = Fixture::new();
@@ -293,5 +396,52 @@ mod tests {
             store.put(NewItem::text("box"), text(b"x")).await,
             Err(StoreError::Encryption(EncryptionError::HeaderMissing))
         ));
+    }
+
+    #[tokio::test]
+    async fn a_new_key_is_found_even_when_the_header_keeps_its_size_and_time() {
+        let fx = Fixture::new();
+        let key = DataKey::generate().unwrap();
+        fx.encrypt(&key).await;
+        let store = fx.open(Some(&key)).await.unwrap();
+        let kept = store
+            .put(NewItem::text("box"), text(b"one"))
+            .await
+            .unwrap()
+            .meta;
+        // Another key under the same settings: same size. SFTP gives times
+        // in whole seconds, so the same time is plausible too.
+        let path = fx.dir.path().join("encryption/header.json");
+        let before = std::fs::metadata(&path).unwrap();
+        let other = quick_header(&DataKey::generate().unwrap()).to_json();
+        assert_eq!(other.len() as u64, before.len());
+        std::fs::write(&path, other).unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(before.modified().unwrap())
+            .unwrap();
+        let after = std::fs::metadata(&path).unwrap();
+        assert_eq!(
+            (after.len(), after.modified().unwrap()),
+            (before.len(), before.modified().unwrap())
+        );
+        for result in [
+            store
+                .put(NewItem::text("box"), text(b"two"))
+                .await
+                .map(|_| ()),
+            store.delete(&kept.id).await.map(|_| ()),
+            store.list_ids().await.map(|_| ()),
+        ] {
+            assert!(
+                matches!(
+                    result,
+                    Err(StoreError::Encryption(EncryptionError::KeyChanged))
+                ),
+                "{result:?}"
+            );
+        }
     }
 }

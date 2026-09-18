@@ -34,7 +34,7 @@ pub enum KeyFileError {
         message: String,
     },
     /// Group or others can read the file.
-    #[error("{path} can be read by other users; run `chmod 600 {path}`")]
+    #[error("{path} can be read by other users; run `{}`", permission_fix(.path))]
     Permissions {
         /// The key file.
         path: String,
@@ -104,8 +104,8 @@ impl SystemGit {
     }
 
     /// Ignores the user's and the system's git configuration, so tests do
-    /// not depend on global ignore rules.
-    #[cfg(test)]
+    /// not depend on global ignore rules. Only the Unix tests use git.
+    #[cfg(all(test, unix))]
     fn isolated() -> Self {
         let mut git = Self::new();
         git.envs = vec![
@@ -142,6 +142,15 @@ impl GitCheck for SystemGit {
     }
 }
 
+/// The command that makes the key file at `path` private again.
+fn permission_fix(path: &str) -> String {
+    if cfg!(windows) {
+        format!("icacls \"{path}\" /inheritance:r /grant:r \"%USERNAME%\":F")
+    } else {
+        format!("chmod 600 {path}")
+    }
+}
+
 fn shown(path: &Path) -> String {
     path.display().to_string()
 }
@@ -161,11 +170,48 @@ fn work_tree(path: &Path) -> Option<PathBuf> {
         .map(Path::to_path_buf)
 }
 
+/// `path` as the filesystem reaches it: its deepest existing ancestor with
+/// symbolic links resolved, followed by the parts that do not exist yet.
+/// A config folder linked into a dotfiles work tree is then seen inside it.
+fn physical(path: &Path) -> PathBuf {
+    let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut existing = absolute.as_path();
+    let mut missing = Vec::new();
+    loop {
+        if let Ok(real) = fs::canonicalize(existing) {
+            #[cfg(windows)]
+            let real = without_verbatim(real);
+            return missing
+                .iter()
+                .rev()
+                .fold(real, |acc: PathBuf, part| acc.join(part));
+        }
+        match (existing.parent(), existing.file_name()) {
+            (Some(parent), Some(name)) => {
+                missing.push(name.to_owned());
+                existing = parent;
+            }
+            _ => return absolute,
+        }
+    }
+}
+
+/// `\\?\C:\x`, as Windows canonicalises paths, as `C:\x`, which git
+/// understands.
+#[cfg(windows)]
+fn without_verbatim(path: PathBuf) -> PathBuf {
+    match path.to_str().and_then(|text| text.strip_prefix(r"\\?\")) {
+        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => PathBuf::from(rest),
+        _ => path,
+    }
+}
+
 fn check_git(path: &Path, git: &dyn GitCheck) -> Result<(), KeyFileError> {
-    let Some(repo) = work_tree(path) else {
+    let real = physical(path);
+    let Some(repo) = work_tree(&real) else {
         return Ok(());
     };
-    match git.is_ignored(&repo, path) {
+    match git.is_ignored(&repo, &real) {
         Ok(true) => Ok(()),
         Ok(false) => Err(KeyFileError::InGitWorkTree {
             path: shown(path),
@@ -238,7 +284,14 @@ pub fn load_key_file(path: &Path, git: &dyn GitCheck) -> Result<Option<DataKey>,
             return Err(KeyFileError::Permissions { path: shown(path) });
         }
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        let _ = metadata;
+        if !crate::owner_only::only_owner(path).map_err(|err| io_error(path, &err))? {
+            return Err(KeyFileError::Permissions { path: shown(path) });
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
     let _ = metadata;
     check_git(path, git)?;
     let text = Zeroizing::new(fs::read_to_string(path).map_err(|err| io_error(path, &err))?);
@@ -292,7 +345,14 @@ pub fn check_key_location(path: &Path, git: &dyn GitCheck) -> Result<(), KeyFile
     check_git(path, git)
 }
 
+/// Creates `dir` and its missing parents, private to their owner. Folders
+/// that exist already are left as they are.
 fn create_private_dirs(dir: &Path) -> io::Result<()> {
+    let missing: Vec<PathBuf> = dir
+        .ancestors()
+        .take_while(|folder| !folder.as_os_str().is_empty() && !folder.exists())
+        .map(Path::to_path_buf)
+        .collect();
     let mut builder = fs::DirBuilder::new();
     builder.recursive(true);
     #[cfg(unix)]
@@ -300,7 +360,14 @@ fn create_private_dirs(dir: &Path) -> io::Result<()> {
         use std::os::unix::fs::DirBuilderExt;
         builder.mode(0o700);
     }
-    builder.create(dir)
+    builder.create(dir)?;
+    #[cfg(windows)]
+    for folder in &missing {
+        crate::owner_only::restrict(folder, true)?;
+    }
+    #[cfg(not(windows))]
+    let _ = missing;
+    Ok(())
 }
 
 fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
@@ -312,8 +379,56 @@ fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
         options.mode(0o600);
     }
     let mut file = options.open(path)?;
+    // Private before it holds the key.
+    #[cfg(windows)]
+    crate::owner_only::restrict(path, false)?;
     file.write_all(bytes)?;
     file.sync_all()
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    /// Outside a git work tree git is never asked.
+    struct NoGit;
+
+    impl GitCheck for NoGit {
+        fn is_ignored(&self, _repo: &Path, _path: &Path) -> io::Result<bool> {
+            panic!("git was asked outside a work tree")
+        }
+    }
+
+    #[test]
+    fn a_saved_key_is_private_and_refused_once_others_may_read_it() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("keys").join("store.key");
+        let key = DataKey::generate().unwrap();
+        save_key_file(&path, &key, &NoGit).unwrap();
+        let keys = dir.path().join("keys");
+        for private in [&path, &keys] {
+            assert!(
+                crate::owner_only::only_owner(private).unwrap(),
+                "{}",
+                crate::owner_only::describe(private)
+            );
+        }
+        let loaded = load_key_file(&path, &NoGit).unwrap().unwrap();
+        assert_eq!(loaded.key_id(), key.key_id());
+
+        // Give the Users group read access.
+        let status = Command::new("icacls")
+            .arg(&path)
+            .args(["/grant", "*S-1-5-32-545:(R)"])
+            .stdout(Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let err = load_key_file(&path, &NoGit).unwrap_err();
+        assert!(matches!(err, KeyFileError::Permissions { .. }), "{err}");
+        assert!(err.to_string().contains("icacls"), "{err}");
+    }
 }
 
 #[cfg(all(test, unix))]
@@ -436,6 +551,37 @@ mod tests {
             .status()
             .expect("git is needed for this test");
         assert!(status.success());
+    }
+
+    #[test]
+    fn a_key_reached_through_a_symlink_into_a_work_tree_is_refused_until_ignored() {
+        let repo = TempDir::new().unwrap();
+        git_init(repo.path());
+        fs::create_dir(repo.path().join("dotfiles")).unwrap();
+        // The config folder is a link into the dotfiles work tree, and the
+        // key's own folder does not exist yet.
+        let home = TempDir::new().unwrap();
+        std::os::unix::fs::symlink(repo.path().join("dotfiles"), home.path().join("passalong"))
+            .unwrap();
+        let path = home.path().join("passalong/keys/store.key");
+        let stored = repo.path().join("dotfiles/keys/store.key");
+        let key = DataKey::generate().unwrap();
+        let git = SystemGit::isolated();
+
+        let err = save_key_file(&path, &key, &git).unwrap_err();
+        assert!(matches!(err, KeyFileError::InGitWorkTree { .. }), "{err}");
+        assert!(!stored.exists());
+
+        fs::write(repo.path().join(".gitignore"), "*.key\n").unwrap();
+        save_key_file(&path, &key, &git).unwrap();
+        assert!(stored.exists());
+        assert!(load_key_file(&path, &git).unwrap().is_some());
+
+        fs::write(repo.path().join(".gitignore"), "").unwrap();
+        assert!(matches!(
+            load_key_file(&path, &git).unwrap_err(),
+            KeyFileError::InGitWorkTree { .. }
+        ));
     }
 
     #[test]

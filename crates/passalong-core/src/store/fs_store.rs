@@ -19,7 +19,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::clock::Clock;
 use crate::crypto::{self, CHUNK_LEN, CONTENT_SALT_LEN, KeyId, SealedMeta, Sealer, read_full};
-use crate::encryption::{EncryptionError, PLAIN_DIR, REWRITE_DIR, read_header};
+use crate::encryption::{
+    ENCRYPTION_DIR, EncryptionError, Leftovers, PLAIN_DIR, REWRITE_DIR, read_header,
+};
 use crate::fs::{BoxRead, FsError, RemoteFs, RemotePath};
 use crate::model::{
     ContentDigest, ContentHasher, ContentKey, ItemId, ItemKind, ItemMeta, NewItem, preview_of,
@@ -37,7 +39,7 @@ const SEALED_TMP_DIR: &str = "v2/tmp";
 const SEALED_SCHEMA: u32 = 2;
 /// How long after its creation a sealed item that does not open counts as
 /// still arriving, rather than corrupt.
-const INCOMPLETE_GRACE_SECS: i64 = 5 * 60;
+pub(crate) const INCOMPLETE_GRACE_SECS: i64 = 5 * 60;
 const CONTENT_FILE: &str = "content";
 const META_FILE: &str = "meta.json";
 const CHUNK_SIZE: usize = 64 * 1024;
@@ -58,9 +60,11 @@ pub struct FsStore<F> {
     clock: Arc<dyn Clock>,
     rng: Mutex<Box<dyn RandomSource>>,
     sealer: Option<Sealer>,
-    /// The size and modification time of the header file last checked, for
-    /// a sealed store opened through its header.
-    guard: Option<Mutex<(u64, Option<DateTime<Utc>>)>>,
+    /// Whether a sealed store opened through its header checks that the
+    /// header still names its key.
+    guard: bool,
+    /// Whether a plaintext store checks that it is still plaintext.
+    plain_guard: bool,
 }
 
 impl<F: RemoteFs> FsStore<F> {
@@ -72,7 +76,8 @@ impl<F: RemoteFs> FsStore<F> {
             clock,
             rng: Mutex::new(rng),
             sealer: None,
-            guard: None,
+            guard: false,
+            plain_guard: false,
         }
     }
 
@@ -88,22 +93,65 @@ impl<F: RemoteFs> FsStore<F> {
             clock,
             rng: Mutex::new(rng),
             sealer: Some(sealer),
-            guard: None,
+            guard: false,
+            plain_guard: false,
         }
     }
 
-    /// Makes a sealed store check, before every `put`, `delete`, and
-    /// `list_ids`, that no re-encryption started and that the store header,
-    /// last seen with this `size` and `modified` time, still names its key.
-    pub(crate) fn guarded(mut self, size: u64, modified: Option<DateTime<Utc>>) -> Self {
-        self.guard = Some(Mutex::new((size, modified)));
+    /// Makes a plaintext store check, before every `put`, `delete`, and
+    /// `list_ids`, that it is still plaintext: no lock, no `encryption/`
+    /// folder, and no stop file where `items/` goes.
+    pub(crate) fn plain_guarded(mut self) -> Self {
+        self.plain_guard = true;
         self
     }
 
-    /// The check [`FsStore::guarded`] describes; the header is re-read only
-    /// when its file changed.
+    /// The check [`FsStore::plain_guarded`] describes.
+    async fn check_plain(&self) -> Result<(), StoreError> {
+        if self
+            .fs
+            .stat(&RemotePath::new(REWRITE_DIR)?)
+            .await?
+            .is_some()
+        {
+            return Err(EncryptionError::Rewriting { started: None }.into());
+        }
+        if self
+            .fs
+            .stat(&RemotePath::new(ENCRYPTION_DIR)?)
+            .await?
+            .is_some()
+        {
+            return Err(EncryptionError::NoKey.into());
+        }
+        if self
+            .fs
+            .stat(&RemotePath::new(ITEMS_DIR)?)
+            .await?
+            .is_some_and(|meta| !meta.is_dir)
+        {
+            return Err(EncryptionError::HeaderMissing.into());
+        }
+        Ok(())
+    }
+
+    /// Makes a sealed store check, before every `put`, `delete`, and
+    /// `list_ids`, and again once `put` has published its item, that no
+    /// change of encryption started and that the store header still names
+    /// its key.
+    pub(crate) fn guarded(mut self) -> Self {
+        self.guard = true;
+        self
+    }
+
+    /// The check [`FsStore::guarded`] or [`FsStore::plain_guarded`]
+    /// describes. The header is read every time: its size and modification
+    /// time cannot tell two keys apart.
     async fn check_key(&self) -> Result<(), StoreError> {
-        let (Some(guard), Some(sealer)) = (&self.guard, &self.sealer) else {
+        if self.plain_guard {
+            return self.check_plain().await;
+        }
+        let (true, Some(sealer)) = (self.guard, &self.sealer) else {
             return Ok(());
         };
         if self
@@ -114,22 +162,47 @@ impl<F: RemoteFs> FsStore<F> {
         {
             return Err(EncryptionError::Rewriting { started: None }.into());
         }
-        let path = crate::encryption::header::header_path()?;
-        let Some(found) = self.fs.stat(&path).await? else {
-            return Err(EncryptionError::HeaderMissing.into());
-        };
-        let seen = (found.size, found.modified);
-        if *guard.lock().unwrap_or_else(PoisonError::into_inner) == seen {
-            return Ok(());
-        }
         let header = read_header(&self.fs)
             .await?
             .ok_or(EncryptionError::HeaderMissing)?;
         if header.key_id() != sealer.key_id() {
             return Err(EncryptionError::KeyChanged.into());
         }
-        *guard.lock().unwrap_or_else(PoisonError::into_inner) = seen;
         Ok(())
+    }
+
+    /// Takes back the item `id` this client just published, after the
+    /// store's encryption changed under it. An item a re-encryption already
+    /// took into its source is not there to take back: it is re-encrypted
+    /// with the rest.
+    async fn retract(&self, id: &ItemId) {
+        let token = self
+            .rng
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .next_u64();
+        let (Ok(item), Ok(tmp)) = (self.item_dir(id), self.tmp_dir()) else {
+            return;
+        };
+        let Ok(grave) = tmp.join(&format!("retracted-{id}-{token:016x}")) else {
+            return;
+        };
+        match self.fs.rename(&item, &grave).await {
+            Ok(()) => {
+                tracing::info!(id = %id, "took back an item published while the store's key changed");
+                if let Err(err) = self.fs.remove_dir_all(&grave).await {
+                    tracing::warn!(path = %grave, error = %err, "could not remove a taken-back item");
+                }
+            }
+            Err(FsError::NotFound(_)) => {
+                tracing::debug!(id = %id, "the item went into a re-encryption");
+            }
+            Err(err) => tracing::warn!(
+                id = %id,
+                error = %err,
+                "could not take back an item published while the store's key changed"
+            ),
+        }
     }
 
     /// The id `meta`'s item gets in this store: its creation time, and this
@@ -191,29 +264,43 @@ impl<F: RemoteFs> FsStore<F> {
     }
 
     /// Warns, in a sealed store opened through its header, while plaintext
-    /// items from before a fresh start remain in `plain/items/`.
+    /// items from before a fresh start remain in `plain/items/`, or uploads
+    /// cut short before encryption remain in the plaintext `tmp/`.
     async fn remind_plain_left(&self) {
-        if self.guard.is_none() {
+        if !self.guard {
             return;
         }
-        let Ok(dir) = RemotePath::new(PLAIN_DIR).and_then(|plain| plain.join(ITEMS_DIR)) else {
-            return;
-        };
-        let Ok(entries) = self.fs.read_dir(&dir).await else {
-            return;
-        };
-        let n = entries
-            .iter()
-            .filter(|entry| entry.is_dir && ItemId::parse(&entry.name).is_ok())
-            .count();
-        if n > 0 {
-            let (items, them) = if n == 1 {
-                ("item remains", "it")
+        if let Ok(dir) = RemotePath::new(PLAIN_DIR).and_then(|plain| plain.join(ITEMS_DIR))
+            && let Ok(entries) = self.fs.read_dir(&dir).await
+        {
+            let n = entries
+                .iter()
+                .filter(|entry| entry.is_dir && ItemId::parse(&entry.name).is_ok())
+                .count();
+            if n > 0 {
+                let (items, them) = if n == 1 {
+                    ("item remains", "it")
+                } else {
+                    ("items remain", "them")
+                };
+                tracing::warn!(
+                    "{n} unencrypted {items} from before encryption; remove {them} with `passalong prune --plain`"
+                );
+            }
+        }
+        if let Ok(tmp) = RemotePath::new(TMP_DIR)
+            && let Ok(entries) = self.fs.read_dir(&tmp).await
+            && !entries.is_empty()
+        {
+            let n = entries.len();
+            let (verb, them) = if n == 1 {
+                ("remains", "it")
             } else {
-                ("items remain", "them")
+                ("remain", "them")
             };
             tracing::warn!(
-                "{n} unencrypted {items} from before encryption; remove {them} with `passalong prune --plain`"
+                "{} {verb} from before encryption; remove {them} with `passalong prune --plain`",
+                Leftovers::plaintext(n)
             );
         }
     }
@@ -470,6 +557,13 @@ impl<F: RemoteFs> FsStore<F> {
         let target = items.join(meta.id.as_str())?;
         match self.fs.rename(staging, &target).await {
             Ok(()) => {
+                // A change of key that began while the item was staged
+                // shows now. The item may be sealed under the old key, so
+                // it is taken back and the send fails, to be retried.
+                if let Err(err) = self.check_key().await {
+                    self.retract(&meta.id).await;
+                    return Err(err);
+                }
                 tracing::info!(id = %meta.id, size = meta.size, kind = ?meta.kind, "item stored");
                 Ok(PutOutcome {
                     meta,
@@ -711,18 +805,37 @@ impl<F: RemoteFs> Store for FsStore<F> {
     }
 
     async fn clean_staging(&self, older_than: Duration) -> Result<usize, StoreError> {
-        let tmp = self.tmp_dir()?;
-        let entries = match self.fs.read_dir(&tmp).await {
-            Ok(entries) => entries,
-            Err(FsError::NotFound(_)) => return Ok(0),
-            Err(err) => return Err(err.into()),
-        };
         // An age too large to subtract means nothing can be that old.
         let Some(cutoff) = TimeDelta::from_std(older_than)
             .ok()
             .and_then(|age| self.clock.now().checked_sub_signed(age))
         else {
             return Ok(0);
+        };
+        let mut removed = self.clean_dir(&self.tmp_dir()?, cutoff).await?;
+        // A sealed store never stages in the plaintext `tmp/`; what is
+        // there was cut short before encryption.
+        if self.sealer.is_some() {
+            removed += self.clean_dir(&RemotePath::new(TMP_DIR)?, cutoff).await?;
+        }
+        if removed > 0 {
+            tracing::info!("removed {removed} stale staging directories");
+        }
+        Ok(removed)
+    }
+}
+
+impl<F: RemoteFs> FsStore<F> {
+    /// Removes the folders in `tmp` last changed before `cutoff`.
+    async fn clean_dir(
+        &self,
+        tmp: &RemotePath,
+        cutoff: DateTime<Utc>,
+    ) -> Result<usize, StoreError> {
+        let entries = match self.fs.read_dir(tmp).await {
+            Ok(entries) => entries,
+            Err(FsError::NotFound(_)) => return Ok(0),
+            Err(err) => return Err(err.into()),
         };
         let mut removed = 0;
         for entry in entries.into_iter().filter(|entry| entry.is_dir) {
@@ -733,9 +846,6 @@ impl<F: RemoteFs> Store for FsStore<F> {
                 tracing::debug!(path = %path, "removed stale staging directory");
                 removed += 1;
             }
-        }
-        if removed > 0 {
-            tracing::info!("removed {removed} stale staging directories");
         }
         Ok(removed)
     }
@@ -1266,10 +1376,7 @@ mod tests {
         let dir = fx.path("tmp").join(name);
         std::fs::create_dir_all(&dir).unwrap();
         let when = FixedClockAt::minus(T, age_secs);
-        std::fs::File::open(&dir)
-            .unwrap()
-            .set_modified(when)
-            .unwrap();
+        crate::testing::set_modified(&dir, when).unwrap();
     }
 
     struct FixedClockAt;
@@ -1934,14 +2041,15 @@ mod sealed_tests {
         assert!(fx.entries("v2/tmp").is_empty());
 
         std::fs::create_dir_all(fx.path("v2/tmp/stale")).unwrap();
+        // Left in the plaintext staging before encryption: cleaned too.
         std::fs::create_dir_all(fx.path("tmp/plain-leftover")).unwrap();
         fx.clock.advance(400 * 24 * 3600);
         assert_eq!(
             store.clean_staging(Duration::from_secs(60)).await.unwrap(),
-            1
+            2
         );
         assert!(fx.entries("v2/tmp").is_empty());
-        assert_eq!(fx.entries("tmp"), ["plain-leftover"]);
+        assert!(fx.entries("tmp").is_empty());
     }
 
     #[tokio::test]

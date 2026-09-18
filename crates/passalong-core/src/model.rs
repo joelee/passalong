@@ -468,12 +468,48 @@ pub fn preview_of(text: &str) -> String {
 /// for `..` or a name ending in a separator.
 pub fn sanitise_file_name(name: &str) -> Result<String, ModelError> {
     let last = name.rsplit(['/', '\\']).next().unwrap_or_default();
-    let cleaned: String = last.chars().filter(|c| !c.is_control()).collect();
-    let cleaned = cleaned.trim();
-    if cleaned.is_empty() || cleaned == "." || cleaned == ".." {
+    // What Windows cannot store is replaced on every platform, so a name
+    // that works here works on every device.
+    let cleaned: String = last
+        .chars()
+        .filter(|c| !c.is_control())
+        .map(|c| {
+            if matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*') {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let cleaned = cleaned.trim().trim_end_matches(['.', ' ']);
+    if cleaned.is_empty() {
         return Err(ModelError::InvalidFileName(name.to_owned()));
     }
-    Ok(cleaned.to_owned())
+    Ok(if is_reserved_on_windows(cleaned) {
+        format!("_{cleaned}")
+    } else {
+        cleaned.to_owned()
+    })
+}
+
+/// Whether Windows reserves `name` for a device, with or without an
+/// extension: `CON`, `PRN`, `AUX`, `NUL`, `COM1` to `COM9`, `LPT1` to `LPT9`.
+fn is_reserved_on_windows(name: &str) -> bool {
+    let stem = name
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .trim_end()
+        .to_ascii_uppercase();
+    match stem.as_str() {
+        "CON" | "PRN" | "AUX" | "NUL" => true,
+        _ => {
+            let bytes = stem.as_bytes();
+            bytes.len() == 4
+                && (stem.starts_with("COM") || stem.starts_with("LPT"))
+                && (b'1'..=b'9').contains(&bytes[3])
+        }
+    }
 }
 
 /// Guesses a file's MIME type from its extension, falling back to
@@ -771,12 +807,37 @@ mod tests {
         for (input, expected) in cases {
             assert_eq!(sanitise_file_name(input).unwrap(), expected, "{input:?}");
         }
-        for bad in ["", "..", ".", "dir/", "/", "\u{0}"] {
+        for bad in ["", "..", ".", "dir/", "/", "\u{0}", "...", " . "] {
             let err = sanitise_file_name(bad).unwrap_err();
             assert!(
                 matches!(err, ModelError::InvalidFileName(_)),
                 "{bad:?}: {err:?}"
             );
+        }
+    }
+
+    #[test]
+    fn file_names_are_made_valid_on_windows_everywhere() {
+        let cases = [
+            ("a<b>c:d\"e|f?g*h.txt", "a_b_c_d_e_f_g_h.txt"),
+            ("report.pdf.", "report.pdf"),
+            ("trailing dots and spaces. . ", "trailing dots and spaces"),
+            ("notes:v2", "notes_v2"),
+            ("CON", "_CON"),
+            ("con.txt", "_con.txt"),
+            ("Nul.tar.gz", "_Nul.tar.gz"),
+            ("prn", "_prn"),
+            ("AUX.log", "_AUX.log"),
+            ("COM1", "_COM1"),
+            ("com9.txt", "_com9.txt"),
+            ("LPT5.dat", "_LPT5.dat"),
+            ("COM0", "COM0"),
+            ("COM10.txt", "COM10.txt"),
+            ("CONSOLE.txt", "CONSOLE.txt"),
+            ("icon.png", "icon.png"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(sanitise_file_name(input).unwrap(), expected, "{input:?}");
         }
     }
 

@@ -218,7 +218,8 @@ $ echo "from a script" | passalong clipboard --stdin
 ```
 
 `--stdin` reads the text from standard input instead, which also works
-without a desktop session. A clipboard with neither text nor an image, or
+without a desktop session. In PowerShell the same is
+`"from a script" | passalong clipboard --stdin`. A clipboard with neither text nor an image, or
 only whitespace, is refused with `error: clipboard is empty`. Sending text that is already stored prints the
 existing item's id and stores nothing new.
 
@@ -280,6 +281,11 @@ nothing added, so it can be piped or redirected:
 passalong cat 2cf2 | wc -l
 passalong cat 8f3a > report.pdf
 ```
+
+In PowerShell, redirecting or piping binary content like this needs
+PowerShell 7.4 or later. Windows PowerShell 5.1 re-encodes what passes
+through `|` and `>`, which corrupts anything that is not text; there, use
+`passalong load 8f3a report.pdf` instead. Text is fine in either.
 
 At the default log level nothing is written to standard error on success;
 the "item printed" record appears from `--log-level verbose`.
@@ -374,7 +380,7 @@ is required:
 | `--keep <N>` | Always keep the newest `N` items. |
 | `--dry-run` | Show what would be deleted, then stop. |
 | `--yes` | Delete without asking. Required when not running in a terminal. |
-| `--plain` | Prune the unencrypted items a fresh start left in `plain/`, instead of the store's items; `plain/` is removed once empty. |
+| `--plain` | Prune the unencrypted items a fresh start left in `plain/`, instead of the store's items; `plain/` is removed once empty. It also removes what passalong 0.2.0 left behind when it encrypted a store: uploads and deletions cut short before encryption, still unencrypted in `tmp/`, and unused journals. `check` and `list` report both. |
 
 With both options, an item survives if either protects it:
 `prune --older-than 30d --keep 20` deletes items older than 30 days but
@@ -444,6 +450,13 @@ that cannot be reached is retried at the next check without skipping
 anything. Pull mode remembers which items it has already handled, so an
 item from a device whose clock runs behind is still applied, once.
 
+In an encrypted store, an item that does not open yet is tried again at
+the next check while it is less than five minutes old, since its files may
+still be arriving through a synced folder; the items after it are applied
+meanwhile. An older item that does not open is damaged: it is logged,
+skipped for good, and never written to the clipboard or the download
+folder.
+
 ### Running `serve` in the background
 
 Only one `serve` runs at a time: a second one exits with
@@ -451,20 +464,22 @@ Only one `serve` runs at a time: a second one exits with
 
 | Option | Meaning |
 |---|---|
-| `--daemon` | Start `serve` in the background and return. Prints `serve started (pid N, log PATH)`, or the start-up error and exit code 1. Linux and macOS only. |
+| `--daemon` | Start `serve` in the background and return. Prints `serve started (pid N, log PATH)`, or the start-up error and exit code 1. |
 | `--status` | Print `running (pid N, log PATH)`, or `not running` with exit code 3. |
 | `--stop` | Stop the running `serve` and wait up to 10 seconds for it to exit. |
 
 The background process keeps running after you close the terminal and logs
-to a file (see [configuration](configuration.md#serve-files)). For start at
-login and restarts after crashes, use `passalong service-install`.
-- **macOS (launchd):** install `docs/service/com.passalong.serve.plist` as a
-  launch agent. Its header shows the commands.
+to a file (see [configuration](configuration.md#serve-files)). On Windows it
+has no console window. Windows has no stop signal, so there `--stop` leaves
+a `serve.stop` file beside `serve.pid`, which `serve` checks every second.
+For start at login and restarts after crashes, use
+`passalong service-install`.
 
 ## `passalong service-install`
 
-Installs `serve` as a service that starts at login and restarts after a
-crash: a systemd user unit on Linux, a launchd agent on macOS. Run
+Installs `serve` so it starts at login: a systemd user unit on Linux and a
+launchd agent on macOS, both restarting `serve` after a crash. On Windows
+it uses the Run key, or a Task Scheduler task with `--scheduler`. Run
 `passalong check` first to make sure the setup works.
 
 ```sh
@@ -476,22 +491,42 @@ passalong service-remove    # stop it and remove the unit
 |---|---|---|
 | Linux | `${XDG_CONFIG_HOME:-~/.config}/systemd/user/passalong-serve.service`, logging to the journal | `systemctl --user daemon-reload`, then `systemctl --user enable --now passalong-serve.service` |
 | macOS | `~/Library/LaunchAgents/com.passalong.serve.plist`, logging to `~/Library/Logs/passalong/serve.log` | `launchctl bootstrap gui/<uid>` |
+| Windows | The value `passalong-serve` in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, running `serve --daemon` at log-in and logging to `%LOCALAPPDATA%\passalong\serve.log` | `reg add`, then `passalong serve --daemon` to start it now |
+| Windows, `--scheduler` | The scheduled task `passalong-serve`, running `serve` at your log-in and restarting it up to 3 times, a minute apart, if it fails | `schtasks /Create /XML`, then `schtasks /Run` |
 
 The unit runs this `passalong` binary by its full path, with `--config` as
-an absolute path when you give one, from your home directory, so a
-`~/.env` holding `PASSALONG_SSH_KEY_PASSPHRASE` is found.
+an absolute path when you give one. On Linux and macOS it runs from your
+home directory, so a `~/.env` holding `PASSALONG_SSH_KEY_PASSPHRASE` is
+found.
+
+Which Windows option to use:
+
+- **The Run key** (the default) needs no administrator. Windows runs it
+  once at log-in and does not restart it after a crash. A command over 260
+  characters is refused: use a shorter config path, or `--scheduler`.
+- **`--scheduler`** restarts `serve` after a failure, but Windows lets only
+  an administrator create a log-on task: run it from an administrator
+  prompt. The task still runs as you, in your session, without
+  administrator rights, so it can reach your clipboard. Its console window
+  stays open while `serve` runs.
+
+Neither option is a Windows service: services run in a separate session
+that has no clipboard.
 
 A unit with the same content is left alone; one that differs is replaced
-only with `--force`. The service is not started while another `serve` runs:
-stop it first with `passalong serve --stop`. If `systemctl` or `launchctl`
-fails, the unit is left in place and the error names the command. Other
-platforms get `service-install and service-remove support Linux (systemd)
-and macOS (launchd) only`.
+only with `--force`. On Windows an existing Run key value is compared the
+same way, and an existing scheduled task is replaced only with `--force`.
+The service is not started while another `serve` runs: stop it first with
+`passalong serve --stop`. If `systemctl` or `launchctl` fails, the unit is
+left in place and the error names the command. Other platforms get
+`service-install and service-remove support Linux (systemd), macOS
+(launchd), and Windows (the Run key or Task Scheduler) only`.
 
 | Option | Meaning |
 |---|---|
 | `--no-start` | Write the unit without enabling or starting it, and print the command that would |
 | `--force` | Replace an installed unit that differs |
+| `--scheduler` | Windows only: register a Task Scheduler task instead of the Run key; needs an administrator prompt |
 
 The files in `docs/service/` are the same units with placeholder paths, for
 installing by hand.
@@ -501,9 +536,11 @@ installing by hand.
 Stops, disables, and removes the unit `service-install` wrote. On Linux it
 runs `systemctl --user disable --now passalong-serve.service`, removes the
 file, and reloads systemd; on macOS it boots the agent out with `launchctl
-bootout` (an agent that is not loaded is fine) and removes the file.
-Without an installed unit it prints `not installed: no <path>` and
-succeeds.
+bootout` (an agent that is not loaded is fine) and removes the file. On
+Windows it deletes the Run key value and the scheduled task, whichever
+exist; it ends the task first. A `serve` started from the Run key keeps
+running until `passalong serve --stop`. Without an installed unit it prints
+`not installed: …` and succeeds.
 
 ## Clipboard support
 

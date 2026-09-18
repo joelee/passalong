@@ -1,7 +1,9 @@
 //! Tests for `scripts/check-links.sh`, which `just check` runs. It fails
 //! when a Markdown link points at a missing file or heading, when a link to
 //! this repository's `main` branch names a missing path, and when a crate's
-//! README, which crates.io shows, has a relative link.
+//! README, which crates.io shows, has a relative link. The script is a bash
+//! script run by the Linux and macOS jobs, so the tests run on Unix only.
+#![cfg(unix)]
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

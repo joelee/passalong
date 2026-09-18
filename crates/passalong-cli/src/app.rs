@@ -400,12 +400,9 @@ fn service(cli: &Cli, env: &dyn EnvProvider, out: &mut dyn Write) -> anyhow::Res
     let level = resolve_level(cli.log_level, cli.quiet, env, None)?;
     let _ = telemetry::init(level, crate::logs::writer);
     let _span = telemetry::op_span(cli.command.name(), &mut StdRandom::new()).entered();
-    let home = env
-        .var("HOME")
-        .filter(|home| !home.is_empty())
-        .map(PathBuf::from)
-        .context("cannot find the home directory: set HOME")?;
-    let platform = commands::service_install::current_platform(&home)?;
+    let home = commands::service_install::home_dir(env)?;
+    let scheduler = matches!(&cli.command, Command::ServiceInstall(args) if args.scheduler);
+    let platform = commands::service_install::current_platform(&home, scheduler)?;
     let mut manager = crate::service::ProcessManager;
     // Only `service-install` and `service-remove` reach here.
     let Command::ServiceInstall(args) = &cli.command else {

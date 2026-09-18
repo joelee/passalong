@@ -6,6 +6,81 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## v0.2.1 - 2026-09-16T21:34:14Z
+
+### Added
+
+- Windows x86_64. The workspace builds, lints, and passes its tests on
+  Windows in CI. The config is in `%APPDATA%\passalong`, the system config
+  in `%ProgramData%\passalong`, `serve`'s files in
+  `%LOCALAPPDATA%\passalong`, and `~` means `USERPROFILE` (PLAN-00009
+  STEP-08).
+- On Windows the key file, the folders created for it, and the list cache
+  are open to their owner alone, set with `icacls`. A key file others may
+  open is refused, with the `icacls` command that fixes it (PLAN-00009
+  STEP-09).
+- `serve --daemon`, `--status`, and `--stop` on Windows. `service-install`
+  adds `serve` to the per-user Run key, or with `--scheduler` registers a
+  Task Scheduler log-on task that restarts it after a failure;
+  `service-remove` removes either (PLAN-00009 STEP-10).
+- Release binaries for Windows x86_64:
+  `passalong-<version>-x86_64-pc-windows-msvc.zip` and its `.sha256`
+  (PLAN-00009 STEP-11).
+- `encrypt --recover` also finishes or undoes an interrupted set-up, fresh
+  start, or change of words. It restores a store whose header an
+  interrupted v0.2.0 change left aside, once the words unlock it. It refuses
+  to run while another recovery runs, and offers to take over one that
+  stopped more than 10 minutes ago (PLAN-00009 STEP-01, STEP-02).
+- `check` and `list` report what passalong 0.2.0 left unencrypted in `tmp/`
+  when it encrypted a store, and unused journals; `prune --plain` removes
+  them (PLAN-00009 STEP-04).
+- Library, all additive:
+  - in `passalong_core::encryption`: `Journal`, `HeaderChange`,
+    `HeaderChangeKind`, `read_journal`, `RecoveryMarker`,
+    `RECOVERY_STALE_SECS`, `recovery_in_progress`, `release_recovery`,
+    `restore_header`, `Leftovers`, `leftovers`, and `remove_leftovers`;
+  - `ListCache::identity_for`;
+  - `RemoteFs` for `Arc<T>`.
+
+### Changed
+
+- The version is 0.2.1. `cargo semver-checks` finds no breaking change in
+  `passalong-core` or `passalong-ssh` against 0.2.0, and the store layout
+  is unchanged (PLAN-00009 STEP-11).
+- File names from the store are made safe for Windows on every platform:
+  `< > : " | ? *` become `_`, trailing dots and spaces are dropped, and
+  reserved names such as `CON` or `aux.txt` get a leading `_` (PLAN-00009
+  STEP-08).
+
+### Fixed
+
+Findings of Code Review 00002 (v0.2.0):
+
+- A cut-short start of a re-encryption can no longer leave a lock with an
+  empty or partial journal: the journal is written whole elsewhere and
+  renamed into place (MED-01, PLAN-00009 STEP-01).
+- Setting up encryption, a fresh start, and changing the words run under
+  the same lock and journal as a re-encryption, so they never run at once
+  and an interruption can be finished or undone (MAJ-04, PLAN-00009
+  STEP-02).
+- A store holding only part of an encrypted layout, as a synced folder can
+  deliver it, is refused as broken and never opened as plaintext; an open
+  plaintext store stops writing once encryption starts (MAJ-02, PLAN-00009
+  STEP-03).
+- Encrypting removes the plaintext staging folder, where uploads cut short
+  could leave unencrypted content (MAJ-03, PLAN-00009 STEP-04).
+- A send racing a key rotation can no longer store an item under the old
+  key: the key id is read from the header before each write and again after
+  publishing, and the item is taken back if the key changed; `serve` keeps
+  the file and sends it again (MAJ-01, MED-02, PLAN-00009 STEP-05).
+- `serve`'s list cache follows the store to a new key, and pull mode skips
+  an encrypted item that does not open, instead of stopping at it; a recent
+  one is tried again later (MED-03, MED-04, PLAN-00009 STEP-06).
+- The key file's git work-tree check follows symbolic links, and the
+  compatibility test runs v0.1.6's real `prune --yes`; the v0.2.0 release
+  notes no longer claim a synced-folder check (MED-05, LOW-01, LOW-02,
+  PLAN-00009 STEP-07).
+
 ## v0.2.0 - 2026-09-15T16:46:38Z
 
 ### Added

@@ -3,7 +3,8 @@
 Settings live in `config.toml`; the only secret, the SSH key passphrase,
 comes from the environment. `passalong init` writes a complete file for an
 SSH server, at `$XDG_CONFIG_HOME/passalong/config.toml` or
-`~/.config/passalong/config.toml` unless `--config` says otherwise. [`config.sample.toml`](../config.sample.toml) is
+`~/.config/passalong/config.toml`, or on Windows
+`%APPDATA%\passalong\config.toml`, unless `--config` says otherwise. [`config.sample.toml`](../config.sample.toml) is
 an annotated example with every key.
 
 ## Lookup order
@@ -21,6 +22,12 @@ A path named by `--config` or `PASSALONG_CONFIG_FILE` must exist; passalong
 reports the typo instead of falling back to another file. Relative paths
 resolve against the working directory. Empty environment variables count as
 unset, and a relative `XDG_CONFIG_HOME` is ignored.
+
+On Windows, positions 3 and 4 are replaced by
+`%APPDATA%\passalong\config.toml`, and position 5 is
+`%ProgramData%\passalong\config.toml`. `XDG_CONFIG_HOME` and `HOME` are
+not read while `APPDATA` is set, as it always is on Windows, so the `HOME`
+that Git Bash sets does not move the config.
 A location that exists but cannot be read, for example because a directory
 on its path may not be entered, is reported as
 `cannot read config file <path>: permission denied` rather than skipped.
@@ -36,7 +43,7 @@ Unknown keys are rejected, and every error names the offending key or line.
 |---|---|---|---|
 | `device_name` | string | host name | Name recorded on every item this device sends |
 | `log_level` | string | `info` | `error`, `warning`, `info`, `verbose`, or `debug` (see Logging) |
-| `key_file` | path | `store.key` beside the default config file | Where this device keeps an encrypted store's key: `$XDG_CONFIG_HOME/passalong/store.key`, or `~/.config/passalong/store.key`; there is no default when neither `XDG_CONFIG_HOME` nor `HOME` is set. Must be absolute after `~` expansion. It is written with mode 0600, and refused if other users can read it or if it is inside a git work tree that does not ignore it |
+| `key_file` | path | `store.key` beside the default config file | Where this device keeps an encrypted store's key: `$XDG_CONFIG_HOME/passalong/store.key`, or `~/.config/passalong/store.key`, or on Windows `%APPDATA%\passalong\store.key`; there is no default when neither `XDG_CONFIG_HOME` nor `HOME` is set. Must be absolute after `~` expansion. It is written with mode 0600 (on Windows, with an access list that lets only you in, set with `icacls`), and refused if other users can read it or if it is inside a git work tree that does not ignore it |
 | `download_dir` | path | `~/Downloads` | Where `load` puts file items when no destination is given, created if missing; pull mode writes here only if it exists. Must be absolute after `~` expansion |
 
 ### `[server]`
@@ -87,6 +94,7 @@ The key passphrase is never read from this file; see Environment variables.
 | `PASSALONG_SSH_KEY_PASSPHRASE` | Secret: passphrase for `identity_file`; the `passphrase` of the SSH settings comes only from here |
 | `PASSALONG_LOG_LEVEL` | Overrides `client.log_level` |
 | `XDG_CONFIG_HOME`, `HOME` | Lookup positions 3 and 4, and `~` expansion |
+| `APPDATA`, `ProgramData`, `LOCALAPPDATA`, `USERPROFILE` | Windows only: the user and system config folders, `serve`'s files, and `~` expansion (`~\` works too) |
 
 The CLI loads `./.env` at start-up when it exists. Values from `.env` never
 override variables already set in the environment. Keep secrets only in
@@ -100,6 +108,7 @@ override variables already set in the environment. Keep secrets only in
 |---|---|---|
 | Linux | `${XDG_STATE_HOME:-~/.local/state}/passalong/serve.pid` | `${XDG_STATE_HOME:-~/.local/state}/passalong/serve.log` |
 | macOS | `~/Library/Application Support/passalong/serve.pid` | `~/Library/Logs/passalong/serve.log` |
+| Windows | `%LOCALAPPDATA%\passalong\serve.pid` | `%LOCALAPPDATA%\passalong\serve.log` |
 
 With the `ssh` backend and `serve.list_cache` on, `serve` also keeps
 `list-cache.json` in the pid file's folder: the item list, readable by you
@@ -110,6 +119,10 @@ made from.
 The pid file is locked while `serve` runs, which is how a second copy is
 refused. A pid file left behind by a crash is harmless and is reused. The
 log file grows without rotation.
+
+On Windows a locked file cannot be read, so `serve` also writes its pid to
+`serve.state` beside the pid file, and `serve --stop` asks it to stop by
+creating `serve.stop` there. Both are removed when `serve` stops.
 
 ## Encrypted stores
 

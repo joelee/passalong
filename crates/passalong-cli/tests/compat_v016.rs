@@ -9,7 +9,8 @@
 //! `PASSALONG_COMPAT_BIN`; `just test-compat` downloads the v0.1.6 release
 //! for this platform and runs them. `serve` is not run, because it would
 //! read the real clipboard; it stores through the same `FsStore::put` as
-//! `clipboard`.
+//! `clipboard`. A positive control runs the same `prune` against a
+//! plaintext store, so the refusal cannot come from bad arguments.
 
 use std::path::{Path, PathBuf};
 use std::process::Output;
@@ -23,9 +24,12 @@ use passalong_core::fs::LocalFs;
 use passalong_core::model::NewItem;
 use passalong_core::random::StdRandom;
 use passalong_core::store::{FsStore, Store};
+use passalong_core::testing::FixedClock;
 use tempfile::TempDir;
 const CLIPBOARD_MARKER: &str = "compat-marker-clipboard-7f3a19";
 const FILE_MARKER: &str = "compat-marker-file-91c2e4";
+/// The v0.1.6 `prune` run against every store: items older than a minute.
+const PRUNE: [&str; 4] = ["prune", "--older-than", "1m", "--yes"];
 
 struct Sandbox {
     dir: TempDir,
@@ -94,6 +98,11 @@ fn files_below(root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
     found
 }
 
+fn sorted(mut files: Vec<(PathBuf, Vec<u8>)>) -> Vec<(PathBuf, Vec<u8>)> {
+    files.sort();
+    files
+}
+
 fn contains(haystack: &[u8], needle: &str) -> bool {
     haystack
         .windows(needle.len())
@@ -139,17 +148,17 @@ fn assert_old_client_is_refused(sb: &Sandbox) {
             "delete",
             sb.old().args(["delete", "abcd"]).output().unwrap(),
         ),
-        (
-            "prune",
-            sb.old()
-                .args(["prune", "--older-than", "1m", "--force"])
-                .output()
-                .unwrap(),
-        ),
+        ("prune", sb.old().args(PRUNE).output().unwrap()),
         ("check", sb.old().arg("check").output().unwrap()),
     ];
     for (what, out) in &runs {
         assert!(!out.status.success(), "{}", describe(what, out));
+        // A usage error would fail before the command reached the store.
+        assert!(
+            !String::from_utf8_lossy(&out.stderr).contains("Usage:"),
+            "{}",
+            describe(what, out)
+        );
     }
 
     for (path, bytes) in files_below(&sb.path("store")) {
@@ -195,6 +204,39 @@ fn compat_v016_cannot_write_into_a_store_whose_items_is_a_file() {
     }
 }
 
+#[test]
+#[ignore = "needs the v0.1.6 binary in PASSALONG_COMPAT_BIN; run `just test-compat`"]
+fn compat_v016_prune_prunes_a_plaintext_store() {
+    let sb = Sandbox::new();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let store = FsStore::new(
+            LocalFs::new(sb.path("store")),
+            Arc::new(FixedClock::at("2026-01-01T00:00:00Z")),
+            Box::new(StdRandom::new()),
+        );
+        store
+            .put(
+                NewItem::text("compat"),
+                Box::new(std::io::Cursor::new(b"old enough".to_vec())),
+            )
+            .await
+            .unwrap();
+    });
+    let out = sb.old().args(PRUNE).output().unwrap();
+    assert!(out.status.success(), "{}", describe("prune", &out));
+    assert!(
+        std::fs::read_dir(sb.path("store/items"))
+            .unwrap()
+            .next()
+            .is_none(),
+        "the eligible item was pruned"
+    );
+}
+
 /// Encrypts a new store at `root` with the library, as `passalong encrypt`
 /// does, and stores one item holding `text`.
 fn encrypted_store(root: &Path, text: &str) {
@@ -233,8 +275,14 @@ fn compat_v016_cannot_write_into_an_encrypted_store() {
     let sb = Sandbox::new();
     let existing = "compat-existing-item-5d21";
     encrypted_store(&sb.path("store"), existing);
+    let before = sorted(files_below(&sb.path("store")));
 
     assert_old_client_is_refused(&sb);
+    assert_eq!(
+        sorted(files_below(&sb.path("store"))),
+        before,
+        "v0.1.6 changed a file of the encrypted store"
+    );
 
     for (path, bytes) in files_below(&sb.path("store")) {
         assert!(

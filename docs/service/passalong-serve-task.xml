@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Task Scheduler task: runs `passalong serve` when you log in, and restarts it
+  up to 3 times, a minute apart, if it fails. `passalong service-install`
+  with its scheduler option writes the same task; this file is for
+  installing by hand.
+
+  Replace DOMAIN\user with your account (`whoami` prints it) and the paths
+  with yours, then, from an administrator prompt (if schtasks rejects the
+  file, save it as UTF-16 and change the encoding above to match):
+
+    schtasks /Create /TN passalong-serve /XML passalong-serve-task.xml
+    schtasks /Run /TN passalong-serve
+
+  Remove it with:
+
+    schtasks /Delete /TN passalong-serve /F
+
+  The task runs as you, in your session, without administrator rights, so
+  serve can reach your clipboard. Its console window stays open while serve
+  runs.
+-->
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>passalong serve: send clipboard text and dropped files.</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>DOMAIN\user</UserId>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>DOMAIN\user</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>3</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>C:\Users\user\.cargo\bin\passalong.exe</Command>
+      <Arguments>--config C:\Users\user\AppData\Roaming\passalong\config.toml serve</Arguments>
+    </Exec>
+  </Actions>
+</Task>

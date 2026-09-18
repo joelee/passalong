@@ -16,19 +16,28 @@
 //!   plaintext;
 //! - `v2/items/` and `v2/tmp/`, the sealed items and their staging;
 //! - `plain/items/`, only after a fresh start, for the items stored before;
-//! - `.rewrite/`, only while items are re-encrypted; creating it is the lock.
+//! - `.rewrite/`, only while items are re-encrypted or the header changes;
+//!   it appears in one rename of a whole journal, and is the lock (see
+//!   [`read_journal`]).
 
 mod admin;
 pub(crate) mod header;
+mod header_change;
+mod journal;
 mod key_file;
 mod open;
 mod rewrite;
 
 pub use admin::{
-    StoreState, change_words, fresh_start, inspect, join, plain_store, remove_plain_if_empty,
-    set_up,
+    Leftovers, StoreState, change_words, fresh_start, inspect, join, leftovers, plain_store,
+    remove_leftovers, remove_plain_if_empty, set_up,
 };
 pub use header::{StoreHeader, create_header, read_header, replace_header, write_stop_file};
+pub use header_change::restore_header;
+pub use journal::{
+    HeaderChange, HeaderChangeKind, Journal, RECOVERY_STALE_SECS, RecoveryMarker, read_journal,
+    recovery_in_progress, release_recovery,
+};
 pub use key_file::{
     GitCheck, KeyFileError, SystemGit, check_key_location, load_key_file, save_key_file,
 };
@@ -102,6 +111,15 @@ pub enum EncryptionError {
     )]
     Rewriting {
         /// When the re-encryption started, if known.
+        started: Option<String>,
+    },
+    /// Another recovery of the store is running, or was interrupted.
+    #[error(
+        "another `passalong encrypt --recover` is running{}; wait for it to finish, or, if it was interrupted, run `passalong encrypt --recover` again to take it over",
+        since(.started)
+    )]
+    Recovering {
+        /// When that recovery started, if known.
         started: Option<String>,
     },
     /// The store's items are encrypted, but its header is gone.

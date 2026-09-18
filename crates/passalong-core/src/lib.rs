@@ -15,6 +15,7 @@ pub mod download;
 pub mod encryption;
 pub mod fs;
 pub mod model;
+mod owner_only;
 pub mod random;
 pub mod retention;
 pub mod serve;
@@ -30,6 +31,6 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 mod tests {
     #[test]
     fn version_is_the_workspace_version() {
-        assert_eq!(super::VERSION, "0.2.0");
+        assert_eq!(super::VERSION, "0.2.1");
     }
 }

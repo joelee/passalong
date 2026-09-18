@@ -46,6 +46,8 @@ jobs:
             target: x86_64-unknown-linux-gnu
           - os: macos-latest
             target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -58,6 +60,7 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
       - name: Package
+        if: runner.os != 'Windows'
         shell: bash
         env:
           TARGET: ${{ matrix.target }}
@@ -67,10 +70,26 @@ jobs:
           cp "target/$TARGET/release/passalong" LICENSE README.md "$name/"
           tar -czf "$name.tar.gz" "$name"
           shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
+      # A zip for Windows, with its checksum in shasum's `<hash>  <name>`
+      # format so one command checks every download.
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          $name = "passalong-$($env:GITHUB_REF_NAME.TrimStart('v'))-$env:TARGET"
+          New-Item -ItemType Directory -Path $name | Out-Null
+          Copy-Item "target/$env:TARGET/release/passalong.exe", LICENSE, README.md -Destination $name
+          Compress-Archive -Path $name -DestinationPath "$name.zip"
+          $hash = (Get-FileHash -Algorithm SHA256 "$name.zip").Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText("$PWD/$name.zip.sha256", "$hash  $name.zip`n")
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target }}
-          path: passalong-*.tar.gz*
+          path: |
+            passalong-*.tar.gz*
+            passalong-*.zip*
 
   crates:
     name: Publish to crates.io

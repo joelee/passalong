@@ -1,6 +1,8 @@
 //! Tests for `scripts/check-release-tag.sh`, which the release workflow
 //! runs before building or publishing anything. It checks that the tag
 //! matches the workspace version and that the release records are final.
+//! The script is a bash script run on Linux, so the tests run on Unix only.
+#![cfg(unix)]
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

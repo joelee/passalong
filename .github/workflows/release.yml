@@ -56,7 +56,10 @@ jobs:
           toolchain: 1.98.1
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
+      # bash on every runner: PowerShell, the default shell on Windows,
+      # does not expand `$TARGET`, and cargo then gets an empty target.
       - run: cargo build --release --locked -p passalong --target "$TARGET"
+        shell: bash
         env:
           TARGET: ${{ matrix.target }}
       - name: Package

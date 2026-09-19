@@ -633,3 +633,40 @@ fn https_init_refuses_a_wrong_pin_and_writes_nothing() {
         .stderr(predicate::str::contains(server.pin.to_string()));
     assert!(!config.exists());
 }
+
+#[test]
+#[ignore = "needs passalong-server: just test-https"]
+fn https_a_debug_session_never_logs_the_api_key() {
+    let server = TestServer::start();
+    let dir = TempDir::new().unwrap();
+    let config = device(&server, dir.path());
+    let secret = server.key.expose().rsplit('_').next().unwrap().to_owned();
+    let mut logged = String::new();
+    let mut session = |args: &[&str], stdin: Option<&str>| {
+        let mut cmd = passalong(dir.path(), &config);
+        cmd.env("PASSALONG_LOG_LEVEL", "debug").args(args);
+        if let Some(stdin) = stdin {
+            cmd.write_stdin(stdin);
+        }
+        let out = cmd.assert().success().get_output().clone();
+        logged.push_str(&String::from_utf8_lossy(&out.stdout));
+        logged.push_str(&String::from_utf8_lossy(&out.stderr));
+        String::from_utf8(out.stdout).unwrap()
+    };
+    let id = session(&["clipboard", "--stdin"], Some("logged at debug"))
+        .trim()
+        .to_owned();
+    session(&["list", "--nocache"], None);
+    session(&["cat", &id], None);
+    session(&["check"], None);
+    session(&["delete", &id], None);
+    assert!(
+        logged.contains("DEBUG") || logged.contains("debug"),
+        "{logged}"
+    );
+    assert!(!logged.contains(&secret), "the API key's secret was logged");
+    assert!(
+        !server.log().contains(&secret),
+        "the server logged the secret"
+    );
+}

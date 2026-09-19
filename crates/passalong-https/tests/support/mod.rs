@@ -41,6 +41,8 @@ pub struct Settings {
     pub lease_secs: u64,
     /// `limits.max_item_bytes`.
     pub max_item_bytes: Option<u64>,
+    /// `limits.workspace_quota_bytes`.
+    pub quota_bytes: Option<u64>,
 }
 
 impl Default for Settings {
@@ -48,6 +50,7 @@ impl Default for Settings {
         Self {
             lease_secs: 600,
             max_item_bytes: None,
+            quota_bytes: None,
         }
     }
 }
@@ -101,6 +104,10 @@ impl TestServer {
                 Some(("lease_secs", _)) => format!("lease_secs = {}", settings.lease_secs),
                 Some(("max_item_bytes", _)) => match settings.max_item_bytes {
                     Some(bytes) => format!("max_item_bytes = \"{bytes}\""),
+                    None => line.to_owned(),
+                },
+                Some(("workspace_quota_bytes", _)) => match settings.quota_bytes {
+                    Some(bytes) => format!("workspace_quota_bytes = \"{bytes}\""),
                     None => line.to_owned(),
                 },
                 _ => line.to_owned(),
@@ -178,6 +185,17 @@ impl TestServer {
     /// The configuration with this server's own pin.
     pub fn pinned(&self, dir: &Path) -> Config {
         self.config(dir, Some(&self.pin.to_string()))
+    }
+
+    /// The operations the server has logged answering, in order, such as
+    /// `listItemIds`.
+    pub fn operations(&self) -> Vec<String> {
+        self.log()
+            .lines()
+            .filter_map(|line| line.split("operation=\"").nth(1))
+            .filter_map(|rest| rest.split('"').next())
+            .map(str::to_owned)
+            .collect()
     }
 
     /// What the server logged so far.

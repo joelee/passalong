@@ -348,7 +348,7 @@ impl HttpStore {
         })
         .map_err(|err| corrupt(meta.id.as_str(), err))?;
         let uploads = self.url("/uploads", &[])?;
-        let response = self
+        let response = match self
             .client
             .send("beginUpload", |http| {
                 http.post(uploads.clone())
@@ -356,7 +356,13 @@ impl HttpStore {
                     .body(request.clone())
             })
             .await
-            .map_err(store_error)?;
+        {
+            Ok(response) => response,
+            Err(err) if err.code() == Some(Code::QuotaExceeded) => {
+                return Err(self.over_quota(&err, size).await);
+            }
+            Err(err) => return Err(store_error(err)),
+        };
         if response.status() == StatusCode::OK {
             // The content is stored already: nothing is sent.
             let outcome: api::PutOutcome = json(response).await.map_err(store_error)?;
@@ -379,6 +385,18 @@ impl HttpStore {
                 self.abort(&ticket).await;
                 Err(err)
             }
+        }
+    }
+
+    /// The refusal of an item that does not fit the workspace's quota,
+    /// naming the quota and what is used.
+    async fn over_quota(&self, err: &HttpsError, size: u64) -> StoreError {
+        match self.client.workspace().await {
+            Ok(workspace) => StoreError::Backend(format!(
+                "{err}: the item takes {size} bytes, and the workspace uses {} of its quota of {} bytes; delete or prune items, or ask the server's operator for a larger quota",
+                workspace.used_bytes, workspace.quota_bytes
+            )),
+            Err(_) => StoreError::Backend(err.to_string()),
         }
     }
 

@@ -323,3 +323,118 @@ async fn every_write_names_the_key_it_expects() {
     }
     assert_eq!(client.workspace().await.unwrap().item_count, 0);
 }
+
+#[tokio::test]
+#[ignore = "needs passalong-server: just test-https"]
+async fn each_lookup_is_one_request_to_its_own_route() {
+    let server = TestServer::start();
+    let dir = TempDir::new().unwrap();
+    let store = open(&server.pinned(dir.path()), &server.key).await;
+    let first = store
+        .put(NewItem::text("box"), content(b"one"))
+        .await
+        .unwrap()
+        .meta;
+    store
+        .put(NewItem::text("box"), content(b"two"))
+        .await
+        .unwrap();
+
+    // Waits for the server's log to show the requests since `before`.
+    async fn since(server: &TestServer, before: usize) -> Vec<String> {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        server.operations()[before..].to_vec()
+    }
+    let prefix = &first.id.as_str()[9..13];
+    let key = text_key(b"one");
+    let checks: Vec<(&str, _)> = vec![
+        (
+            "listItems",
+            Box::pin(async { store.list_after(Some(&first.id)).await.map(drop) })
+                as std::pin::Pin<
+                    Box<dyn std::future::Future<Output = Result<(), StoreError>> + '_>,
+                >,
+        ),
+        (
+            "listItemIds",
+            Box::pin(async { store.list_ids().await.map(drop) }),
+        ),
+        (
+            "getItem",
+            Box::pin(async { store.get_meta(&first.id).await.map(drop) }),
+        ),
+        (
+            "getItem",
+            Box::pin(async { store.exists(&first.id).await.map(drop) }),
+        ),
+        (
+            "findByContentKey",
+            Box::pin(async { store.find_by_content_key(&key).await.map(drop) }),
+        ),
+        (
+            "resolveItem",
+            Box::pin(async { store.resolve(prefix).await.map(drop) }),
+        ),
+        (
+            "cleanStaging",
+            Box::pin(async {
+                store
+                    .clean_staging(std::time::Duration::ZERO)
+                    .await
+                    .map(drop)
+            }),
+        ),
+        (
+            "probeWrite",
+            Box::pin(async { store.probe_write().await.map(drop) }),
+        ),
+    ];
+    for (operation, call) in checks {
+        let before = server.operations().len();
+        call.await.unwrap();
+        assert_eq!(since(&server, before).await, [operation]);
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs passalong-server: just test-https"]
+async fn a_full_workspace_names_its_quota() {
+    let server = TestServer::start_with(Settings {
+        quota_bytes: Some(20),
+        ..Settings::default()
+    });
+    let dir = TempDir::new().unwrap();
+    let store = open(&server.pinned(dir.path()), &server.key).await;
+    assert_eq!(store.client().workspace().await.unwrap().quota_bytes, 20);
+    store
+        .put(NewItem::text("box"), content(b"fifteen bytes!!"))
+        .await
+        .unwrap();
+    let err = store
+        .put(NewItem::text("box"), content(b"ten bytes!"))
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("QUOTA_EXCEEDED"), "{err}");
+    assert!(
+        err.to_string().contains("of its quota of 20 bytes"),
+        "{err}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs passalong-server: just test-https"]
+async fn debug_output_never_shows_the_api_key() {
+    let server = TestServer::start();
+    let dir = TempDir::new().unwrap();
+    let config = server.pinned(dir.path());
+    let store = open(&config, &server.key).await;
+    let secret = server.key.expose().rsplit('_').next().unwrap().to_owned();
+    for shown in [
+        format!("{config:?}"),
+        format!("{store:?}"),
+        format!("{:?}", server.key),
+    ] {
+        assert!(!shown.contains(&secret), "{shown}");
+    }
+    assert!(format!("{store:?}").contains(server.key.id()));
+}

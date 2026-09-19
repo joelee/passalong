@@ -6,10 +6,11 @@
 |---|---|---|
 | `passalong-core` | library | Configuration, item model, storage traits, clipboard trait, `serve` loop, telemetry. No CLI or terminal dependencies. |
 | `passalong-ssh` | library | SSH/SFTP storage backend (`russh`), host-key pinning. |
+| `passalong-https` | library | passalong-server storage backend (`reqwest` with `rustls`), TLS pinning, and the server's encryption calls and rewrite session. Written from the server's API documents only. |
 | `passalong` (in `crates/passalong-cli/`) | binary `passalong` | Argument parsing, command handlers, output formatting, and the `choose` terminal UI (ratatui). |
 
-Future GUI and Android front-ends depend on `passalong-core` and
-`passalong-ssh` only. `passalong-core` keeps the desktop clipboard behind its
+Future GUI and Android front-ends depend on `passalong-core`,
+`passalong-ssh`, and `passalong-https` only. `passalong-core` keeps the desktop clipboard behind its
 `desktop` feature, so it also builds with `--no-default-features`.
 
 ```mermaid
@@ -22,6 +23,8 @@ flowchart LR
   REG --> LOCAL["FsStore over LocalFs<br/>kind = local"]
   REG --> SSH["FsStore over SftpFs<br/>passalong-ssh, kind = ssh"]
   SSH --> SERVER[("SSH server<br/>remote_path")]
+  REG --> HTTPS["HttpStore<br/>passalong-https, kind = https"]
+  HTTPS --> PSERVER[("passalong-server<br/>workspace")]
 ```
 
 ## Command flow
@@ -306,6 +309,49 @@ matches the start of the content key, so `2cf2` finds
 `6aa52107-2cf24dba5fb0`; input with a `-` matches the start of the full id.
 Case and surrounding spaces are ignored. More than one match is an error
 that lists the candidates.
+
+## passalong-server workspaces
+
+The `https` backend is not a filesystem: `HttpStore` implements `Store`
+with the server's API calls, and `HttpEncryptionAdmin` implements
+`EncryptionAdmin`. Items still go through `store::format`, so the server
+keeps the same `meta.json` and content bytes a folder would hold, and it
+cannot open sealed ones. A device holding a key applies the same opening
+table to the server's claim of the workspace's state, so a server saying
+"not encrypted" never makes it send plaintext.
+
+Every write names the key id the device expects (`expectedKeyId`), and the
+server refuses one that no longer matches. That replaces the header
+checks a filesystem store makes around each write. Set-up, a fresh start,
+and a change of words are each one atomic call.
+
+**Rewrites and leases.** Migration and rotation run the same engine as on a
+filesystem, `run_rewrite`, over the server's rewrite session. The server is
+the journal:
+
+1. `beginRewrite` names the new key and brings the new header, which the
+   device first checks opens with the new words. It takes a lease, and
+   other writers wait with `REWRITE_IN_PROGRESS`.
+2. Each item is sealed under the new key and uploaded into the staged
+   generation, under an id from its creation time and content, so a
+   resumed run repeats nothing.
+3. Every copy is read back from the staged generation and compared by
+   SHA-256 and size.
+4. `commitRewrite` switches the items, the header, and the key id in one
+   transaction.
+
+While it runs, a background task renews the lease every third of its
+length, and at least once a minute, since one item can outlast a lease on
+a slow link.
+
+`encrypt --recover` asks the server what is open. The holder finishes or
+undoes it at any time. Another device may take it over once the lease has
+ended, and then finishes it with the new words (the session carries the
+new header) or undoes it with `abortRewrite`. A rotation finishes with the
+old key from the device, or from the old words. The server remembers the
+key of every aborted rewrite and refuses to begin one again
+(`REWRITE_ENDED`), so a delayed duplicate cannot reopen it; the client then
+begins again under a new key.
 
 ## `serve`
 

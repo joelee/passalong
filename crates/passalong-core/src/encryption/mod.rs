@@ -33,7 +33,9 @@ pub use admin::{
     Leftovers, StoreState, change_words, fresh_start, inspect, join, leftovers, plain_store,
     remove_leftovers, remove_plain_if_empty, set_up,
 };
-pub use admin_trait::{EncryptionAdmin, FsEncryptionAdmin, HEARTBEAT_EVERY, Rewrite, run_rewrite};
+pub use admin_trait::{
+    EncryptionAdmin, FsEncryptionAdmin, HEARTBEAT_EVERY, OpenRewrite, Rewrite, run_rewrite,
+};
 pub use header::{StoreHeader, create_header, read_header, replace_header, write_stop_file};
 pub use header_change::restore_header;
 pub use journal::{

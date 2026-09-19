@@ -12,7 +12,7 @@ use std::sync::Arc;
 use anyhow::Context as _;
 use passalong_core::clock::{Clock, SystemClock};
 
-use passalong_core::crypto::{CryptoError, KdfParams, KeyId, Words};
+use passalong_core::crypto::{CryptoError, DataKey, KdfParams, KeyId, Words};
 use passalong_core::encryption::{
     self, EncryptionAdmin, EncryptionError, GitCheck, HeaderChange, HeaderChangeKind, Journal,
     REWRITE_DIR, RewriteKind, StoreState, check_key_location, load_key_file, save_key_file,
@@ -261,7 +261,7 @@ async fn recover(
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
     let Some(fs) = admin.fs() else {
-        anyhow::bail!("recovering this kind of store is not supported yet; nothing was changed");
+        return recover_session(admin, keys, prompt, out).await;
     };
     if fs.stat(&RemotePath::new(REWRITE_DIR)?).await?.is_none() {
         if encryption::inspect(fs).await? == StoreState::Broken {
@@ -336,6 +336,75 @@ async fn recover(
         }
         "u" | "undo" => {
             encryption::undo(fs).await?;
+            writeln!(out, "undone: the store is as it was before")?;
+        }
+        _ => anyhow::bail!("answer finish or undo; nothing was changed"),
+    }
+    Ok(())
+}
+
+/// Finishes or undoes a re-encryption a server holds open: the device that
+/// holds it, or any device once its lease has ended.
+async fn recover_session(
+    admin: &dyn EncryptionAdmin,
+    keys: &Keys<'_>,
+    prompt: &mut dyn Prompt,
+    out: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let Some(open) = admin.open_rewrite().await? else {
+        writeln!(out, "no re-encryption to recover")?;
+        return Ok(());
+    };
+    let what = match open.kind {
+        RewriteKind::Migrate => "encrypting",
+        _ => "moving to a new key",
+    };
+    let lease = open.lease_ends.format("%Y-%m-%dT%H:%M:%SZ");
+    let now = SystemClock.now();
+    let holder = if open.mine {
+        "this device".to_owned()
+    } else {
+        format!("another device (API key {})", open.holder)
+    };
+    prompt.show(&format!(
+        "A re-encryption is open on the server: {what} the store's {} {}, {} copied so far. It is held by {holder}, whose lease {} {lease}.\n",
+        open.items,
+        items_word(open.items),
+        open.staged,
+        if open.lease_ended(now) { "ended" } else { "lasts until" },
+    ))?;
+    if !open.mine {
+        if !open.lease_ended(now) {
+            anyhow::bail!(
+                "another device holds the re-encryption until {lease}; it can finish it, or run `passalong encrypt --recover` again after then. Nothing was changed"
+            );
+        }
+        if !prompt.confirm("Its holder most likely stopped. Take it over?")? {
+            writeln!(out, "nothing was changed")?;
+            return Ok(());
+        }
+    }
+    let answer = prompt.ask("Finish it, or undo it? [finish/undo]", Some("finish"))?;
+    match answer.trim().to_ascii_lowercase().as_str() {
+        "f" | "finish" => {
+            let new = ask_words(prompt, "The new six words shown when it started")?;
+            let device = load_key_file(keys.key_file, keys.git)?;
+            let old_words = if open.kind == RewriteKind::Rotate
+                && device.as_ref().map(DataKey::key_id) != open.old_key
+            {
+                Some(ask_words(prompt, "The store's old six words")?)
+            } else {
+                None
+            };
+            let key = admin
+                .resume_rewrite(&new, device.as_ref(), old_words.as_ref())
+                .await
+                .context(STOPPED)?;
+            save_key_file(keys.key_file, &key, keys.git)?;
+            writeln!(out, "finished: the store's key is {}", key.key_id().short())?;
+        }
+        "u" | "undo" => {
+            admin.abort_rewrite().await?;
             writeln!(out, "undone: the store is as it was before")?;
         }
         _ => anyhow::bail!("answer finish or undo; nothing was changed"),
@@ -479,7 +548,7 @@ mod tests {
     use passalong_core::encryption::SystemGit;
     use passalong_core::fs::LocalFs;
     use passalong_core::model::NewItem;
-    use passalong_core::store::Store;
+    use passalong_core::store::{Store, StoreError};
     use tempfile::TempDir;
 
     const W1: &str = "abacus abdomen abdominal abide abiding ability";
@@ -1125,5 +1194,188 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(out, "no re-encryption to recover\n");
+    }
+
+    /// A server's admin with an open re-encryption, recording what
+    /// `--recover` asks of it.
+    struct Session {
+        open: Option<passalong_core::encryption::OpenRewrite>,
+        finished: DataKey,
+        calls: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl Session {
+        fn new(mine: bool, ended: bool) -> Self {
+            let finished = DataKey::generate().unwrap();
+            let lease = if ended { -60 } else { 600 };
+            Self {
+                open: Some(passalong_core::encryption::OpenRewrite {
+                    kind: RewriteKind::Migrate,
+                    mine,
+                    holder: "k1dk1dk1dk1d".into(),
+                    lease_ends: chrono::Utc::now() + chrono::TimeDelta::seconds(lease),
+                    new_key: finished.key_id(),
+                    old_key: None,
+                    staged: 1,
+                    items: 3,
+                }),
+                finished,
+                calls: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+        fn calls(&self) -> Vec<String> {
+            self.calls.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl EncryptionAdmin for Session {
+        async fn inspect(&self) -> Result<StoreState, StoreError> {
+            Ok(StoreState::Rewriting { started: None })
+        }
+        async fn set_up(&self, _: &Words, _: KdfParams) -> Result<DataKey, StoreError> {
+            unreachable!()
+        }
+        async fn fresh_start(&self, _: &Words, _: KdfParams) -> Result<DataKey, StoreError> {
+            unreachable!()
+        }
+        async fn join(&self, _: &Words) -> Result<DataKey, StoreError> {
+            unreachable!()
+        }
+        async fn change_words(
+            &self,
+            _: &Words,
+            _: &Words,
+            _: KdfParams,
+        ) -> Result<KeyId, StoreError> {
+            unreachable!()
+        }
+        async fn migrate(
+            &self,
+            _: &Words,
+            _: KdfParams,
+            _: Arc<dyn Clock>,
+        ) -> Result<DataKey, StoreError> {
+            unreachable!()
+        }
+        async fn rotate(
+            &self,
+            _: &DataKey,
+            _: &Words,
+            _: KdfParams,
+            _: Arc<dyn Clock>,
+        ) -> Result<DataKey, StoreError> {
+            unreachable!()
+        }
+        fn plain_store(&self) -> Box<dyn Store + '_> {
+            unreachable!()
+        }
+        async fn remove_plain_if_empty(&self) -> Result<bool, StoreError> {
+            unreachable!()
+        }
+        async fn open_rewrite(
+            &self,
+        ) -> Result<Option<passalong_core::encryption::OpenRewrite>, StoreError> {
+            Ok(self.open.clone())
+        }
+        async fn resume_rewrite(
+            &self,
+            new: &Words,
+            _: Option<&DataKey>,
+            _: Option<&Words>,
+        ) -> Result<DataKey, StoreError> {
+            self.calls
+                .lock()
+                .unwrap()
+                .push(format!("resume {}", new.as_str()));
+            Ok(self.finished.clone())
+        }
+        async fn abort_rewrite(&self) -> Result<(), StoreError> {
+            self.calls.lock().unwrap().push("abort".into());
+            Ok(())
+        }
+    }
+
+    async fn recover_with(
+        rig: &Rig,
+        admin: &Session,
+        answers: &[&str],
+    ) -> (anyhow::Result<String>, ScriptedPrompt) {
+        let mut prompt = ScriptedPrompt::new(true, answers.iter().copied());
+        let mut out = Vec::new();
+        let result = run(
+            &EncryptArgs {
+                recover: true,
+                ..EncryptArgs::default()
+            },
+            admin,
+            &rig.keys(w1),
+            &mut prompt,
+            &mut out,
+        )
+        .await
+        .map(|()| String::from_utf8(out).unwrap());
+        (result, prompt)
+    }
+
+    #[tokio::test]
+    async fn a_server_s_own_open_rewrite_is_finished_with_the_new_words() {
+        let rig = Rig::new();
+        let admin = Session::new(true, false);
+        let (out, prompt) = recover_with(&rig, &admin, &["", W2]).await;
+        let out = out.unwrap();
+        assert!(out.contains("finished: the store's key is"), "{out}");
+        assert_eq!(admin.calls(), [format!("resume {W2}")]);
+        assert_eq!(rig.saved_key().unwrap().key_id(), admin.finished.key_id());
+        assert!(
+            prompt.shown().contains(
+                "encrypting the store's 3 items, 1 copied so far. It is held by this device"
+            ),
+            "{}",
+            prompt.shown()
+        );
+    }
+
+    #[tokio::test]
+    async fn another_device_s_live_rewrite_is_left_alone() {
+        let rig = Rig::new();
+        let admin = Session::new(false, false);
+        let (result, _) = recover_with(&rig, &admin, &[]).await;
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("another device holds the re-encryption until"),
+            "{err}"
+        );
+        assert!(admin.calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_ended_lease_is_taken_over_only_when_confirmed() {
+        let rig = Rig::new();
+        let admin = Session::new(false, true);
+        let (out, prompt) = recover_with(&rig, &admin, &["no"]).await;
+        assert_eq!(out.unwrap(), "nothing was changed\n");
+        assert!(admin.calls().is_empty());
+        assert!(
+            prompt
+                .shown()
+                .contains("another device (API key k1dk1dk1dk1d), whose lease ended"),
+            "{}",
+            prompt.shown()
+        );
+
+        let (out, _) = recover_with(&rig, &admin, &["yes", "undo"]).await;
+        assert_eq!(out.unwrap(), "undone: the store is as it was before\n");
+        assert_eq!(admin.calls(), ["abort"]);
+    }
+
+    #[tokio::test]
+    async fn a_server_without_an_open_rewrite_has_nothing_to_recover() {
+        let rig = Rig::new();
+        let mut admin = Session::new(true, false);
+        admin.open = None;
+        let (out, _) = recover_with(&rig, &admin, &[]).await;
+        assert_eq!(out.unwrap(), "no re-encryption to recover\n");
     }
 }

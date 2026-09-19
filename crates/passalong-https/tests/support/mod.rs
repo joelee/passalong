@@ -351,6 +351,49 @@ impl CutProxy {
     }
 }
 
+/// A TCP proxy in front of a server that holds back each piece of every
+/// answer for `delay`, as a slow link would.
+pub struct SlowProxy {
+    /// The port to connect to instead of the server's.
+    pub port: u16,
+}
+
+impl SlowProxy {
+    /// A proxy to `127.0.0.1:target`.
+    pub async fn start(target: u16, delay: Duration) -> Self {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((client, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let Ok(server) = tokio::net::TcpStream::connect(("127.0.0.1", target)).await
+                    else {
+                        return;
+                    };
+                    let (mut client_read, mut client_write) = client.into_split();
+                    let (mut server_read, mut server_write) = server.into_split();
+                    let upstream = tokio::spawn(async move {
+                        let _ = tokio::io::copy(&mut client_read, &mut server_write).await;
+                    });
+                    let mut buf = vec![0_u8; 16 * 1024];
+                    while let Ok(n) = server_read.read(&mut buf).await {
+                        if n == 0 {
+                            break;
+                        }
+                        tokio::time::sleep(delay).await;
+                        if client_write.write_all(&buf[..n]).await.is_err() {
+                            break;
+                        }
+                    }
+                    upstream.abort();
+                });
+            }
+        });
+        Self { port }
+    }
+}
+
 impl TestServer {
     /// The server's port.
     pub fn port(&self) -> u16 {

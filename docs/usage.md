@@ -50,8 +50,14 @@ workspace's items aside, unencrypted, until
 `passalong prune --plain` removes them; `list` reminds you while any
 remain.
 
-Migrating a workspace with items, `--rotate`, and `--recover` are not
-supported with a server in this build yet.
+Migrating a workspace with items and `--rotate` re-encrypt every item on
+the device, as for any store, through the server's rewrite session: while
+it runs, other devices wait to send, and read as before. If it stops, run
+`passalong encrypt --recover` on the device that started it, at any time,
+to finish it with the new words or undo it. Another device can do the same
+once the session's lease has ended, ten minutes after its holder was last
+heard from by default; it takes the session over first. `--recover` shows
+who holds it and until when.
 
 ## `passalong init`
 

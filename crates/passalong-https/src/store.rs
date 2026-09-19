@@ -133,7 +133,13 @@ impl HttpStore {
     fn url(&self, path: &str, query: &[(&str, &str)]) -> Result<Url, StoreError> {
         let mut url = Url::parse(&self.client.url(path))
             .map_err(|err| StoreError::Config(format!("server.https.url: {err}")))?;
-        let partition = (self.partition != Partition::Current).then(|| self.partition.name());
+        // Only the item routes have partitions; uploads name the rewrite in
+        // their body.
+        let item_route = path == "/items"
+            || path == "/item-ids"
+            || (path.starts_with("/items/") && path != "/items/resolve");
+        let partition =
+            (self.partition != Partition::Current && item_route).then(|| self.partition.name());
         if partition.is_some() || !query.is_empty() {
             let mut pairs = url.query_pairs_mut();
             if let Some(partition) = partition {
@@ -251,6 +257,131 @@ impl HttpStore {
         }
     }
 
+    /// The id `meta`'s item gets in this store: its creation time, and this
+    /// store's content key for its SHA-256.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::Corrupt`] when `meta`'s SHA-256 is not one.
+    pub fn id_for(&self, meta: &ItemMeta) -> Result<ItemId, StoreError> {
+        let sha256 = format::decode_array(&meta.sha256)
+            .map_err(|reason| corrupt(meta.id.as_str(), format!("sha256: {reason}")))?;
+        let key = self.content_key(&ContentDigest::new(sha256, meta.size));
+        Ok(ItemId::new(meta.created_at, key)?)
+    }
+
+    /// Stores another store's item, with its metadata and creation time,
+    /// under the id [`HttpStore::id_for`] gives it, and returns its
+    /// metadata here. An item already stored under that id is left as it
+    /// is. In the staged partition this is a re-encryption's copy.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::Corrupt`] when the content does not match `meta`'s
+    /// SHA-256 and size, and the server's refusals.
+    pub async fn import(&self, meta: &ItemMeta, content: BoxRead) -> Result<ItemMeta, StoreError> {
+        let spool = tempfile::NamedTempFile::new().map_err(temp_error)?;
+        let mut file = tokio::fs::File::from_std(spool.reopen().map_err(temp_error)?);
+        let written = format::write_content(content, &mut file, None)
+            .await
+            .map_err(copy_error)?;
+        if written.digest.sha256_hex() != meta.sha256 || written.digest.size() != meta.size {
+            return Err(corrupt(
+                meta.id.as_str(),
+                "its content does not match its SHA-256",
+            ));
+        }
+        let copy = ItemMeta {
+            id: self.id_for(meta)?,
+            ..meta.clone()
+        };
+        Ok(self.upload(copy, spool).await?.meta)
+    }
+
+    /// Seals the content spooled in `spool` when the store is sealed, and
+    /// uploads it as `meta`'s item.
+    async fn upload(
+        &self,
+        meta: ItemMeta,
+        spool: tempfile::NamedTempFile,
+    ) -> Result<PutOutcome, StoreError> {
+        let (stored, salt) = match &self.sealer {
+            Some(sealer) => {
+                let sealing = sealer.content_sealer()?;
+                let salt = sealing.salt();
+                let sealed = tempfile::NamedTempFile::new().map_err(temp_error)?;
+                let mut out = tokio::fs::File::from_std(sealed.reopen().map_err(temp_error)?);
+                let input = tokio::fs::File::open(spool.path())
+                    .await
+                    .map_err(temp_error)?;
+                format::seal_content(input, &mut out, sealing)
+                    .await
+                    .map_err(copy_error)?;
+                (sealed, Some(salt))
+            }
+            None => (spool, None),
+        };
+        let size = stored.as_file().metadata().map_err(temp_error)?.len();
+        if let Some(limit) = self.limit().await?
+            && size > limit
+        {
+            return Err(StoreError::Backend(format!(
+                "the item takes {size} bytes on the server, over its limit of {limit} bytes for one item"
+            )));
+        }
+
+        let sealing = self.sealer.as_ref().zip(salt.as_ref());
+        let meta_json = format::encode_meta(&meta, sealing).map_err(|err| match err {
+            format::EncodeError::Crypto(err) => err.into(),
+            format::EncodeError::Json(err) => corrupt(meta.id.as_str(), err),
+        })?;
+        let text = String::from_utf8(meta_json).map_err(|err| corrupt(meta.id.as_str(), err))?;
+        // A JSON value cannot carry the file's final newline.
+        let raw = RawValue::from_string(text.trim_end().to_owned())
+            .map_err(|err| corrupt(meta.id.as_str(), err))?;
+        let request = serde_json::to_vec(&BeginUpload {
+            id: meta.id.as_str(),
+            meta: &raw,
+            size: size.to_string(),
+            expected_key_id: self.expected().await?,
+            in_rewrite: self.partition == Partition::Staged,
+        })
+        .map_err(|err| corrupt(meta.id.as_str(), err))?;
+        let uploads = self.url("/uploads", &[])?;
+        let response = self
+            .client
+            .send("beginUpload", |http| {
+                http.post(uploads.clone())
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(request.clone())
+            })
+            .await
+            .map_err(store_error)?;
+        if response.status() == StatusCode::OK {
+            // The content is stored already: nothing is sent.
+            let outcome: api::PutOutcome = json(response).await.map_err(store_error)?;
+            tracing::info!(id = %outcome.item.id, "item already present");
+            return Ok(PutOutcome {
+                meta: self.decode(&outcome.item)?.0,
+                created: false,
+            });
+        }
+        let ticket: UploadTicket = json(response).await.map_err(store_error)?;
+        match self
+            .send_and_commit(&ticket, stored.path(), size, &meta.id)
+            .await
+        {
+            Ok(outcome) => {
+                tracing::info!(id = %outcome.meta.id, size = outcome.meta.size, created = outcome.created, "item stored");
+                Ok(outcome)
+            }
+            Err(err) => {
+                self.abort(&ticket).await;
+                Err(err)
+            }
+        }
+    }
+
     /// Sends the stored bytes in `path` to the ticket, then commits it.
     async fn send_and_commit(
         &self,
@@ -346,82 +477,7 @@ impl Store for HttpStore {
         let key = self.content_key(&written.digest);
         let preview = format::preview(item.kind, &written.head);
         let meta = item.finish_keyed(self.clock.now(), &written.digest, key, preview)?;
-
-        let (stored, salt) = match &self.sealer {
-            Some(sealer) => {
-                let sealing = sealer.content_sealer()?;
-                let salt = sealing.salt();
-                let sealed = tempfile::NamedTempFile::new().map_err(temp_error)?;
-                let mut out = tokio::fs::File::from_std(sealed.reopen().map_err(temp_error)?);
-                let input = tokio::fs::File::open(spool.path())
-                    .await
-                    .map_err(temp_error)?;
-                format::seal_content(input, &mut out, sealing)
-                    .await
-                    .map_err(copy_error)?;
-                (sealed, Some(salt))
-            }
-            None => (spool, None),
-        };
-        let size = stored.as_file().metadata().map_err(temp_error)?.len();
-        if let Some(limit) = self.limit().await?
-            && size > limit
-        {
-            return Err(StoreError::Backend(format!(
-                "the item takes {size} bytes on the server, over its limit of {limit} bytes for one item"
-            )));
-        }
-
-        let sealing = self.sealer.as_ref().zip(salt.as_ref());
-        let meta_json = format::encode_meta(&meta, sealing).map_err(|err| match err {
-            format::EncodeError::Crypto(err) => err.into(),
-            format::EncodeError::Json(err) => corrupt(meta.id.as_str(), err),
-        })?;
-        let text = String::from_utf8(meta_json).map_err(|err| corrupt(meta.id.as_str(), err))?;
-        // A JSON value cannot carry the file's final newline.
-        let raw = RawValue::from_string(text.trim_end().to_owned())
-            .map_err(|err| corrupt(meta.id.as_str(), err))?;
-        let request = serde_json::to_vec(&BeginUpload {
-            id: meta.id.as_str(),
-            meta: &raw,
-            size: size.to_string(),
-            expected_key_id: self.expected().await?,
-            in_rewrite: false,
-        })
-        .map_err(|err| corrupt(meta.id.as_str(), err))?;
-        let uploads = self.url("/uploads", &[])?;
-        let response = self
-            .client
-            .send("beginUpload", |http| {
-                http.post(uploads.clone())
-                    .header(CONTENT_TYPE, "application/json")
-                    .body(request.clone())
-            })
-            .await
-            .map_err(store_error)?;
-        if response.status() == StatusCode::OK {
-            // The content is stored already: nothing is sent.
-            let outcome: api::PutOutcome = json(response).await.map_err(store_error)?;
-            tracing::info!(id = %outcome.item.id, "item already present");
-            return Ok(PutOutcome {
-                meta: self.decode(&outcome.item)?.0,
-                created: false,
-            });
-        }
-        let ticket: UploadTicket = json(response).await.map_err(store_error)?;
-        match self
-            .send_and_commit(&ticket, stored.path(), size, &meta.id)
-            .await
-        {
-            Ok(outcome) => {
-                tracing::info!(id = %outcome.meta.id, size = outcome.meta.size, created = outcome.created, "item stored");
-                Ok(outcome)
-            }
-            Err(err) => {
-                self.abort(&ticket).await;
-                Err(err)
-            }
-        }
+        self.upload(meta, spool).await
     }
 
     async fn list(&self) -> Result<Vec<ItemMeta>, StoreError> {

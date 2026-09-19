@@ -315,7 +315,7 @@ struct SealedMetaBody {
 }
 
 /// `text` as hexadecimal bytes, exactly `N` of them.
-pub(crate) fn decode_array<const N: usize>(text: &str) -> Result<[u8; N], String> {
+pub fn decode_array<const N: usize>(text: &str) -> Result<[u8; N], String> {
     let bytes = hex::decode(text).map_err(|_| "not hexadecimal".to_owned())?;
     bytes.try_into().map_err(|_| format!("not {N} bytes"))
 }

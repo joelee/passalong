@@ -11,9 +11,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use tokio::io::AsyncReadExt;
 
-use super::{StoreState, admin, rewrite};
+use super::{RewriteKind, StoreState, admin, rewrite};
 use crate::clock::Clock;
 use crate::crypto::{DataKey, KdfParams, KeyId, Words};
 use crate::fs::{BoxRead, RemoteFs};
@@ -82,6 +83,68 @@ pub trait EncryptionAdmin: Send + Sync {
     fn fs(&self) -> Option<&dyn RemoteFs> {
         None
     }
+
+    /// The re-encryption a store behind an API holds open, if any. A
+    /// filesystem's is in its journal instead, reached through
+    /// [`EncryptionAdmin::fs`].
+    async fn open_rewrite(&self) -> Result<Option<OpenRewrite>, StoreError> {
+        Ok(None)
+    }
+
+    /// Finishes the open re-encryption, taking it over first when another
+    /// device held it and its lease has ended. `new` unwraps the new key.
+    /// A rotation reads its items with `device`'s key when that is the old
+    /// one, and otherwise with the key `old_words` unwrap. Returns the new
+    /// key.
+    async fn resume_rewrite(
+        &self,
+        _new: &Words,
+        _device: Option<&DataKey>,
+        _old_words: Option<&Words>,
+    ) -> Result<DataKey, StoreError> {
+        Err(StoreError::Backend(
+            "this store keeps no re-encryption session".to_owned(),
+        ))
+    }
+
+    /// Drops the open re-encryption, taking it over first when another
+    /// device held it and its lease has ended; the store is then as it was
+    /// before.
+    async fn abort_rewrite(&self) -> Result<(), StoreError> {
+        Err(StoreError::Backend(
+            "this store keeps no re-encryption session".to_owned(),
+        ))
+    }
+}
+
+/// A re-encryption a server holds open.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenRewrite {
+    /// Migrating or rotating.
+    pub kind: RewriteKind,
+    /// Whether this device's credentials hold it.
+    pub mine: bool,
+    /// Who holds it, as the server names them.
+    pub holder: String,
+    /// When its holder's lease ends; after that another device may take it
+    /// over.
+    pub lease_ends: DateTime<Utc>,
+    /// The key it moves to.
+    pub new_key: KeyId,
+    /// The key the items are under until it is committed; `None` when
+    /// migrating.
+    pub old_key: Option<KeyId>,
+    /// How many items it has copied.
+    pub staged: usize,
+    /// How many items it copies.
+    pub items: usize,
+}
+
+impl OpenRewrite {
+    /// Whether its lease has ended at `now`.
+    pub fn lease_ended(&self, now: DateTime<Utc>) -> bool {
+        self.lease_ends <= now
+    }
 }
 
 /// A re-encryption in progress: items are read from a source under the old
@@ -112,6 +175,11 @@ pub trait Rewrite: Send + Sync {
 
     /// Tells the store the re-encryption is still running.
     async fn heartbeat(&self) -> Result<(), StoreError>;
+
+    /// How often [`Rewrite::heartbeat`] is due.
+    fn heartbeat_every(&self) -> Duration {
+        HEARTBEAT_EVERY
+    }
 
     /// Lets the new key take over and drops the source.
     async fn commit(&self) -> Result<(), StoreError>;
@@ -158,7 +226,7 @@ struct KeepAlive {
 
 impl KeepAlive {
     async fn tick(&mut self, rewrite: &dyn Rewrite) -> Result<(), StoreError> {
-        if self.last.elapsed() >= HEARTBEAT_EVERY {
+        if self.last.elapsed() >= rewrite.heartbeat_every() {
             rewrite.heartbeat().await?;
             self.last = Instant::now();
         }
@@ -464,5 +532,68 @@ mod tests {
         // Run again, it stores nothing twice.
         assert_eq!(run_rewrite(&copying).await.unwrap(), 2);
         assert_eq!(copying.target.list_ids().await.unwrap().len(), 2);
+    }
+
+    /// A rewrite whose copies take a while, and whose heartbeat is due
+    /// often.
+    struct Slow<'a> {
+        inner: &'a Copying,
+        beats: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait]
+    impl Rewrite for Slow<'_> {
+        fn source(&self) -> &dyn Store {
+            self.inner.source()
+        }
+        fn target_id(&self, meta: &ItemMeta) -> Result<ItemId, StoreError> {
+            self.inner.target_id(meta)
+        }
+        async fn staged(&self, id: &ItemId) -> Result<bool, StoreError> {
+            self.inner.staged(id).await
+        }
+        async fn import(&self, meta: &ItemMeta, content: BoxRead) -> Result<ItemMeta, StoreError> {
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            self.inner.import(meta, content).await
+        }
+        async fn read_back(&self, id: &ItemId) -> Result<(ItemMeta, BoxRead), StoreError> {
+            self.inner.read_back(id).await
+        }
+        async fn heartbeat(&self) -> Result<(), StoreError> {
+            self.beats.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        }
+        fn heartbeat_every(&self) -> Duration {
+            Duration::from_millis(10)
+        }
+        async fn commit(&self) -> Result<(), StoreError> {
+            self.inner.commit().await
+        }
+    }
+
+    #[tokio::test]
+    async fn a_slow_rewrite_sends_heartbeats_as_often_as_its_store_asks() {
+        let from = TempDir::new().unwrap();
+        let to = TempDir::new().unwrap();
+        for text in ["a", "b", "c"] {
+            put(&from, None, text).await;
+        }
+        let rng = || Box::new(crate::random::StdRandom::new());
+        let copying = Copying {
+            source: crate::store::FsStore::new(LocalFs::new(from.path()), clock(), rng()),
+            target: crate::store::FsStore::sealed(
+                LocalFs::new(to.path()),
+                clock(),
+                rng(),
+                crate::crypto::Sealer::new(DataKey::generate().unwrap()),
+            ),
+            committed: std::sync::atomic::AtomicBool::new(false),
+        };
+        let slow = Slow {
+            inner: &copying,
+            beats: std::sync::atomic::AtomicUsize::new(0),
+        };
+        assert_eq!(run_rewrite(&slow).await.unwrap(), 3);
+        assert!(slow.beats.load(std::sync::atomic::Ordering::SeqCst) >= 3);
     }
 }

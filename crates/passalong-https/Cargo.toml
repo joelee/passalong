@@ -1,0 +1,40 @@
+[package]
+name = "passalong-https"
+description = "passalong-server storage backend for passalong"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/passalong-https"
+readme = "README.md"
+keywords = ["clipboard", "file-sharing", "https", "passalong"]
+categories = ["network-programming"]
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait.workspace = true
+futures-util.workspace = true
+hex.workspace = true
+passalong-core.workspace = true
+reqwest.workspace = true
+rustls.workspace = true
+rustls-platform-verifier.workspace = true
+serde.workspace = true
+# `raw_value`: an item's `meta` and a store's header travel inside JSON
+# requests, byte for byte as the client wrote them.
+serde_json = { workspace = true, features = ["raw_value"] }
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+passalong-core = { workspace = true, features = ["testing"] }
+ring.workspace = true
+tempfile.workspace = true
+tokio-rustls.workspace = true

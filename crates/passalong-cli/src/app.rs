@@ -146,7 +146,7 @@ async fn dispatch(
         // `serve` opens, and re-opens, its own store.
         Command::Serve(args) => commands::serve::run(context, &args, backends, out).await,
         Command::Encrypt(args) => {
-            let fs = backends.open_fs(config).await?;
+            let admin = backends.open_admin(config).await?;
             let key_file = config.client.key_file.as_deref().context(
                 "set client.key_file: it has no default because neither XDG_CONFIG_HOME nor HOME is set",
             )?;
@@ -158,7 +158,7 @@ async fn dispatch(
                 new_kdf: KdfParams::generate,
             };
             let mut prompt = TerminalPrompt;
-            commands::encrypt::run(&args, fs.as_ref(), &keys, &mut prompt, out).await
+            commands::encrypt::run(&args, admin.as_ref(), &keys, &mut prompt, out).await
         }
         Command::Clipboard { stdin } => {
             let opened = backends.open(config).await?;
@@ -280,7 +280,7 @@ async fn dispatch(
             plain,
         } => {
             if plain {
-                let fs = backends.open_fs(config).await?;
+                let admin = backends.open_admin(config).await?;
                 let options = commands::prune::PruneOptions {
                     older_than,
                     keep,
@@ -290,7 +290,7 @@ async fn dispatch(
                 };
                 let mut prompt = TerminalPrompt;
                 return commands::prune::run_plain(
-                    fs.as_ref(),
+                    admin.as_ref(),
                     &options,
                     Utc::now(),
                     &mut prompt,

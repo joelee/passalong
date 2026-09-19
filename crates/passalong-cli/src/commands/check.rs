@@ -6,8 +6,9 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use passalong_core::config::Config;
-use passalong_core::encryption::{self, EncryptionError, StoreState, SystemGit, load_key_file};
-use passalong_core::fs::RemoteFs;
+use passalong_core::encryption::{
+    self, EncryptionAdmin, EncryptionError, StoreState, SystemGit, load_key_file,
+};
 use passalong_core::store::{BackendRegistry, PROBE_BYTES, Store, StoreError, WriteProbe};
 
 use crate::daemon::Status;
@@ -18,8 +19,8 @@ pub trait Opener: Send + Sync {
     /// Connects to the configured backend.
     async fn open(&self, config: &Config) -> Result<Box<dyn Store>, StoreError>;
 
-    /// Connects to the configured backend's filesystem.
-    async fn open_fs(&self, config: &Config) -> Result<Box<dyn RemoteFs>, StoreError>;
+    /// Connects to the configured backend to read its encryption.
+    async fn open_admin(&self, config: &Config) -> Result<Box<dyn EncryptionAdmin>, StoreError>;
 }
 
 #[async_trait]
@@ -28,8 +29,8 @@ impl Opener for BackendRegistry {
         BackendRegistry::open(self, config).await
     }
 
-    async fn open_fs(&self, config: &Config) -> Result<Box<dyn RemoteFs>, StoreError> {
-        BackendRegistry::open_fs(self, config).await
+    async fn open_admin(&self, config: &Config) -> Result<Box<dyn EncryptionAdmin>, StoreError> {
+        BackendRegistry::open_admin(self, config).await
     }
 }
 
@@ -108,12 +109,12 @@ async fn run_checks(
     };
     report.line("ok", &path.display().to_string())?;
     let server = describe(&config);
-    let fs = match opener.open_fs(&config).await {
-        Ok(fs) => fs,
+    let admin = match opener.open_admin(&config).await {
+        Ok(admin) => admin,
         Err(err) => return report.fail(&format!("{server}: {err}"), &err.to_string()),
     };
     report.line("ok", &server)?;
-    match encryption_status(fs.as_ref(), &config).await {
+    match encryption_status(admin.as_ref(), &config).await {
         Ok((status, detail)) => report.line(status, &detail)?,
         Err(reason) => return report.fail(&reason, &reason),
     }
@@ -148,17 +149,14 @@ fn refused(err: EncryptionError) -> Result<(&'static str, String), String> {
 /// The `encryption` line: `off`, `on (key …)` with any plaintext items a
 /// fresh start left, or why this device cannot use the store.
 async fn encryption_status(
-    fs: &dyn RemoteFs,
+    admin: &dyn EncryptionAdmin,
     config: &Config,
 ) -> Result<(&'static str, String), String> {
     let key = match &config.client.key_file {
         Some(path) => load_key_file(path, &SystemGit::new()).map_err(|err| err.to_string())?,
         None => None,
     };
-    match encryption::inspect(fs)
-        .await
-        .map_err(|err| err.to_string())?
-    {
+    match admin.inspect().await.map_err(|err| err.to_string())? {
         StoreState::Plain { .. } if key.is_some() => refused(EncryptionError::KeyWithoutEncryption),
         StoreState::Plain { .. } => Ok(("off", "not encrypted".to_owned())),
         StoreState::Encrypted { key_id, plain_left } => match key {
@@ -179,11 +177,14 @@ async fn encryption_status(
                         "; {plain_left} unencrypted {items} from before encryption"
                     ));
                 }
-                let left = encryption::leftovers(fs)
-                    .await
-                    .map_err(|err| err.to_string())?;
-                if !left.is_empty() {
-                    detail.push_str(&format!("; {left}"));
+                // Only a filesystem can hold what passalong 0.2.0 left.
+                if let Some(fs) = admin.fs() {
+                    let left = encryption::leftovers(fs)
+                        .await
+                        .map_err(|err| err.to_string())?;
+                    if !left.is_empty() {
+                        detail.push_str(&format!("; {left}"));
+                    }
                 }
                 Ok(("ok", detail))
             }
@@ -244,8 +245,8 @@ mod tests {
     use crate::commands::support::bytes;
     use passalong_core::config;
     use passalong_core::crypto::{DataKey, KDF_SALT_LEN, KdfParams, Words};
-    use passalong_core::encryption::{open_with_key, save_key_file};
-    use passalong_core::fs::{BoxRead, LocalFs};
+    use passalong_core::encryption::{FsEncryptionAdmin, open_with_key, save_key_file};
+    use passalong_core::fs::{BoxRead, LocalFs, RemoteFs};
     use passalong_core::model::{ContentKey, ItemId, ItemMeta, NewItem};
     use passalong_core::random::StdRandom;
     use passalong_core::store::{FsStore, PutOutcome};
@@ -282,8 +283,12 @@ mod tests {
             self.store.lock().unwrap().take().expect("opened once")
         }
 
-        async fn open_fs(&self, _config: &Config) -> Fs {
-            self.fs.lock().unwrap().take().expect("opened once")
+        async fn open_admin(
+            &self,
+            _config: &Config,
+        ) -> Result<Box<dyn EncryptionAdmin>, StoreError> {
+            let fs = self.fs.lock().unwrap().take().expect("opened once")?;
+            Ok(Box::new(FsEncryptionAdmin::new(fs)))
         }
     }
 

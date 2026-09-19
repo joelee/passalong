@@ -14,8 +14,8 @@ use passalong_core::clock::{Clock, SystemClock};
 
 use passalong_core::crypto::{CryptoError, KdfParams, KeyId, Words};
 use passalong_core::encryption::{
-    self, EncryptionError, GitCheck, HeaderChange, HeaderChangeKind, Journal, REWRITE_DIR,
-    RewriteKind, StoreState, check_key_location, load_key_file, save_key_file,
+    self, EncryptionAdmin, EncryptionError, GitCheck, HeaderChange, HeaderChangeKind, Journal,
+    REWRITE_DIR, RewriteKind, StoreState, check_key_location, load_key_file, save_key_file,
 };
 use passalong_core::fs::{RemoteFs, RemotePath};
 
@@ -56,7 +56,7 @@ fn items_word(n: usize) -> &'static str {
 /// store refuses the change.
 pub async fn run(
     args: &EncryptArgs,
-    fs: &dyn RemoteFs,
+    admin: &dyn EncryptionAdmin,
     keys: &Keys<'_>,
     prompt: &mut dyn Prompt,
     out: &mut dyn Write,
@@ -67,17 +67,19 @@ pub async fn run(
         );
     }
     if args.join {
-        return join(fs, keys, prompt, out).await;
+        return join(admin, keys, prompt, out).await;
     }
     if args.recover {
-        return recover(fs, keys, prompt, out).await;
+        return recover(admin, keys, prompt, out).await;
     }
     if args.rotate {
-        return rotate(fs, keys, prompt, out).await;
+        return rotate(admin, keys, prompt, out).await;
     }
-    match encryption::inspect(fs).await? {
-        StoreState::Plain { items } => set_up(fs, items, keys, prompt, out).await,
-        StoreState::Encrypted { key_id, .. } => change_words(fs, key_id, keys, prompt, out).await,
+    match admin.inspect().await? {
+        StoreState::Plain { items } => set_up(admin, items, keys, prompt, out).await,
+        StoreState::Encrypted { key_id, .. } => {
+            change_words(admin, key_id, keys, prompt, out).await
+        }
         StoreState::Rewriting { started } => Err(EncryptionError::Rewriting { started }.into()),
         StoreState::Broken => Err(EncryptionError::HeaderMissing.into()),
         _ => anyhow::bail!("this store's state is not known to this version of passalong"),
@@ -93,7 +95,7 @@ pub async fn run(
 /// When the key file's place is refused, the words are not confirmed, or
 /// the store refuses.
 pub async fn set_up(
-    fs: &dyn RemoteFs,
+    admin: &dyn EncryptionAdmin,
     items: usize,
     keys: &Keys<'_>,
     prompt: &mut dyn Prompt,
@@ -116,13 +118,14 @@ pub async fn set_up(
     let words = confirm_new_words(keys, prompt)?;
     let kdf = (keys.new_kdf)()?;
     let key = if migrate {
-        encryption::migrate(fs, &words, kdf, Arc::new(SystemClock))
+        admin
+            .migrate(&words, kdf, Arc::new(SystemClock))
             .await
             .context(STOPPED)?
     } else if items == 0 {
-        encryption::set_up(fs, &words, kdf).await?
+        admin.set_up(&words, kdf).await?
     } else {
-        encryption::fresh_start(fs, &words, kdf).await?
+        admin.fresh_start(&words, kdf).await?
     };
     save_key_file(keys.key_file, &key, keys.git)?;
     tracing::info!(key = %key.key_id().short(), "store encrypted");
@@ -147,12 +150,12 @@ pub async fn set_up(
 /// When the store is not encrypted, the key file's place is refused, or
 /// the words are wrong.
 pub async fn join(
-    fs: &dyn RemoteFs,
+    admin: &dyn EncryptionAdmin,
     keys: &Keys<'_>,
     prompt: &mut dyn Prompt,
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
-    match encryption::inspect(fs).await? {
+    match admin.inspect().await? {
         StoreState::Encrypted { .. } => {}
         StoreState::Plain { .. } => return Err(EncryptionError::NotEncrypted.into()),
         StoreState::Rewriting { started } => {
@@ -163,7 +166,7 @@ pub async fn join(
     }
     check_key_location(keys.key_file, keys.git)?;
     let words = ask_words(prompt, "The store's six words")?;
-    let key = encryption::join(fs, &words).await?;
+    let key = admin.join(&words).await?;
     save_key_file(keys.key_file, &key, keys.git)?;
     tracing::info!(key = %key.key_id().short(), "joined an encrypted store");
     writeln!(
@@ -202,12 +205,12 @@ fn ask_migrate(prompt: &mut dyn Prompt, items: usize) -> anyhow::Result<bool> {
 /// Replaces an encrypted store's data key and words, re-encrypting every
 /// item, with this device's key as the old one.
 async fn rotate(
-    fs: &dyn RemoteFs,
+    admin: &dyn EncryptionAdmin,
     keys: &Keys<'_>,
     prompt: &mut dyn Prompt,
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
-    let store_key = match encryption::inspect(fs).await? {
+    let store_key = match admin.inspect().await? {
         StoreState::Encrypted { key_id, .. } => key_id,
         StoreState::Plain { .. } => return Err(EncryptionError::NotEncrypted.into()),
         StoreState::Rewriting { started } => {
@@ -235,7 +238,8 @@ async fn rotate(
         return Ok(());
     }
     let words = confirm_new_words(keys, prompt)?;
-    let key = encryption::rotate(fs, &old, &words, (keys.new_kdf)()?, Arc::new(SystemClock))
+    let key = admin
+        .rotate(&old, &words, (keys.new_kdf)()?, Arc::new(SystemClock))
         .await
         .context(STOPPED)?;
     save_key_file(keys.key_file, &key, keys.git)?;
@@ -251,11 +255,14 @@ async fn rotate(
 
 /// Finishes or undoes an interrupted re-encryption.
 async fn recover(
-    fs: &dyn RemoteFs,
+    admin: &dyn EncryptionAdmin,
     keys: &Keys<'_>,
     prompt: &mut dyn Prompt,
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
+    let Some(fs) = admin.fs() else {
+        anyhow::bail!("recovering this kind of store is not supported yet; nothing was changed");
+    };
     if fs.stat(&RemotePath::new(REWRITE_DIR)?).await?.is_none() {
         if encryption::inspect(fs).await? == StoreState::Broken {
             return restore(fs, keys, prompt, out).await;
@@ -395,7 +402,7 @@ async fn restore(
 
 /// Changes an encrypted store's words, keeping its key.
 async fn change_words(
-    fs: &dyn RemoteFs,
+    admin: &dyn EncryptionAdmin,
     store_key: KeyId,
     keys: &Keys<'_>,
     prompt: &mut dyn Prompt,
@@ -417,7 +424,9 @@ async fn change_words(
     )?;
     let current = ask_words(prompt, "The store's current six words")?;
     let new = confirm_new_words(keys, prompt)?;
-    let key_id = encryption::change_words(fs, &current, &new, (keys.new_kdf)()?).await?;
+    let key_id = admin
+        .change_words(&current, &new, (keys.new_kdf)()?)
+        .await?;
     tracing::info!(key = %key_id.short(), "store words changed");
     writeln!(
         out,
@@ -466,6 +475,7 @@ mod tests {
     use crate::commands::support::{TestStore, bytes};
     use crate::prompt::ScriptedPrompt;
     use passalong_core::crypto::{DataKey, KDF_SALT_LEN};
+    use passalong_core::encryption::FsEncryptionAdmin;
     use passalong_core::encryption::SystemGit;
     use passalong_core::fs::LocalFs;
     use passalong_core::model::NewItem;
@@ -531,7 +541,8 @@ mod tests {
             prompt: &mut ScriptedPrompt,
         ) -> anyhow::Result<String> {
             let mut out = Vec::new();
-            run(&args, &self.fs(), &self.keys(new_words), prompt, &mut out).await?;
+            let admin = FsEncryptionAdmin::new(self.fs());
+            run(&args, &admin, &self.keys(new_words), prompt, &mut out).await?;
             Ok(String::from_utf8(out).unwrap())
         }
         async fn run(
@@ -546,7 +557,7 @@ mod tests {
                     join,
                     ..EncryptArgs::default()
                 },
-                &self.fs(),
+                &FsEncryptionAdmin::new(self.fs()),
                 &self.keys(new_words),
                 prompt,
                 &mut out,

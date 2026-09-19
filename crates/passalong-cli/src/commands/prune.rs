@@ -5,8 +5,7 @@ use std::time::Duration;
 
 use anyhow::Context as _;
 use chrono::{DateTime, FixedOffset, Utc};
-use passalong_core::encryption::{self, EncryptionError, StoreState};
-use passalong_core::fs::RemoteFs;
+use passalong_core::encryption::{self, EncryptionAdmin, EncryptionError, StoreState};
 use passalong_core::model::ItemMeta;
 use passalong_core::retention;
 use passalong_core::store::Store;
@@ -116,14 +115,14 @@ pub async fn run(
 ///
 /// For a store that is not encrypted or cannot be used, and as [`run`].
 pub async fn run_plain(
-    fs: &dyn RemoteFs,
+    admin: &dyn EncryptionAdmin,
     options: &PruneOptions,
     now: DateTime<Utc>,
     prompt: &mut dyn Prompt,
     offset: FixedOffset,
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
-    let plain_left = match encryption::inspect(fs).await? {
+    let plain_left = match admin.inspect().await? {
         StoreState::Encrypted { plain_left, .. } => plain_left,
         StoreState::Plain { .. } => anyhow::bail!(
             "the store is not encrypted: `--plain` prunes the unencrypted items an encrypted store kept from before; use `passalong prune` without it"
@@ -134,13 +133,16 @@ pub async fn run_plain(
         StoreState::Broken => return Err(EncryptionError::HeaderMissing.into()),
         _ => anyhow::bail!("this store's state is not known to this version of passalong"),
     };
-    let left = encryption::leftovers(fs).await?;
-    if !left.is_empty() {
-        if options.dry_run {
-            writeln!(out, "would remove {left}")?;
-        } else {
-            encryption::remove_leftovers(fs).await?;
-            writeln!(out, "removed {left}")?;
+    // Only a filesystem can hold what passalong 0.2.0 left.
+    if let Some(fs) = admin.fs() {
+        let left = encryption::leftovers(fs).await?;
+        if !left.is_empty() {
+            if options.dry_run {
+                writeln!(out, "would remove {left}")?;
+            } else {
+                encryption::remove_leftovers(fs).await?;
+                writeln!(out, "removed {left}")?;
+            }
         }
     }
     if plain_left == 0 {
@@ -148,7 +150,7 @@ pub async fn run_plain(
         return Ok(());
     }
     run(
-        &encryption::plain_store(fs),
+        admin.plain_store().as_ref(),
         options,
         now,
         prompt,
@@ -156,7 +158,7 @@ pub async fn run_plain(
         out,
     )
     .await?;
-    if !options.dry_run && encryption::remove_plain_if_empty(fs).await? {
+    if !options.dry_run && admin.remove_plain_if_empty().await? {
         writeln!(out, "removed plain/: no unencrypted items remain")?;
     }
     Ok(())
@@ -397,7 +399,16 @@ mod plain_tests {
         let mut out = Vec::new();
         let mut prompt = ScriptedPrompt::new(false, Vec::<&str>::new());
         let utc = FixedOffset::east_opt(0).unwrap();
-        run_plain(fs, options, T.parse().unwrap(), &mut prompt, utc, &mut out).await?;
+        let admin = passalong_core::encryption::FsEncryptionAdmin::new(fs);
+        run_plain(
+            &admin,
+            options,
+            T.parse().unwrap(),
+            &mut prompt,
+            utc,
+            &mut out,
+        )
+        .await?;
         Ok(String::from_utf8(out).unwrap())
     }
 

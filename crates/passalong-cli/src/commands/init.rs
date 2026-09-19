@@ -12,8 +12,7 @@ use anyhow::Context as _;
 use async_trait::async_trait;
 use passalong_core::config::{self, Config, EnvProvider, InitAnswers};
 use passalong_core::crypto::{CryptoError, KdfParams, Words};
-use passalong_core::encryption::{self, GitCheck, StoreState};
-use passalong_core::fs::RemoteFs;
+use passalong_core::encryption::{EncryptionAdmin, GitCheck, StoreState};
 use passalong_core::store::BackendRegistry;
 use passalong_ssh::DiscoveredKey;
 use passalong_ssh::error::SshError;
@@ -39,8 +38,9 @@ pub trait HostKeySource: Send + Sync {
 /// Tests a written config; the real version is [`StoreCheck`].
 #[async_trait]
 pub trait ConnectionCheck: Send + Sync {
-    /// Connects with `config` and returns the store's filesystem.
-    async fn open(&self, config: &Config) -> anyhow::Result<Box<dyn RemoteFs>>;
+    /// Connects with `config` and returns what changes the store's
+    /// encryption.
+    async fn open(&self, config: &Config) -> anyhow::Result<Box<dyn EncryptionAdmin>>;
 }
 
 /// [`HostKeySource`] over SSH, with a 10-second timeout.
@@ -53,13 +53,13 @@ impl HostKeySource for NetworkHostKeys {
     }
 }
 
-/// [`ConnectionCheck`] that opens the store's filesystem.
+/// [`ConnectionCheck`] that opens the store for changing its encryption.
 pub struct StoreCheck(pub BackendRegistry);
 
 #[async_trait]
 impl ConnectionCheck for StoreCheck {
-    async fn open(&self, config: &Config) -> anyhow::Result<Box<dyn RemoteFs>> {
-        Ok(self.0.open_fs(config).await?)
+    async fn open(&self, config: &Config) -> anyhow::Result<Box<dyn EncryptionAdmin>> {
+        Ok(self.0.open_admin(config).await?)
     }
 }
 
@@ -241,11 +241,12 @@ pub async fn run(
         )?;
         return Ok(());
     }
-    let fs = check
+    let admin = check
         .open(&parsed)
         .await
         .context("wrote the config, but connecting with it failed")?;
-    let state = encryption::inspect(fs.as_ref())
+    let state = admin
+        .inspect()
         .await
         .context("wrote the config, but reading the store failed")?;
     let keys = parsed.client.key_file.as_deref().map(|key_file| Keys {
@@ -260,7 +261,7 @@ pub async fn run(
             writeln!(out, "connected: {items} {word} on the server")?;
             match (&keys, items) {
                 (Some(keys), 0) if interactive => {
-                    encrypt::set_up(fs.as_ref(), 0, keys, prompt, out).await?;
+                    encrypt::set_up(admin.as_ref(), 0, keys, prompt, out).await?;
                 }
                 (_, 0) => writeln!(out, "To encrypt this store, run `passalong encrypt`.")?,
                 _ => writeln!(
@@ -272,7 +273,9 @@ pub async fn run(
         StoreState::Encrypted { .. } => {
             writeln!(out, "connected: the store is encrypted")?;
             match &keys {
-                Some(keys) if interactive => encrypt::join(fs.as_ref(), keys, prompt, out).await?,
+                Some(keys) if interactive => {
+                    encrypt::join(admin.as_ref(), keys, prompt, out).await?
+                }
                 _ => writeln!(out, "To join it, run `passalong encrypt --join`.")?,
             }
         }
@@ -306,6 +309,7 @@ mod tests {
     use super::*;
     use crate::prompt::ScriptedPrompt;
     use passalong_core::crypto::KDF_SALT_LEN;
+    use passalong_core::encryption::{self, FsEncryptionAdmin};
     use passalong_core::encryption::{SystemGit, load_key_file};
     use passalong_core::fs::LocalFs;
     use passalong_core::model::NewItem;
@@ -349,7 +353,7 @@ mod tests {
 
     #[async_trait]
     impl ConnectionCheck for FakeCheck {
-        async fn open(&self, config: &Config) -> anyhow::Result<Box<dyn RemoteFs>> {
+        async fn open(&self, config: &Config) -> anyhow::Result<Box<dyn EncryptionAdmin>> {
             *self.seen.lock().unwrap() = Some(config.clone());
             if self.fail {
                 anyhow::bail!("connection refused")
@@ -368,7 +372,7 @@ mod tests {
                         .await?;
                 }
             }
-            Ok(Box::new(fs))
+            Ok(Box::new(FsEncryptionAdmin::new(fs)))
         }
     }
 

@@ -22,7 +22,7 @@ use crate::encryption::{
     ENCRYPTION_DIR, EncryptionError, Leftovers, PLAIN_DIR, REWRITE_DIR, read_header,
 };
 use crate::fs::{BoxRead, FsError, RemoteFs, RemotePath};
-use crate::model::{ContentDigest, ContentKey, ItemId, ItemKind, ItemMeta, NewItem, preview_of};
+use crate::model::{ContentDigest, ContentKey, ItemId, ItemMeta, NewItem};
 use crate::random::RandomSource;
 use crate::store::format::{self, CopyError, MAX_META_BYTES, MetaError, decode_array};
 use crate::store::{PROBE_BYTES, PutOutcome, Store, StoreError, WriteProbe};
@@ -453,7 +453,7 @@ impl<F: RemoteFs> FsStore<F> {
                 created: false,
             });
         }
-        let preview = (item.kind == ItemKind::Text).then(|| preview_of(utf8_prefix(&head)));
+        let preview = format::preview(item.kind, &head);
         let meta = item.finish_keyed(self.clock.now(), &digest, key, preview)?;
         self.write_meta(&staging.join(META_FILE)?, &meta, salt)
             .await?;
@@ -758,14 +758,6 @@ fn corrupt(id: &ItemId, reason: impl std::fmt::Display) -> StoreError {
     StoreError::Corrupt {
         id: id.to_string(),
         reason: reason.to_string(),
-    }
-}
-
-/// The longest valid UTF-8 prefix; the preview head may end mid-character.
-fn utf8_prefix(bytes: &[u8]) -> &str {
-    match std::str::from_utf8(bytes) {
-        Ok(text) => text,
-        Err(err) => std::str::from_utf8(&bytes[..err.valid_up_to()]).unwrap_or_default(),
     }
 }
 

@@ -3,7 +3,7 @@
 //! travel as strings, since item sizes are 64-bit.
 
 use serde::de::Error as _;
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::value::RawValue;
 
 /// `getViewer`: the API key in use, and the server.
@@ -139,6 +139,84 @@ pub struct RewriteSession {
     /// The new header, which the new words unlock (PLAN-00010 D-05).
     #[serde(default)]
     pub new_header: Option<Box<RawValue>>,
+}
+
+/// An item's envelope: what the server knows of it. `meta` is the client's
+/// `meta.json`, as it sent it.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct Item {
+    /// The item's id.
+    pub id: String,
+    /// Its `meta.json`, byte for byte.
+    pub meta: Box<RawValue>,
+    /// The bytes its stored content takes.
+    #[serde(deserialize_with = "bytes")]
+    pub stored_bytes: u64,
+    /// When the server received it, RFC 3339.
+    pub received_at: String,
+}
+
+/// `beginUpload`'s answer when the content is stored already, and
+/// `commitUpload`'s.
+#[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
+pub struct PutOutcome {
+    /// The stored item.
+    pub item: Item,
+    /// `false` when identical content was stored already.
+    pub created: bool,
+}
+
+/// `beginUpload`'s answer when content is to be sent.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct UploadTicket {
+    /// The upload's id, and its idempotency key.
+    pub upload_id: String,
+    /// When the ticket lapses.
+    pub expires_at: String,
+}
+
+/// `beginUpload`'s request.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BeginUpload<'a> {
+    /// The id the client proposes.
+    pub id: &'a str,
+    /// The item's `meta.json`, byte for byte.
+    pub meta: &'a RawValue,
+    /// The stored content's size, as a string.
+    pub size: String,
+    /// The key the client believes the workspace is under; `None` for
+    /// plaintext.
+    pub expected_key_id: Option<String>,
+    /// Whether this stages a rewrite's next generation.
+    pub in_rewrite: bool,
+}
+
+/// `resolveItem`'s answer.
+#[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
+pub struct Resolved {
+    /// `resolved`, `ambiguous`, `notFound`, or `invalidPrefix`.
+    pub result: String,
+    /// The item, when resolved.
+    #[serde(default)]
+    pub id: Option<String>,
+    /// The candidates, when ambiguous.
+    #[serde(default)]
+    pub candidates: Vec<String>,
+}
+
+/// `cleanStaging`'s answer.
+#[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
+pub struct Cleaned {
+    /// How many staging places were removed.
+    pub removed: usize,
 }
 
 /// A byte count sent as a string of digits.

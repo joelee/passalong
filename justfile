@@ -44,7 +44,7 @@ test:
 # Run the Docker-backed SSH integration tests (ignored tests). At most 4
 # tests run at once: OpenSSH drops new connections while too many are still
 # logging in (MaxStartups), which made unrelated tests fail at random.
-test-integration: (_with-sshd "cargo test --workspace --exclude passalong-https --all-features -- --ignored --skip desktop_ --skip compat_ --test-threads=4")
+test-integration: (_with-sshd "cargo test --workspace --exclude passalong-https --all-features -- --ignored --skip desktop_ --skip compat_ --skip https_ --test-threads=4")
 
 # The server is AGPL-3.0-or-later: the tests run it; nothing of it is linked
 # or copied into passalong. It is cloned into target/passalong-server once and
@@ -66,6 +66,7 @@ server-build:
 # Run the https backend's tests against a real passalong-server, one per test
 test-https: server-build
     PASSALONG_SERVER_BIN="$PWD/{{server_bin}}" cargo test -p passalong-https --all-features -- --ignored --test-threads=4
+    PASSALONG_SERVER_BIN="$PWD/{{server_bin}}" cargo test -p passalong --all-features --test cli_https_backend -- --ignored --test-threads=4
 
 # Line coverage gate (>= 80%) without Docker-backed tests
 coverage:

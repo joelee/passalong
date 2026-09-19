@@ -65,7 +65,7 @@ impl TestServer {
         }));
         let home = TempDir::new().unwrap();
         run(&bin, home.path(), &["init"]);
-        let tls = run(
+        run(
             &bin,
             home.path(),
             &[
@@ -77,11 +77,13 @@ impl TestServer {
                 "127.0.0.1",
             ],
         );
-        let pin = tls
+        // `tls fingerprint` is the documented way to read the pin.
+        let printed = run(&bin, home.path(), &["tls", "fingerprint"]);
+        let pin = printed
             .split(|c: char| c == '"' || c.is_whitespace())
             .find(|word| word.starts_with("sha256/"))
             .and_then(|word| TlsPin::parse(word).ok())
-            .unwrap_or_else(|| panic!("no pin in: {tls}"));
+            .unwrap_or_else(|| panic!("no pin in: {printed}"));
 
         let port = std::net::TcpListener::bind("127.0.0.1:0")
             .unwrap()
@@ -170,19 +172,7 @@ impl TestServer {
     /// The client configuration of a device in `dir` that reaches this
     /// server with `pin`, keeping its keys there.
     pub fn config(&self, dir: &Path, pin: Option<&str>) -> Config {
-        let pin = pin.map_or_else(String::new, |pin| format!("tls_pin = \"{pin}\"\n"));
-        let text = format!(
-            "[client]\ndevice_name = \"it\"\nkey_file = '{}'\n[server]\nkind = \"https\"\n[server.https]\nurl = \"{}\"\n{pin}api_key_file = '{}'\n",
-            dir.join("store.key").display(),
-            self.url,
-            dir.join("api.key").display(),
-        );
-        config::parse(
-            &text,
-            &dir.join("config.toml"),
-            &MapEnv::new().with("HOME", dir.to_str().unwrap()),
-        )
-        .unwrap()
+        config_for(dir, &self.url, pin)
     }
 
     /// The configuration with this server's own pin.
@@ -210,6 +200,22 @@ impl Drop for TestServer {
     }
 }
 
+/// A device in `dir` reaching `url` with `pin`, keeping its keys there.
+fn config_for(dir: &Path, url: &str, pin: Option<&str>) -> Config {
+    let pin = pin.map_or_else(String::new, |pin| format!("tls_pin = \"{pin}\"\n"));
+    let text = format!(
+        "[client]\ndevice_name = \"it\"\nkey_file = '{}'\n[server]\nkind = \"https\"\n[server.https]\nurl = \"{url}\"\n{pin}api_key_file = '{}'\n",
+        dir.join("store.key").display(),
+        dir.join("api.key").display(),
+    );
+    config::parse(
+        &text,
+        &dir.join("config.toml"),
+        &MapEnv::new().with("HOME", dir.to_str().unwrap()),
+    )
+    .unwrap()
+}
+
 fn command(bin: &Path, home: &Path) -> Command {
     let mut command = Command::new(bin);
     command
@@ -230,4 +236,133 @@ fn run(bin: &Path, home: &Path, args: &[&str]) -> String {
         String::from_utf8_lossy(&out.stderr)
     );
     String::from_utf8(out.stdout).unwrap()
+}
+
+impl TestServer {
+    /// Encrypts the empty workspace under a new data key, with the call
+    /// `passalong encrypt` makes, and returns the key.
+    pub async fn seal(&self, client: &passalong_https::Client) -> passalong_core::crypto::DataKey {
+        use passalong_core::crypto::{DataKey, KdfParams, Words, wrap};
+        use passalong_core::encryption::StoreHeader;
+        let key = DataKey::generate().unwrap();
+        let kdf = KdfParams {
+            m_kib: 64,
+            t: 1,
+            p: 1,
+            salt: [4; 16],
+        };
+        let header = StoreHeader::new(wrap(&key, &Words::generate().unwrap(), kdf).unwrap());
+        let header = String::from_utf8(header.to_json()).unwrap();
+        let body = format!(
+            "{{\"header\":{},\"keyId\":\"{}\"}}",
+            header.trim_end(),
+            key.key_id()
+        );
+        let url = client.url("/workspace/encryption");
+        client
+            .send("enableEncryption", |http| {
+                http.put(&url)
+                    .header("content-type", "application/json")
+                    .body(body.clone())
+            })
+            .await
+            .unwrap();
+        key
+    }
+
+    /// Where the server keeps its workspaces.
+    pub fn data_dir(&self) -> PathBuf {
+        self.home.path().join(".local/share/passalong-server")
+    }
+
+    /// The file the server stores item `id`'s content in.
+    pub fn content_file(&self, id: &str) -> PathBuf {
+        fn find(dir: &Path, id: &str) -> Option<PathBuf> {
+            for entry in std::fs::read_dir(dir).ok()? {
+                let path = entry.ok()?.path();
+                if path.is_dir() {
+                    if path.file_name().is_some_and(|name| name == id)
+                        && path.join("content").is_file()
+                    {
+                        return Some(path.join("content"));
+                    }
+                    if let Some(found) = find(&path, id) {
+                        return Some(found);
+                    }
+                }
+            }
+            None
+        }
+        find(&self.data_dir(), id).unwrap_or_else(|| panic!("no content file for {id}"))
+    }
+}
+
+/// A TCP proxy in front of a server, which cuts its first connection once
+/// `cut_after` bytes have come back from the server, as a dropped mobile
+/// link would. Later connections pass whole.
+pub struct CutProxy {
+    /// The port to connect to instead of the server's.
+    pub port: u16,
+}
+
+impl CutProxy {
+    /// A proxy to `127.0.0.1:target`.
+    pub async fn start(target: u16, cut_after: usize) -> Self {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let mut first = true;
+            while let Ok((client, _)) = listener.accept().await {
+                let cut = std::mem::take(&mut first).then_some(cut_after);
+                tokio::spawn(async move {
+                    let Ok(server) = tokio::net::TcpStream::connect(("127.0.0.1", target)).await
+                    else {
+                        return;
+                    };
+                    let (mut client_read, mut client_write) = client.into_split();
+                    let (mut server_read, mut server_write) = server.into_split();
+                    let upstream = tokio::spawn(async move {
+                        let _ = tokio::io::copy(&mut client_read, &mut server_write).await;
+                    });
+                    let mut sent = 0;
+                    let mut buf = vec![0_u8; 16 * 1024];
+                    while let Ok(n) = server_read.read(&mut buf).await {
+                        if n == 0 {
+                            break;
+                        }
+                        let n = match cut {
+                            Some(limit) if sent + n >= limit => limit - sent,
+                            _ => n,
+                        };
+                        if client_write.write_all(&buf[..n]).await.is_err() {
+                            break;
+                        }
+                        sent += n;
+                        if cut.is_some_and(|limit| sent >= limit) {
+                            break;
+                        }
+                    }
+                    upstream.abort();
+                });
+            }
+        });
+        Self { port }
+    }
+}
+
+impl TestServer {
+    /// The server's port.
+    pub fn port(&self) -> u16 {
+        self.url.rsplit(':').next().unwrap().parse().unwrap()
+    }
+
+    /// [`TestServer::pinned`] reaching the server through `port`.
+    pub fn pinned_via(&self, dir: &Path, port: u16) -> Config {
+        config_for(
+            dir,
+            &format!("https://127.0.0.1:{port}"),
+            Some(&self.pin.to_string()),
+        )
+    }
 }

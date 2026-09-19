@@ -16,6 +16,30 @@ the [README](../README.md#server-setup).
 
 Global options may come before or after the subcommand.
 
+## Using a passalong-server
+
+Besides an SSH server or a shared folder, the store can be a workspace on a
+[passalong-server](https://github.com/joelee/passalong-server): `kind =
+"https"`, its URL, and, for a self-signed server, the pin its operator gives
+you (see [configuration](configuration.md#serverhttps-required-when-kind--https)).
+The server's operator also gives you an API key, which goes in
+`server.https.api_key_file`, readable by you only; `passalong` refuses it
+otherwise.
+
+Every command below works the same with a server. What differs:
+
+- **Limits.** A server may cap the size of one item, and every workspace
+  has a quota. An item over the cap is refused before anything is sent,
+  with a message that names the limit.
+- **Read-only keys.** A key the operator made read-only lists and loads,
+  and is refused when it sends or deletes (`FORBIDDEN_ROLE`).
+- **Interrupted downloads resume** from the last byte received, up to three
+  times, and the item is still checked whole before it is written.
+- **The server cannot read an encrypted workspace**, nor change an item
+  without its device noticing: sealing and checking happen on the device.
+  A device that holds a key never sends plaintext to a workspace, whatever
+  the server says about it.
+
 ## `passalong init`
 
 Writes a config file for your SSH server and pins its host key. Run it once

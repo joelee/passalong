@@ -10,8 +10,10 @@
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use crate::crypto::{CHUNK_LEN, CONTENT_SALT_LEN, CryptoError, SealedMeta, Sealer, read_full};
-use crate::model::{ContentDigest, ContentHasher, ItemId, ItemMeta};
+use crate::crypto::{
+    CHUNK_LEN, CONTENT_SALT_LEN, ContentSealer, CryptoError, SealedMeta, Sealer, read_full,
+};
+use crate::model::{ContentDigest, ContentHasher, ItemId, ItemKind, ItemMeta, preview_of};
 
 /// Version of a sealed `meta.json`.
 pub const SEALED_SCHEMA: u32 = 2;
@@ -160,9 +162,40 @@ pub enum CopyError {
 ///
 /// [`CopyError`] naming the side that failed.
 pub async fn write_content<R, W>(
-    mut content: R,
+    content: R,
     writer: &mut W,
     sealer: Option<&Sealer>,
+) -> Result<Written, CopyError>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    let sealing = sealer.map(Sealer::content_sealer).transpose()?;
+    copy(content, writer, sealing).await
+}
+
+/// [`write_content`] sealing with `sealing`, made beforehand, so that its
+/// salt can be recorded before the content is written.
+///
+/// # Errors
+///
+/// [`CopyError`] naming the side that failed.
+pub async fn seal_content<R, W>(
+    content: R,
+    writer: &mut W,
+    sealing: ContentSealer,
+) -> Result<Written, CopyError>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    copy(content, writer, Some(sealing)).await
+}
+
+async fn copy<R, W>(
+    mut content: R,
+    writer: &mut W,
+    sealing: Option<ContentSealer>,
 ) -> Result<Written, CopyError>
 where
     R: AsyncRead + Unpin,
@@ -175,7 +208,7 @@ where
         let room = PREVIEW_HEAD_BYTES.saturating_sub(head.len());
         head.extend_from_slice(&chunk[..room.min(chunk.len())]);
     };
-    let salt = match sealer {
+    let salt = match sealing {
         None => {
             let mut buf = vec![0_u8; COPY_CHUNK];
             loop {
@@ -191,8 +224,7 @@ where
             }
             None
         }
-        Some(sealer) => {
-            let mut sealing = sealer.content_sealer()?;
+        Some(mut sealing) => {
             writer
                 .write_all(&sealing.header())
                 .await
@@ -230,6 +262,20 @@ where
         head,
         salt,
     })
+}
+
+/// The preview of a text item whose content starts with `head`; other
+/// kinds have none.
+pub fn preview(kind: ItemKind, head: &[u8]) -> Option<String> {
+    (kind == ItemKind::Text).then(|| preview_of(utf8_prefix(head)))
+}
+
+/// The longest valid UTF-8 prefix; the preview head may end mid-character.
+fn utf8_prefix(bytes: &[u8]) -> &str {
+    match std::str::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(err) => std::str::from_utf8(&bytes[..err.valid_up_to()]).unwrap_or_default(),
+    }
 }
 
 /// A sealed store's `meta.json`: only the schema and the id are readable.

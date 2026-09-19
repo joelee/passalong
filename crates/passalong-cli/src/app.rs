@@ -132,6 +132,7 @@ async fn dispatch(
     let config: &Config = context.config;
     let mut backends = BackendRegistry::with_builtin();
     passalong_ssh::register(&mut backends);
+    passalong_https::register(&mut backends);
     let device = config.client.device_name.as_str();
     let cache = CacheFile::for_config(config, context.env);
     match command {
@@ -384,6 +385,7 @@ async fn check(cli: &Cli, env: &dyn EnvProvider, out: &mut dyn Write) -> anyhow:
     let _ = telemetry::init(level, crate::logs::writer);
     let mut backends = BackendRegistry::with_builtin();
     passalong_ssh::register(&mut backends);
+    passalong_https::register(&mut backends);
     let span = telemetry::op_span("check", &mut StdRandom::new());
     let serve = crate::daemon::StatePaths::resolve(env, crate::daemon::Os::current())
         .context("cannot find serve's pid file: set HOME")
@@ -460,6 +462,7 @@ async fn init(
     };
     let mut backends = BackendRegistry::with_builtin();
     passalong_ssh::register(&mut backends);
+    passalong_https::register(&mut backends);
     let mut prompt = TerminalPrompt;
     let git = SystemGit::new();
     let deps = commands::init::InitDeps {

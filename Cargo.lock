@@ -2262,6 +2262,7 @@ dependencies = [
  "clap",
  "dotenvy",
  "passalong-core",
+ "passalong-https",
  "passalong-ssh",
  "predicates",
  "ratatui",
@@ -2306,6 +2307,7 @@ name = "passalong-https"
 version = "0.2.1"
 dependencies = [
  "async-trait",
+ "bytes",
  "futures-util",
  "hex",
  "passalong-core",

@@ -432,15 +432,21 @@ impl TlsPin {
     /// A description when `text` is not `sha256/` and 32 bytes in base64.
     pub fn parse(text: &str) -> Result<Self, String> {
         let text = text.trim();
-        let encoded = text
-            .strip_prefix("sha256//")
-            .or_else(|| text.strip_prefix("sha256/"))
-            .ok_or("a pin starts with `sha256/`")?;
-        let bytes = b64::decode(encoded).ok_or("the pin is not base64")?;
-        let digest: [u8; 32] = bytes
-            .try_into()
-            .map_err(|_| "a pin is 32 bytes, 44 base64 characters".to_owned())?;
-        Ok(Self(digest))
+        if !text.starts_with("sha256/") {
+            return Err("a pin starts with `sha256/`".to_owned());
+        }
+        // Base64 can itself start with `/`, so `sha256//…` is first read as
+        // `sha256/` and a pin that begins with a slash, and only then as
+        // curl's form. The two differ in length, so at most one fits.
+        [text.strip_prefix("sha256/"), text.strip_prefix("sha256//")]
+            .into_iter()
+            .flatten()
+            .find_map(|encoded| {
+                let bytes = b64::decode(encoded)?;
+                <[u8; 32]>::try_from(bytes).ok()
+            })
+            .map(Self)
+            .ok_or_else(|| "a pin is `sha256/` and 32 bytes of base64, 44 characters".to_owned())
     }
 
     /// The SHA-256 the pin names.
@@ -2115,6 +2121,15 @@ remote_path = "/srv/pa"
             pin
         );
         assert_eq!(pin.digest()[..4], [0x66, 0x68, 0x7a, 0xad]);
+        // A pin whose base64 starts with `/`, as a real server gave one, in
+        // both forms.
+        let slash = "sha256//tc0nTavCJC9TZBAEDUCNy4Q/HiXKyxwMio61TAj/PU=";
+        let read = TlsPin::parse(slash).unwrap();
+        assert_eq!(read.to_string(), slash);
+        assert_eq!(
+            TlsPin::parse(&slash.replacen("sha256/", "sha256//", 1)).unwrap(),
+            read
+        );
         for bad in [
             "Zmh6rfhivXdsj8GLjp+OIAiXFIVu4jOzkCpZHQ1fKSU=",
             "sha1/Zmh6rfhivXdsj8GLjp+OIAiXFIVu4jOzkCpZHQ1fKSU=",

@@ -10,7 +10,7 @@ use std::future::Future;
 use std::pin::Pin;
 
 use crate::config::Config;
-use crate::encryption;
+use crate::encryption::{self, EncryptionAdmin, FsEncryptionAdmin};
 use crate::fs::{FsError, LocalFs, RemoteFs};
 use crate::store::{Store, StoreError};
 
@@ -112,6 +112,23 @@ impl BackendRegistry {
             Some(opener) => opener(config).await,
             None => Err(StoreError::UnsupportedBackend(config.server.kind.clone())),
         }
+    }
+
+    /// Changes the encryption of the store `server.kind` names: through its
+    /// filesystem for a file-like backend.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::UnsupportedBackend`] when no backend that can change
+    /// encryption is registered for the kind, and otherwise the opener's
+    /// error.
+    pub async fn open_admin(
+        &self,
+        config: &Config,
+    ) -> Result<Box<dyn EncryptionAdmin>, StoreError> {
+        Ok(Box::new(FsEncryptionAdmin::new(
+            self.open_fs(config).await?,
+        )))
     }
 }
 
@@ -295,5 +312,28 @@ mod tests {
             StoreError::Backend(message) => assert_eq!(message, "stub opened"),
             other => panic!("unexpected {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn a_file_like_backend_changes_encryption_through_its_filesystem() {
+        let dir = TempDir::new().unwrap();
+        let cfg = config(&format!(
+            "[server]\nkind = \"local\"\n[server.local]\npath = '{}'\n",
+            dir.path().display()
+        ));
+        let admin = BackendRegistry::with_builtin()
+            .open_admin(&cfg)
+            .await
+            .unwrap();
+        assert!(admin.fs().is_some());
+        assert_eq!(
+            admin.inspect().await.unwrap(),
+            crate::encryption::StoreState::Plain { items: 0 }
+        );
+        let other = config("[server]\nkind = \"nope\"\n");
+        assert!(matches!(
+            BackendRegistry::with_builtin().open_admin(&other).await,
+            Err(StoreError::UnsupportedBackend(kind)) if kind == "nope"
+        ));
     }
 }

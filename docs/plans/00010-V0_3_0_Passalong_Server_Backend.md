@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-opus-5"
 execution_branch: "feature/v0.3.0-passalong-server"
 execution_started_at: "2026-09-19T14:48:11Z"
-execution_updated_at: "2026-09-19T14:53:29Z"
+execution_updated_at: "2026-09-19T14:59:03Z"
 execution_completed_at: null
-current_step: "PLAN-00010-STEP-02"
+current_step: "PLAN-00010-STEP-03"
 ---
 
 # Delivery Plan 00010: V0 3 0 Passalong Server Backend
@@ -988,7 +988,7 @@ Contract problems stop the Builder (D-14), so they surface early.
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
 | PLAN-00010-STEP-01 | completed | 2026-09-19T14:48:11Z | 2026-09-19T14:53:29Z | Golden tests green before and after the move; workspace 613 passed, 0 failed; `just test-integration` 24 passed; `just test-compat` 3 + 1 passed | New `store/format.rs`: `encode_meta`, `decode_meta`, `write_content`, `SealedMetaFile` |
-| PLAN-00010-STEP-02 | not-started | — | — | — | — |
+| PLAN-00010-STEP-02 | completed | 2026-09-19T14:53:29Z | 2026-09-19T14:59:03Z | CI run 35450123585 green for STEP-01; workspace 618 passed, 0 failed, fault matrices included; `just test-integration` 24 passed; `just test-compat` 3 + 1 passed | `EncryptionAdmin`, `Rewrite`, `run_rewrite`, `FsEncryptionAdmin`, `Claim`, `opening`, `BackendRegistry::open_admin` |
 | PLAN-00010-STEP-03 | not-started | — | — | — | — |
 | PLAN-00010-STEP-04 | not-started | — | — | — | — |
 | PLAN-00010-STEP-05 | not-started | — | — | — | — |
@@ -1009,11 +1009,13 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 |---|---|---|---|---|
 | 2026-09-19T14:48:11Z | STEP-01 | Started after approval commit 5f07466 | — | Golden tests |
 | 2026-09-19T14:53:29Z | STEP-01 | Completed: golden tests written and passing against the unchanged code first (plaintext `meta.json` of a text and a file item pinned byte for byte; a sealed `meta.json` pinned by its layout and by the exact body it opens to; sealed content pinned by length, magic, and what it opens to, at 0, 5, one record, and two records plus one byte); then `SealedMetaFile`, `SealedMetaBody`, the `meta.json` encoding and decoding, and the content copy moved to `store::format`, which `FsStore` now calls; architecture note | `store::fs_store::golden_tests::*`, `store::format::tests::*` | STEP-02 |
+| 2026-09-19T14:59:03Z | STEP-02 | Completed: `encryption/admin_trait.rs` defines `EncryptionAdmin` (inspect, set up, fresh start, join, change words, migrate, rotate, the plain store, removing it when empty, and `fs()` for what only a filesystem has) and `Rewrite` (source, target id, staged, import, read back, heartbeat, commit). `run_rewrite` is the engine: copy what is not staged, read every copy back, send a heartbeat each minute, commit. `rewrite.rs`'s `run` now prepares the filesystem as before and hands an `FsRewrite` to it. `FsEncryptionAdmin<F>` delegates to the unchanged functions. `open_with_key`'s refusal table became `opening(Claim, key)`, which both stores will call. `BackendRegistry::open_admin` opens file-like kinds | `encryption::admin_trait::tests::*`, `encryption::open::tests::the_opening_table_holds_for_any_claim`, `store::factory::tests::a_file_like_backend_changes_encryption_through_its_filesystem` | STEP-03 |
 
 ### Deviations and blockers
 
 | Timestamp (UTC) | Step | Deviation or blocker | Impact | Decision required from |
 |---|---|---|---|---|
+| 2026-09-19T14:59:03Z | STEP-02 | The traits differ from the mapping's sketch, as its step allows:<br>• `EncryptionAdmin` works with words (`set_up(words)`, `change_words(current, new)`), not headers, because the commands work at that level and the filesystem functions stay unchanged. A server implementation makes its header calls inside.<br>• Recovery (`finish`, `undo`, journals, header repair, leftovers) is not on the trait yet. The commands reach it through `fs()`, and STEP-10 adds recovery for servers.<br>• `Rewrite` has `target_id` and `staged` instead of the sketch's skip-inside-import, because the engine needs the new id to read each copy back.<br>• `commit` takes `&self`, and there is no `abort`: undoing stays in the journal until STEP-10.<br>The filesystem's log line after a rewrite now comes after the header swap. `rewrite.rs`'s test module gained `use` lines it had taken through `use super::*` | Design within the step; no behaviour change | None |
 | 2026-09-19T14:53:29Z | STEP-01 | Sealing draws fresh salts and nonces from `getrandom` inside `crypto/`, which this plan must not change, so sealed bytes cannot be pinned exactly. The golden tests pin a sealed `meta.json`'s layout and the exact body it opens to, and sealed content's length, header, and plaintext, which fixes every byte `store::format` chooses. Two existing test modules gained explicit `use` lines for `CHUNK_LEN` and `SealedMetaFile`, which they had taken through `use super::*`; no test's logic changed | AC-04 evidence is structural for sealed items; exact for plaintext | None |
 
 ### Verification results
@@ -1024,6 +1026,9 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-09-19T14:53:29Z | STEP-01 | `cargo fmt --all`; `cargo clippy -p passalong-core --all-targets --all-features -D warnings`; the same for `x86_64-pc-windows-msvc` | Pass | Exit 0 |
 | 2026-09-19T14:53:29Z | STEP-01 | `cargo test --workspace --all-features --no-fail-fast` | Pass | 613 passed, 0 failed, 33 ignored |
 | 2026-09-19T14:53:29Z | STEP-01 | `just test-integration`; `just test-compat`; `just links` | Pass | 24 passed; v0.1.6 3 passed, v0.2.0 1 passed; 42 Markdown files |
+| 2026-09-19T14:59:03Z | STEP-01 | CI run 35450123585 on ee6de27 | Pass: Linux (`just ci`), macOS, Xvfb, Android, Windows | — |
+| 2026-09-19T14:59:03Z | STEP-02 | fmt check; workspace clippy `-D warnings`; core clippy for Windows; `cargo test --workspace --all-features --no-fail-fast` | Pass | 618 passed, 0 failed, 33 ignored |
+| 2026-09-19T14:59:03Z | STEP-02 | `just test-integration`; `just test-compat` | Pass | 24 passed; 3 + 1 passed |
 
 ### Completion summary
 

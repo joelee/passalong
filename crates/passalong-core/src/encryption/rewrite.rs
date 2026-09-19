@@ -23,10 +23,11 @@
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use tokio::io::AsyncReadExt;
 
 use super::admin::{plain_tmp, refuse};
+use super::admin_trait::{Rewrite, run_rewrite};
 use super::header::{encryption_dir, read_header_in, write_header_in};
 use super::header_change::{finish_change, install, revert};
 use super::journal::{
@@ -39,8 +40,8 @@ use super::{
 };
 use crate::clock::Clock;
 use crate::crypto::{DataKey, KdfParams, Sealer, Words, unwrap, wrap};
-use crate::fs::{FsError, RemoteFs, RemotePath, SubFs};
-use crate::model::ContentHasher;
+use crate::fs::{BoxRead, FsError, RemoteFs, RemotePath, SubFs};
+use crate::model::{ItemId, ItemMeta};
 use crate::random::StdRandom;
 use crate::store::{FsStore, Store, StoreError};
 
@@ -419,53 +420,51 @@ async fn run<F: RemoteFs + ?Sized>(
         None => FsStore::new(source_fs, clock.clone(), rng()),
     };
     let target = FsStore::sealed(fs, clock, rng(), Sealer::new(key.clone()));
-    let mut ids = source.list_ids().await?;
-    ids.reverse();
-    let mut metas = Vec::with_capacity(ids.len());
-    for id in &ids {
-        let meta = source.get_meta(id).await?;
-        if !target.exists(&target.id_for(&meta)?).await? {
-            let (meta, content) = source.get(id).await?;
-            target.import(&meta, content).await?;
-        }
-        metas.push(meta);
-    }
-    for meta in &metas {
-        verify(&target, meta).await?;
-    }
-    tracing::info!(items = metas.len(), key = %key.key_id().short(), "items re-encrypted and verified");
-    install(fs).await?;
-    cleanup(fs).await
+    let items = run_rewrite(&FsRewrite { fs, source, target }).await?;
+    tracing::info!(items, key = %key.key_id().short(), "items re-encrypted, verified, and installed");
+    Ok(())
 }
 
-/// Reads back the new copy of `meta`'s item and compares its SHA-256 and
-/// size.
-async fn verify<F: RemoteFs>(
-    target: &FsStore<F>,
-    meta: &crate::model::ItemMeta,
-) -> Result<(), StoreError> {
-    let id = target.id_for(meta)?;
-    let (_, mut content) = target.get(&id).await?;
-    let mut hasher = ContentHasher::new();
-    let mut buf = vec![0_u8; 64 * 1024];
-    loop {
-        let n = content
-            .read(&mut buf)
-            .await
-            .map_err(|err| StoreError::Content(err.to_string()))?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
+/// A re-encryption on a filesystem: the source under `.rewrite/source/`,
+/// the target under `v2/items/`, and the journal's header swap as the
+/// commit.
+struct FsRewrite<'a, F: RemoteFs + ?Sized, S> {
+    fs: &'a F,
+    source: S,
+    target: FsStore<&'a F>,
+}
+
+#[async_trait]
+impl<F: RemoteFs + ?Sized, S: Store> Rewrite for FsRewrite<'_, F, S> {
+    fn source(&self) -> &dyn Store {
+        &self.source
     }
-    let digest = hasher.finalize();
-    if digest.sha256_hex() != meta.sha256 || digest.size() != meta.size {
-        return Err(StoreError::Corrupt {
-            id: id.to_string(),
-            reason: format!("its re-encrypted copy does not match {}", meta.id),
-        });
+
+    fn target_id(&self, meta: &ItemMeta) -> Result<ItemId, StoreError> {
+        self.target.id_for(meta)
     }
-    Ok(())
+
+    async fn staged(&self, id: &ItemId) -> Result<bool, StoreError> {
+        self.target.exists(id).await
+    }
+
+    async fn import(&self, meta: &ItemMeta, content: BoxRead) -> Result<ItemMeta, StoreError> {
+        self.target.import(meta, content).await
+    }
+
+    async fn read_back(&self, id: &ItemId) -> Result<(ItemMeta, BoxRead), StoreError> {
+        self.target.get(id).await
+    }
+
+    async fn heartbeat(&self) -> Result<(), StoreError> {
+        // The lock is a folder; it needs no renewing.
+        Ok(())
+    }
+
+    async fn commit(&self) -> Result<(), StoreError> {
+        install(self.fs).await?;
+        cleanup(self.fs).await
+    }
 }
 
 /// Removes the source, journals staged by locks never taken, and then the
@@ -481,11 +480,13 @@ pub(crate) mod tests {
     use crate::crypto::KDF_SALT_LEN;
     use crate::encryption::{open_with_key, set_up};
     use crate::fs::LocalFs;
+    use crate::model::ContentHasher;
     use crate::model::{ItemMeta, NewItem};
     use crate::testing::{FaultyFs, FsOp, ManualClock};
     use std::collections::BTreeMap;
     use std::path::Path;
     use tempfile::TempDir;
+    use tokio::io::AsyncReadExt;
 
     pub(crate) const W1: &str = "abacus abdomen abdominal abide abiding ability";
     pub(crate) const W2: &str = "zoom zoom zoom zoom zoom zoom";

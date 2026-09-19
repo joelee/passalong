@@ -23,7 +23,7 @@ use super::admin::{Layout, classify};
 use super::{EncryptionError, REWRITE_DIR, SystemGit, load_key_file};
 use crate::clock::{Clock, SystemClock};
 use crate::config::Config;
-use crate::crypto::{DataKey, Sealer};
+use crate::crypto::{DataKey, KeyId, Sealer};
 use crate::fs::{RemoteFs, RemotePath};
 use crate::random::{RandomSource, StdRandom};
 use crate::store::{FsStore, Store, StoreError};
@@ -57,26 +57,64 @@ pub async fn open_with_key<F: RemoteFs + 'static>(
     clock: Arc<dyn Clock>,
     rng: Box<dyn RandomSource>,
 ) -> Result<Box<dyn Store>, StoreError> {
-    let header = match classify(&fs).await? {
-        Layout::Rewriting { started } => return Err(EncryptionError::Rewriting { started }.into()),
-        Layout::Broken => return Err(EncryptionError::HeaderMissing.into()),
-        Layout::Plain if key.is_some() => {
-            return Err(EncryptionError::KeyWithoutEncryption.into());
+    let claim = match classify(&fs).await? {
+        Layout::Rewriting { started } => Claim::Rewriting { started },
+        Layout::Broken => Claim::Broken,
+        Layout::Plain => Claim::Plain,
+        Layout::Encrypted(header) => Claim::Encrypted(header.key_id()),
+    };
+    Ok(match opening(claim, key)? {
+        None => Box::new(FsStore::new(fs, clock, rng).plain_guarded()),
+        Some(sealer) => {
+            tracing::debug!(key = %sealer.key_id().short(), "opened an encrypted store");
+            Box::new(FsStore::sealed(fs, clock, rng, sealer).guarded())
         }
-        Layout::Plain => return Ok(Box::new(FsStore::new(fs, clock, rng).plain_guarded())),
-        Layout::Encrypted(header) => header,
+    })
+}
+
+/// What a store says about its encryption, as far as opening it goes: read
+/// from a filesystem's layout, or from a server's answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Claim {
+    /// Not encrypted.
+    Plain,
+    /// Encrypted under the key with this id.
+    Encrypted(KeyId),
+    /// Its encryption is being changed.
+    Rewriting {
+        /// When that started, if known.
+        started: Option<String>,
+    },
+    /// Part of an encrypted layout without the rest.
+    Broken,
+}
+
+/// The table above, for any store: how a device holding `key`, or no key,
+/// opens a store that claims `claim`. `None` opens it as plaintext and
+/// `Some` sealed with the key; a device with a key never opens a store as
+/// plaintext, whatever the store claims.
+///
+/// # Errors
+///
+/// [`StoreError::Encryption`] with the refusal.
+pub fn opening(claim: Claim, key: Option<DataKey>) -> Result<Option<Sealer>, StoreError> {
+    let store = match claim {
+        Claim::Rewriting { started } => return Err(EncryptionError::Rewriting { started }.into()),
+        Claim::Broken => return Err(EncryptionError::HeaderMissing.into()),
+        Claim::Plain if key.is_some() => return Err(EncryptionError::KeyWithoutEncryption.into()),
+        Claim::Plain => return Ok(None),
+        Claim::Encrypted(store) => store,
     };
     let key = key.ok_or(EncryptionError::NoKey)?;
-    if key.key_id() != header.key_id() {
+    if key.key_id() != store {
         return Err(EncryptionError::KeyMismatch {
             device: key.key_id().short(),
-            store: header.key_id().short(),
+            store: store.short(),
         }
         .into());
     }
-    tracing::debug!(key = %header.key_id().short(), "opened an encrypted store");
-    let store = FsStore::sealed(fs, clock, rng, Sealer::new(key));
-    Ok(Box::new(store.guarded()))
+    Ok(Some(Sealer::new(key)))
 }
 
 /// When the re-encryption in progress started, from `.rewrite/plan.json`.
@@ -443,5 +481,51 @@ mod tests {
                 "{result:?}"
             );
         }
+    }
+
+    #[test]
+    fn the_opening_table_holds_for_any_claim() {
+        let key = DataKey::generate().unwrap();
+        let other = DataKey::generate().unwrap();
+        let refused = |claim: Claim, key: Option<&DataKey>| match opening(claim, key.cloned()) {
+            Err(StoreError::Encryption(err)) => err,
+            Err(other) => panic!("unexpected error {other}"),
+            Ok(_) => panic!("opened"),
+        };
+        assert!(opening(Claim::Plain, None).unwrap().is_none());
+        assert_eq!(
+            opening(Claim::Encrypted(key.key_id()), Some(key.clone()))
+                .unwrap()
+                .unwrap()
+                .key_id(),
+            key.key_id()
+        );
+        // A device with a key never opens a store as plaintext, whatever
+        // the store claims.
+        assert!(matches!(
+            refused(Claim::Plain, Some(&key)),
+            EncryptionError::KeyWithoutEncryption
+        ));
+        assert!(matches!(
+            refused(Claim::Encrypted(key.key_id()), None),
+            EncryptionError::NoKey
+        ));
+        assert!(matches!(
+            refused(Claim::Encrypted(key.key_id()), Some(&other)),
+            EncryptionError::KeyMismatch { .. }
+        ));
+        assert!(matches!(
+            refused(Claim::Broken, Some(&key)),
+            EncryptionError::HeaderMissing
+        ));
+        assert!(matches!(
+            refused(
+                Claim::Rewriting {
+                    started: Some("2026-09-19T15:00:00Z".into())
+                },
+                None
+            ),
+            EncryptionError::Rewriting { started: Some(_) }
+        ));
     }
 }

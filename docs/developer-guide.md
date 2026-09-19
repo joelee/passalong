@@ -38,7 +38,7 @@ tests/docker/         OpenSSH server for the integration tests
 | `just lint` | `cargo clippy --workspace --all-targets --all-features -- -D warnings` |
 | `just test` | `cargo test --workspace --all-targets --all-features` |
 | `just test-integration` | Starts the Docker OpenSSH server and runs the ignored tests, except `passalong-https`'s |
-| `just server-build` | Builds passalong-server at the pinned commit into `target/passalong-server/` (see Server tests) |
+| `just server-build` | Clones passalong-server into `.passalong-server/` and builds the pinned commit into `target/passalong-server/` (see Server tests) |
 | `just test-https` | `server-build`, then `passalong-https`'s ignored tests, each against a server of its own |
 | `just test-deploy` | Starts `deploy/ssh-server` from a temporary directory and checks `init`, a round trip, host-owned storage, and a stable host key (Linux, Docker) |
 | `just coverage` | `cargo llvm-cov --workspace --all-features --fail-under-lines 80 --summary-only` |
@@ -165,9 +165,11 @@ uses, a workspace and keys, and `serve` on a free port, stopped when the
 test ends. `just ci` and `just coverage-full` include them, so the Linux CI
 job runs them too.
 
-To test against a newer server, move `server_commit` to that commit, run
-`just test-https`, and read the server's changes to its `docs/api/` for
-anything the client must follow.
+The pin is `d565a28`, on the server's `main`, whose rewrite sessions carry
+`newHeader`: finishing another device's re-encryption needs it (PLAN-00010
+D-05). To test against a newer server, move `server_commit` to that
+commit, run `just test-https`, and read the server's changes to its
+`docs/api/` for anything the client must follow.
 
 ## Compatibility test
 

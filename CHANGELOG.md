@@ -6,6 +6,76 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Added
+
+- A third kind of store: a workspace on a
+  [passalong-server](https://github.com/joelee/passalong-server), with
+  `kind = "https"` and a `[server.https]` section (`url`, `tls_pin`,
+  `api_key_file`). Every command works with it, and items keep the bytes
+  they have in any other store (PLAN-00010 STEP-04 to STEP-06).
+- TLS to a server: with `tls_pin`, the SHA-256 of the certificate's public
+  key, that key alone is trusted, which is how a self-signed server works;
+  without one, the operating system's certificate authorities decide.
+  Verification cannot be turned off (PLAN-00010 STEP-05).
+- Each device keeps its server API key in a file readable by its owner
+  alone, refused otherwise, as the store key is (PLAN-00010 STEP-04).
+- Encryption with a server: `encrypt` sets up, joins, changes the words,
+  starts fresh, migrates, and rotates. Every write names the key the device
+  expects, so the server refuses writes under a replaced key. A device with
+  a key never sends plaintext, whatever the server says (PLAN-00010 STEP-07,
+  STEP-10).
+- `encrypt --recover` with a server finishes or undoes a re-encryption that
+  stopped. The device that began it can do so at any time; another device
+  can once the session's lease has ended, taking it over first
+  (PLAN-00010 STEP-10).
+- `init` sets up a server. It asks the kind of server first, and takes
+  `--backend`, `--url`, `--tls-pin`, and `--api-key-file`. It shows the pin
+  of the presented certificate, found without sending a request, and has
+  you paste the operator's. The API key is typed without echo. When the
+  server says a workspace is not encrypted and the device has no key, you
+  confirm that before anything is written (PLAN-00010 STEP-09).
+- `check` for a server shows its version, API version, and TLS mode; the
+  API key's label, role, and expiry, warning within 14 days of it; and the
+  workspace's usage. A read-only key is reported instead of probed
+  (PLAN-00010 STEP-09).
+- `serve` with a server waits out another device's re-encryption and sends
+  afterwards. It keeps a file whose sending a key change refused, and stops
+  with the server's reason when its API key expired or was revoked
+  (PLAN-00010 STEP-08).
+- The list cache covers servers, named by the URL and the API key's public
+  id (PLAN-00010 STEP-08).
+- Downloads from a server that break off resume where they stopped, up to
+  three times (PLAN-00010 STEP-06).
+- New crate `passalong-https`, the `https` backend, written from the
+  server's published API documents alone. The server is AGPL-3.0-or-later;
+  none of its code or crates are used (PLAN-00010 STEP-05).
+- Library, in `passalong-core`:
+  - `api_key` (`ApiKey`, `load_api_key`, `save_api_key`,
+    `check_api_key_location`);
+  - in `config`: `HttpsConfig`, `TlsPin`, `HttpsInitAnswers`,
+    `render_https`, `API_KEY_FILE_NAME`, and `default_api_key_path`;
+  - `store::format`, the item bytes every store writes;
+  - in `encryption`: the `EncryptionAdmin` and `Rewrite` traits,
+    `run_rewrite`, `FsEncryptionAdmin`, `OpenRewrite`, `HEARTBEAT_EVERY`,
+    `Claim`, and `opening`;
+  - `BackendRegistry::open_admin` and `register_admin`, with `AdminFuture`
+    and `AdminOpener`;
+  - `StoreError::Denied`.
+
+### Changed
+
+- The version is 0.3.0. The store layout is unchanged, and v0.2.x clients
+  keep working with SSH and `local` stores (PLAN-00010 STEP-11).
+- The commands change a store's encryption through `EncryptionAdmin`, the
+  same for every backend (PLAN-00010 STEP-02, STEP-03).
+- Interactive `init` first asks the kind of server; Enter keeps SSH
+  (PLAN-00010 STEP-09).
+- Library, breaking in `passalong-core`: `KeyFileError::InGitWorkTree` and
+  `GitUnavailable` gain a `setting` field and `Damaged` a `what` field, so
+  their messages name the key file or the API key file; `ServeError` and
+  `JobOutcome` gain a `Denied` variant, for a server that refuses the
+  device for good. `passalong-ssh` is unchanged.
+
 ## v0.2.1 - 2026-09-16T21:34:14Z
 
 ### Added

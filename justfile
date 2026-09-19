@@ -229,7 +229,7 @@ publish-dry-run *ARGS:
     # unchanged, so clear earlier builds of the workspace crates and their
     # sources unpacked from cargo's temporary registries (the `-<hash>`
     # folders; the crates.io cache is left alone) first.
-    cargo clean -p passalong-core -p passalong-ssh -p passalong
+    cargo clean -p passalong-core -p passalong-ssh -p passalong-https -p passalong
     rm -rf "${CARGO_HOME:-$HOME/.cargo}"/registry/src/-*/passalong-*
     cargo publish --workspace --dry-run --locked {{ARGS}}
     # The unpacked packages in target/package are only needed during

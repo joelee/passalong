@@ -2253,7 +2253,7 @@ dependencies = [
 
 [[package]]
 name = "passalong"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -2275,7 +2275,7 @@ dependencies = [
 
 [[package]]
 name = "passalong-core"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "aes-gcm",
  "arboard",
@@ -2304,7 +2304,7 @@ dependencies = [
 
 [[package]]
 name = "passalong-https"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2329,7 +2329,7 @@ dependencies = [
 
 [[package]]
 name = "passalong-ssh"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "chrono",

@@ -4,10 +4,6 @@ Future work not covered by an active plan. Completed items are removed.
 
 ## @joelee road map for next releases
 
-### v0.3.0
- - Implement support for the [passalong-server](https://github.com/joelee/passalong-server)
-
-
 ### Unscheduled
 - **Check encrypted stores on a cloud-synced folder** (PLAN-00008 AC-21,
   deferred on 2026-09-15 for lack of a setup). Two devices share one
@@ -38,10 +34,18 @@ Future work not covered by an active plan. Completed items are removed.
   identity file.
 - **Connection reuse.** One-shot commands open a new SSH connection each
   time; reuse or multiplex connections.
-- **More backends.** S3 and HTTP API backends behind the existing registry.
-  Their config sections must be added to the core configuration module.
-- **Android client and desktop GUI** on top of `passalong-core` and
-  `passalong-ssh`.
+- **More backends.** An S3 backend behind the existing registry. Its config
+  section must be added to the core configuration module.
+- **Android client and desktop GUI** on top of `passalong-core`,
+  `passalong-ssh`, and `passalong-https`.
+- **`serve` and an abandoned rewrite** (PLAN-00010 STEP-10). While a
+  server's re-encryption is open, `serve` waits and logs that once. Once the
+  session's lease has ended, nobody may be coming back to it, so `serve`
+  should say so and name `passalong encrypt --recover`.
+- **`init` taking the API key from standard input** (PLAN-00010 STEP-09).
+  With `--yes`, the key must already be in its file. Reading it from
+  standard input would let a script set up a device in one step without
+  putting the key in an argument.
 - **A windowless Windows launcher** (PLAN-00009 D-07). The Task Scheduler
   task from `service-install --scheduler` runs `serve` in the foreground,
   so its console window stays open while it runs. A small `windows`

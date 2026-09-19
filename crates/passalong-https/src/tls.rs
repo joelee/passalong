@@ -123,6 +123,130 @@ impl ServerCertVerifier for PinnedVerifier {
     }
 }
 
+/// What a server presents, for `passalong init` to show before anything
+/// is trusted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Presented {
+    /// The pin of its certificate's public key.
+    pub pin: TlsPin,
+    /// Whether the operating system's certificate authorities vouch for the
+    /// certificate and the name.
+    pub trusted: bool,
+}
+
+/// Records what the server presents, asks the system's verifier about it,
+/// and then refuses the handshake, so nothing is ever sent.
+#[derive(Debug)]
+struct Recorder {
+    system: Arc<dyn ServerCertVerifier>,
+    seen: std::sync::Mutex<Option<Presented>>,
+}
+
+/// The refusal that ends a [`Recorder`]'s handshake.
+#[derive(Debug)]
+struct Recorded;
+
+impl std::fmt::Display for Recorded {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("certificate recorded; the handshake stops here")
+    }
+}
+
+impl std::error::Error for Recorded {}
+
+impl ServerCertVerifier for Recorder {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        server_name: &ServerName<'_>,
+        ocsp_response: &[u8],
+        now: UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        if let Ok(pin) = spki_pin(end_entity) {
+            let trusted = self
+                .system
+                .verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now)
+                .is_ok();
+            *self
+                .seen
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                Some(Presented { pin, trusted });
+        }
+        Err(rustls::Error::InvalidCertificate(CertificateError::Other(
+            OtherError(Arc::new(Recorded)),
+        )))
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        self.system.verify_tls12_signature(message, cert, dss)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        self.system.verify_tls13_signature(message, cert, dss)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.system.supported_verify_schemes()
+    }
+}
+
+/// The certificate the server at `url` presents: its pin, and whether the
+/// system trusts it. The handshake is always refused once the certificate
+/// is seen, so no request, and no API key, reaches the server.
+///
+/// # Errors
+///
+/// [`HttpsError::Transport`] when the server cannot be reached or presents
+/// no certificate that can be read.
+pub async fn presented(url: &str) -> Result<Presented, crate::HttpsError> {
+    let transport = |reason: String| crate::HttpsError::Transport {
+        url: url.to_owned(),
+        reason,
+        retryable: false,
+    };
+    let provider = provider();
+    let system = rustls_platform_verifier::Verifier::new(provider.clone())
+        .map_err(|err| transport(format!("setting up TLS: {err}")))?;
+    let recorder = Arc::new(Recorder {
+        system: Arc::new(system),
+        seen: std::sync::Mutex::new(None),
+    });
+    let config = rustls::ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .map_err(|err| transport(format!("setting up TLS: {err}")))?
+        .dangerous()
+        .with_custom_certificate_verifier(recorder.clone())
+        .with_no_client_auth();
+    let http = reqwest::Client::builder()
+        .tls_backend_preconfigured(config)
+        .https_only(true)
+        .connect_timeout(crate::client::CONNECT_TIMEOUT)
+        .build()
+        .map_err(|err| transport(err.to_string()))?;
+    let result = http.head(url).send().await;
+    let seen = *recorder
+        .seen
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    match (seen, result) {
+        (Some(presented), _) => Ok(presented),
+        (None, Err(err)) => Err(transport(crate::client::chain(&err))),
+        (None, Ok(_)) => Err(transport("the server presented no certificate".to_owned())),
+    }
+}
+
 /// The pin of the certificate `der`: the SHA-256 of its
 /// SubjectPublicKeyInfo, the seventh element of `tbsCertificate` when the
 /// optional version comes first.

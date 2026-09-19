@@ -133,3 +133,17 @@ async fn revoked_and_read_only_keys_are_told_apart() {
         .unwrap_err();
     assert_eq!(err.code(), Some(Code::KeyRevoked), "{err}");
 }
+
+#[tokio::test]
+#[ignore = "needs passalong-server: just test-https"]
+async fn the_presented_certificate_is_read_without_a_request() {
+    let server = TestServer::start();
+    let presented = passalong_https::tls::presented(&server.url).await.unwrap();
+    assert_eq!(presented.pin, server.pin);
+    assert!(!presented.trusted, "a self-signed certificate");
+
+    let closed = passalong_https::tls::presented("https://127.0.0.1:9")
+        .await
+        .unwrap_err();
+    assert!(matches!(closed, HttpsError::Transport { .. }), "{closed}");
+}

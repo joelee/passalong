@@ -219,7 +219,7 @@ fn sources<'a>(
 
 /// `err` and every error it wraps, in one line, so a TLS reason such as a
 /// pin mismatch is shown.
-fn chain(err: &(dyn std::error::Error + 'static)) -> String {
+pub(crate) fn chain(err: &(dyn std::error::Error + 'static)) -> String {
     let mut text = String::new();
     for source in sources(err) {
         let part = source.to_string();

@@ -469,6 +469,7 @@ async fn init(
         env,
         prompt: &mut prompt,
         keys: &commands::init::NetworkHostKeys,
+        server: &commands::init::NetworkServer,
         check: &commands::init::StoreCheck(backends),
         quiet,
         git: &git,

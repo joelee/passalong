@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use passalong_core::telemetry::LogLevel;
 
 fn parse_age(text: &str) -> Result<Duration, String> {
@@ -218,10 +218,33 @@ pub struct EncryptArgs {
     pub recover: bool,
 }
 
+/// The kinds of store `passalong init` sets up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum Backend {
+    /// An SSH server.
+    Ssh,
+    /// A passalong-server.
+    Https,
+}
+
 /// Options of `passalong init`. Anything not given is asked for, or takes
 /// its default with `--yes`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Args)]
 pub struct InitArgs {
+    /// The kind of server [default: ssh, or https with --url].
+    #[arg(long, value_enum)]
+    pub backend: Option<Backend>,
+    /// A passalong-server's URL, such as https://box.example:8443.
+    #[arg(long, conflicts_with_all = ["host", "port", "user", "identity_file", "remote_path", "host_key", "fingerprint"])]
+    pub url: Option<String>,
+    /// Accept the passalong-server's certificate only if its public key has
+    /// this pin, as `passalong-server tls fingerprint` prints it.
+    #[arg(long, value_name = "sha256/...")]
+    pub tls_pin: Option<String>,
+    /// Where this device keeps its passalong-server API key [default:
+    /// api.key beside the config file]. A key already there is used.
+    #[arg(long, value_name = "PATH")]
+    pub api_key_file: Option<String>,
     /// Server host name or address.
     #[arg(long)]
     pub host: Option<String>,
@@ -246,7 +269,9 @@ pub struct InitArgs {
     /// Accept the fetched host key only if it has this SHA-256 fingerprint.
     #[arg(long, value_name = "SHA256:...")]
     pub fingerprint: Option<String>,
-    /// Take defaults instead of asking; needs --host-key or --fingerprint.
+    /// Take defaults instead of asking; needs --host-key or --fingerprint,
+    /// or for a passalong-server, --tls-pin or a certificate the system
+    /// trusts.
     #[arg(long)]
     pub yes: bool,
     /// Replace an existing config file.
@@ -441,9 +466,40 @@ mod tests {
                 yes: true,
                 force: true,
                 no_test: true,
+                ..InitArgs::default()
             })
         );
         assert_eq!(parse(&["init"]).command, Command::Init(InitArgs::default()));
+        assert_eq!(
+            parse(&[
+                "init",
+                "--url",
+                "https://box.example",
+                "--tls-pin",
+                "sha256/abc",
+                "--api-key-file",
+                "/k/api.key",
+            ])
+            .command,
+            Command::Init(InitArgs {
+                url: Some("https://box.example".into()),
+                tls_pin: Some("sha256/abc".into()),
+                api_key_file: Some("/k/api.key".into()),
+                ..InitArgs::default()
+            })
+        );
+        assert_eq!(
+            parse(&["init", "--backend", "https"]).command,
+            Command::Init(InitArgs {
+                backend: Some(Backend::Https),
+                ..InitArgs::default()
+            })
+        );
+        assert!(
+            Cli::try_parse_from(["passalong", "init", "--url", "https://b", "--host", "nas"])
+                .is_err(),
+            "a URL is not for SSH"
+        );
         assert_eq!(
             parse(&[
                 "prune",

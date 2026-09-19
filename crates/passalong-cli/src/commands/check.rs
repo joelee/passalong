@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use passalong_core::config::Config;
 use passalong_core::encryption::{
     self, EncryptionAdmin, EncryptionError, StoreState, SystemGit, load_key_file,
@@ -21,6 +22,12 @@ pub trait Opener: Send + Sync {
 
     /// Connects to the configured backend to read its encryption.
     async fn open_admin(&self, config: &Config) -> Result<Box<dyn EncryptionAdmin>, StoreError>;
+
+    /// What a passalong-server says about itself, the API key, and the
+    /// workspace; `None` for other backends.
+    async fn server_facts(&self, _config: &Config) -> Option<Result<ServerFacts, StoreError>> {
+        None
+    }
 }
 
 #[async_trait]
@@ -32,12 +39,115 @@ impl Opener for BackendRegistry {
     async fn open_admin(&self, config: &Config) -> Result<Box<dyn EncryptionAdmin>, StoreError> {
         BackendRegistry::open_admin(self, config).await
     }
+
+    async fn server_facts(&self, config: &Config) -> Option<Result<ServerFacts, StoreError>> {
+        (config.server.kind == "https").then_some(https_facts(config, Utc::now()).await)
+    }
+}
+
+/// The `server`, `api key`, and `workspace` lines for a passalong-server.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerFacts {
+    /// The server's version, API version, and TLS mode.
+    pub server: String,
+    /// `ok`, or `warn` for a key that expires soon, and its detail.
+    pub key: (&'static str, String),
+    /// The workspace's name, usage, and item count.
+    pub workspace: String,
+    /// Whether the API key may only read.
+    pub read_only: bool,
+}
+
+/// How long before an API key expires `check` warns.
+const EXPIRY_WARNING_DAYS: i64 = 14;
+
+/// The API key as `check` and `init` show it: its label, role, and expiry,
+/// with `warn` when it expires within 14 days of `now`.
+pub fn key_summary(
+    key: &passalong_https::api::ViewerKey,
+    now: DateTime<Utc>,
+) -> (&'static str, String) {
+    use passalong_https::api::Role;
+    let name = key.label.as_deref().unwrap_or(&key.id);
+    let role = match key.role {
+        Role::ReadWrite => "read-write",
+        Role::ReadOnly => "read-only",
+        _ => "an unknown role",
+    };
+    let Some(expires) = &key.expires_at else {
+        return ("ok", format!("{name} ({role}), never expires"));
+    };
+    let Ok(at) = DateTime::parse_from_rfc3339(expires) else {
+        return ("ok", format!("{name} ({role}), expires {expires}"));
+    };
+    let at = at.with_timezone(&Utc);
+    let days = (at - now).num_days();
+    let date = at.format("%Y-%m-%d");
+    if at <= now {
+        ("warn", format!("{name} ({role}), expired {date}"))
+    } else if days < EXPIRY_WARNING_DAYS {
+        let when = match days {
+            0 => "within a day".to_owned(),
+            1 => "in 1 day".to_owned(),
+            n => format!("in {n} days"),
+        };
+        (
+            "warn",
+            format!(
+                "{name} ({role}), expires {date}, {when}: ask the server's operator for a new key"
+            ),
+        )
+    } else {
+        ("ok", format!("{name} ({role}), expires {date}"))
+    }
+}
+
+async fn https_facts(config: &Config, now: DateTime<Utc>) -> Result<ServerFacts, StoreError> {
+    use passalong_https::store_error;
+    let client = passalong_https::connect(config)?;
+    let viewer = client.viewer().await.map_err(store_error)?;
+    let workspace = client.workspace().await.map_err(store_error)?;
+    let https =
+        config.server.https.as_ref().ok_or_else(|| {
+            StoreError::Config("the `server.https` section is missing".to_owned())
+        })?;
+    let tls = match https.tls_pin {
+        Some(_) => "TLS pinned",
+        None => "TLS trusted by the system",
+    };
+    let n = workspace.item_count;
+    Ok(ServerFacts {
+        server: format!(
+            "https {}: passalong-server {}, API v{}, {tls}",
+            https.url, viewer.server.version, viewer.server.api_version
+        ),
+        key: key_summary(&viewer.key, now),
+        workspace: format!(
+            "{}: {} of {} used, {n} {}",
+            workspace.name,
+            crate::output::human_size(workspace.used_bytes),
+            crate::output::human_size(workspace.quota_bytes),
+            if n == 1 { "item" } else { "items" }
+        ),
+        read_only: viewer.key.role == passalong_https::api::Role::ReadOnly,
+    })
 }
 
 /// The checks, in the order they run.
-const CHECKS: [&str; 5] = [
+const CHECKS: &[&str] = &[
     "config",
     "server",
+    "encryption",
+    "storage read",
+    "storage write",
+];
+
+/// The checks for a passalong-server, in the order they run.
+const SERVER_CHECKS: &[&str] = &[
+    "config",
+    "server",
+    "api key",
+    "workspace",
     "encryption",
     "storage read",
     "storage write",
@@ -46,12 +156,13 @@ const CHECKS: [&str; 5] = [
 /// Prints one aligned line per check, in order.
 struct Report<'a> {
     out: &'a mut dyn Write,
+    names: &'static [&'static str],
     next: usize,
 }
 
 impl Report<'_> {
     fn line(&mut self, status: &str, detail: &str) -> std::io::Result<()> {
-        let name = CHECKS[self.next];
+        let name = self.names[self.next];
         self.next += 1;
         let line = format!("{name:<15}{status:<6}{detail}");
         writeln!(self.out, "{}", line.trim_end())
@@ -60,9 +171,9 @@ impl Report<'_> {
     /// Reports the current check as failed and the rest as skipped, then
     /// returns the error that ends the command.
     fn fail(&mut self, detail: &str, reason: &str) -> anyhow::Result<()> {
-        let name = CHECKS[self.next];
+        let name = self.names[self.next];
         self.line("FAIL", detail)?;
-        while self.next < CHECKS.len() {
+        while self.next < self.names.len() {
             self.line("skip", "")?;
         }
         anyhow::bail!("check failed: {name}: {reason}")
@@ -99,7 +210,11 @@ async fn run_checks(
     opener: &dyn Opener,
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
-    let mut report = Report { out, next: 0 };
+    let mut report = Report {
+        out,
+        names: CHECKS,
+        next: 0,
+    };
     let (path, config) = match loaded {
         Ok(loaded) => loaded,
         Err(err) => {
@@ -107,13 +222,29 @@ async fn run_checks(
             return report.fail(&reason, &reason);
         }
     };
-    report.line("ok", &path.display().to_string())?;
     let server = describe(&config);
+    let facts = opener.server_facts(&config).await;
+    if facts.is_some() {
+        report.names = SERVER_CHECKS;
+    }
+    report.line("ok", &path.display().to_string())?;
+    let read_only = match facts {
+        Some(Ok(facts)) => {
+            report.line("ok", &facts.server)?;
+            report.line(facts.key.0, &facts.key.1)?;
+            report.line("ok", &facts.workspace)?;
+            facts.read_only
+        }
+        Some(Err(err)) => return report.fail(&format!("{server}: {err}"), &err.to_string()),
+        None => false,
+    };
     let admin = match opener.open_admin(&config).await {
         Ok(admin) => admin,
         Err(err) => return report.fail(&format!("{server}: {err}"), &err.to_string()),
     };
-    report.line("ok", &server)?;
+    if report.names == CHECKS {
+        report.line("ok", &server)?;
+    }
     match encryption_status(admin.as_ref(), &config).await {
         Ok((status, detail)) => report.line(status, &detail)?,
         Err(reason) => return report.fail(&reason, &reason),
@@ -131,6 +262,14 @@ async fn run_checks(
             )?;
         }
         Err(err) => return report.fail(&err.to_string(), &err.to_string()),
+    }
+    if read_only {
+        report.line(
+            "n/a",
+            "a read-only API key: this device lists and loads, and cannot send",
+        )?;
+        tracing::debug!("every check passed");
+        return Ok(());
     }
     let started = Instant::now();
     match store.probe_write().await {
@@ -235,6 +374,10 @@ fn describe(config: &Config) -> String {
             ssh.user, ssh.host, ssh.port, ssh.remote_path
         ),
         ("local", _, Some(local)) => format!("local {}", local.path.display()),
+        ("https", _, _) => match &server.https {
+            Some(https) => format!("https {}", https.url),
+            None => "https".to_owned(),
+        },
         (kind, _, _) => kind.to_owned(),
     }
 }
@@ -266,6 +409,7 @@ mod tests {
     struct FakeOpener {
         fs: Mutex<Option<Fs>>,
         store: Mutex<Option<Opened>>,
+        facts: Mutex<Option<Result<ServerFacts, StoreError>>>,
     }
 
     impl FakeOpener {
@@ -273,6 +417,7 @@ mod tests {
             Self {
                 fs: Mutex::new(Some(fs)),
                 store: Mutex::new(Some(store)),
+                facts: Mutex::new(None),
             }
         }
     }
@@ -289,6 +434,10 @@ mod tests {
         ) -> Result<Box<dyn EncryptionAdmin>, StoreError> {
             let fs = self.fs.lock().unwrap().take().expect("opened once")?;
             Ok(Box::new(FsEncryptionAdmin::new(fs)))
+        }
+
+        async fn server_facts(&self, _config: &Config) -> Option<Result<ServerFacts, StoreError>> {
+            self.facts.lock().unwrap().take()
         }
     }
 
@@ -362,6 +511,125 @@ mod tests {
         assert!(
             out.ends_with("/s)\nserve          off   not running\n"),
             "{out}"
+        );
+    }
+
+    fn facts(read_only: bool) -> ServerFacts {
+        ServerFacts {
+            server: "https https://box: passalong-server 0.1.0, API v1, TLS pinned".into(),
+            key: ("warn", "laptop (read-write), expires soon".into()),
+            workspace: "home: 0 B of 1.0 KiB used, 2 items".into(),
+            read_only,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_server_adds_its_key_and_workspace_lines() {
+        let (dir, store) = store(2).await;
+        let opener = FakeOpener::new(fs_of(&dir), Ok(store));
+        *opener.facts.lock().unwrap() = Some(Ok(facts(false)));
+        let mut out = Vec::new();
+        run(local(), &opener, Ok(Status::NotRunning), &mut out)
+            .await
+            .unwrap();
+        let out = String::from_utf8(out).unwrap();
+        assert!(
+            out.starts_with(
+                "config         ok    /etc/passalong/config.toml\n\
+             server         ok    https https://box: passalong-server 0.1.0, API v1, TLS pinned\n\
+             api key        warn  laptop (read-write), expires soon\n\
+             workspace      ok    home: 0 B of 1.0 KiB used, 2 items\n\
+             encryption     off   not encrypted\n\
+             storage read   ok    2 items\n\
+             storage write  ok    wrote and removed"
+            ),
+            "{out}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_read_only_key_is_not_probed() {
+        let (dir, store) = store(1).await;
+        store.fs().fail_nth(FsOp::OpenWrite, 1);
+        let opener = FakeOpener::new(fs_of(&dir), Ok(store));
+        *opener.facts.lock().unwrap() = Some(Ok(facts(true)));
+        let mut out = Vec::new();
+        run(local(), &opener, Ok(Status::NotRunning), &mut out)
+            .await
+            .unwrap();
+        let out = String::from_utf8(out).unwrap();
+        assert!(
+            out.contains("storage write  n/a   a read-only API key: this device lists and loads, and cannot send\n"),
+            "{out}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_refused_key_fails_the_server_line() {
+        let opener = FakeOpener::new(Err(unused()), Err(unused()));
+        *opener.facts.lock().unwrap() = Some(Err(StoreError::Denied("KEY_REVOKED".into())));
+        let mut out = Vec::new();
+        let err = run(local(), &opener, Ok(Status::NotRunning), &mut out)
+            .await
+            .unwrap_err();
+        let out = String::from_utf8(out).unwrap();
+        assert!(
+            err.to_string()
+                .contains("check failed: server: KEY_REVOKED"),
+            "{err}"
+        );
+        assert!(
+            out.contains("api key        skip\nworkspace      skip\n"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn the_key_line_warns_two_weeks_before_expiry() {
+        let key = |expires: Option<&str>, role: &str, label: Option<&str>| {
+            serde_json::from_value::<passalong_https::api::ViewerKey>(serde_json::json!({
+                "id": "k1dk1dk1dk1d", "label": label, "role": role, "expiresAt": expires,
+            }))
+            .unwrap()
+        };
+        let now = DateTime::parse_from_rfc3339("2026-09-19T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(
+            key_summary(&key(None, "readWrite", Some("laptop")), now),
+            ("ok", "laptop (read-write), never expires".to_owned())
+        );
+        assert_eq!(
+            key_summary(&key(Some("2026-12-18T12:00:00Z"), "readOnly", None), now),
+            (
+                "ok",
+                "k1dk1dk1dk1d (read-only), expires 2026-12-18".to_owned()
+            )
+        );
+        assert_eq!(
+            key_summary(&key(Some("2026-09-26T12:00:00Z"), "readWrite", Some("laptop")), now),
+            (
+                "warn",
+                "laptop (read-write), expires 2026-09-26, in 7 days: ask the server's operator for a new key".to_owned()
+            )
+        );
+        assert_eq!(
+            key_summary(
+                &key(Some("2026-09-19T18:00:00Z"), "readWrite", Some("laptop")),
+                now
+            )
+            .1,
+            "laptop (read-write), expires 2026-09-19, within a day: ask the server's operator for a new key"
+        );
+        assert_eq!(
+            key_summary(
+                &key(Some("2026-09-01T00:00:00Z"), "admin", Some("laptop")),
+                now
+            ),
+            (
+                "warn",
+                "laptop (an unknown role), expired 2026-09-01".to_owned()
+            )
         );
     }
 

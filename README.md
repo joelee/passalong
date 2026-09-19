@@ -121,7 +121,11 @@ Whichever way you install, `passalong --version` confirms it.
 2. Install the client, as described in [Installation](#installation).
 3. Run `passalong init`. It asks for the server's address and your key,
    shows the server's host-key fingerprint for you to confirm, writes
-   `~/.config/passalong/config.toml`, and tests the connection.
+   `~/.config/passalong/config.toml`, and tests the connection. For a
+   [passalong-server](https://github.com/joelee/passalong-server), answer
+   `https`: `init` asks for its URL and the API key its operator gave you,
+   and shows the certificate's pin for you to compare with the server's
+   `passalong-server tls fingerprint`.
 4. Use it:
 
    ```sh
@@ -186,6 +190,11 @@ used under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); see
 [NOTICE](https://github.com/joelee/passalong/blob/main/NOTICE).
 
 ## Server setup
+
+A [passalong-server](https://github.com/joelee/passalong-server) needs no
+set-up on the client beyond `passalong init`: its operator gives each
+device an API key, and see
+[Using a passalong-server](https://github.com/joelee/passalong/blob/main/docs/usage.md#using-a-passalong-server).
 
 Any machine with an OpenSSH server can be the server. To run one in
 Docker with the storage on the host, follow

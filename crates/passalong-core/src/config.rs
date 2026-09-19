@@ -1182,6 +1182,63 @@ after_send = "move"
     )
 }
 
+/// The answers `passalong init` collects for a passalong-server.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HttpsInitAnswers {
+    /// `client.device_name`.
+    pub device_name: String,
+    /// `server.https.url`.
+    pub url: String,
+    /// `server.https.tls_pin`, confirmed against the server's own; `None`
+    /// to trust the operating system's certificate authorities.
+    pub tls_pin: Option<TlsPin>,
+    /// `server.https.api_key_file`, absolute.
+    pub api_key_file: PathBuf,
+}
+
+/// Renders a complete, commented config file for a passalong-server, as
+/// [`render`] does for SSH.
+pub fn render_https(answers: &HttpsInitAnswers) -> String {
+    let q = |value: &str| toml::Value::String(value.to_owned()).to_string();
+    let pin = match &answers.tls_pin {
+        Some(pin) => format!(
+            "# The server's public key, pinned after you confirmed it.\ntls_pin = {}\n",
+            q(&pin.to_string())
+        ),
+        None => "# No tls_pin: the operating system's certificate authorities vouch for it.\n"
+            .to_owned(),
+    };
+    format!(
+        r#"# passalong configuration, written by `passalong init`.
+# Every key is documented in docs/configuration.md. Secrets never go here:
+# the API key is kept in api_key_file, readable by you only.
+
+[client]
+# Name recorded on every item you send.
+device_name = {device}
+# error | warning | info | verbose | debug
+log_level = "info"
+
+[server]
+kind = "https"
+
+[server.https]
+url = {url}
+{pin}api_key_file = {key_file}
+
+[serve]
+drop_folder = "~/PassAlong"
+clipboard_poll_interval_ms = 750
+file_stable_wait_ms = 1000
+# What to do with a dropped file after it is sent: "move" (into drop_folder/sent/) or "delete".
+after_send = "move"
+"#,
+        device = q(&answers.device_name),
+        url = q(&answers.url),
+        key_file = q(&answers.api_key_file.to_string_lossy()),
+    )
+}
+
 /// Where `passalong init` writes without `--config`:
 /// `$XDG_CONFIG_HOME/passalong/config.toml` when that variable is absolute,
 /// otherwise `$HOME/.config/passalong/config.toml`; on Windows,
@@ -1904,6 +1961,28 @@ remote_path = "/srv/pa"
         assert_eq!(ssh.identity_file, PathBuf::from("/home/u/.ssh/id_ed25519"));
         assert_eq!(ssh.remote_path, "/data");
         assert_eq!(cfg.serve.drop_folder, PathBuf::from("/home/u/PassAlong"));
+    }
+
+    #[test]
+    fn a_rendered_https_config_parses_back_to_the_answers() {
+        let pin = TlsPin::parse("sha256/Zmh6rfhivXdsj8GLjp+OIAiXFIVu4jOzkCpZHQ1fKSU=").unwrap();
+        let mut answers = HttpsInitAnswers {
+            device_name: "box".into(),
+            url: "https://box.example:8443".into(),
+            tls_pin: Some(pin),
+            api_key_file: std::env::temp_dir().join("it's").join("api.key"),
+        };
+        let cfg = parse(&render_https(&answers), Path::new("/c.toml"), &env()).unwrap();
+        assert_eq!(cfg.server.kind, "https");
+        assert_eq!(cfg.client.device_name, "box");
+        let https = cfg.server.https.unwrap();
+        assert_eq!(https.url, "https://box.example:8443");
+        assert_eq!(https.tls_pin, Some(pin));
+        assert_eq!(https.api_key_file, answers.api_key_file);
+
+        answers.tls_pin = None;
+        let cfg = parse(&render_https(&answers), Path::new("/c.toml"), &env()).unwrap();
+        assert_eq!(cfg.server.https.unwrap().tls_pin, None);
     }
 
     #[test]

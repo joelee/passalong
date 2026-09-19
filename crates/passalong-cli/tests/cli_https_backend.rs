@@ -45,6 +45,7 @@ fn device_as(server: &TestServer, dir: &Path, name: &str, key: &ApiKey, extra: &
 }
 
 /// `[serve]` settings that act within a test's patience.
+#[cfg(unix)]
 fn quick_serve(dir: &Path, pull: bool) -> String {
     std::fs::create_dir_all(dir.join("drop")).unwrap();
     std::fs::create_dir_all(dir.join("downloads")).unwrap();
@@ -519,4 +520,116 @@ fn https_list_uses_a_fresh_cache_without_connecting() {
     drop(server);
     let cached = stdout(passalong(dir.path(), &config).arg("list"));
     assert_eq!(cached, listed, "listed from the cache, the server gone");
+}
+
+#[test]
+#[ignore = "needs passalong-server: just test-https"]
+fn https_init_writes_a_config_that_check_passes() {
+    let server = TestServer::start();
+    let dir = TempDir::new().unwrap();
+    let config = dir.path().join("cfg/config.toml");
+    let api_key_file = dir.path().join("cfg/api.key");
+    let key = server.create_key(&["--expires", "7d"]);
+    save_api_key(&api_key_file, &key, &SystemGit::new()).unwrap();
+    let pin = server.pin.to_string();
+    let out = stdout(
+        passalong(dir.path(), &config)
+            .args([
+                "init",
+                "--backend",
+                "https",
+                "--url",
+                &server.url,
+                "--tls-pin",
+                &pin,
+            ])
+            .arg("--api-key-file")
+            .arg(&api_key_file)
+            .args(["--device-name", "it-init", "--yes"]),
+    );
+    assert!(out.contains(&pin), "{out}");
+    assert!(out.contains("connected to passalong-server"), "{out}");
+    assert!(out.contains("connected: 0 items on the server"), "{out}");
+    assert!(!out.contains(key.expose()), "the key is never shown");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&api_key_file)
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+
+    let checked = stdout(passalong(dir.path(), &config).arg("check"));
+    let lines: Vec<&str> = checked.lines().collect();
+    assert!(
+        lines[1].starts_with(&format!(
+            "server         ok    https {}: passalong-server ",
+            server.url
+        )) && lines[1].ends_with(", API v1, TLS pinned"),
+        "{checked}"
+    );
+    assert!(lines[2].starts_with("api key        warn  "), "{checked}");
+    assert!(lines[2].contains("(read-write), expires "), "{checked}");
+    assert!(
+        lines[2].contains("in 6 days") || lines[2].contains("in 7 days"),
+        "{checked}"
+    );
+    assert!(
+        lines[3].starts_with(&format!(
+            "workspace      ok    {}: 0 B of ",
+            support::WORKSPACE
+        )),
+        "{checked}"
+    );
+    assert_eq!(lines[4], "encryption     off   not encrypted");
+    assert_eq!(lines[5], "storage read   ok    0 items");
+    assert!(
+        lines[6].starts_with("storage write  ok    wrote and removed"),
+        "{checked}"
+    );
+}
+
+#[test]
+#[ignore = "needs passalong-server: just test-https"]
+fn https_check_reports_a_read_only_key_without_probing() {
+    let server = TestServer::start();
+    let dir = TempDir::new().unwrap();
+    let reader = server.create_key(&["--read-only"]);
+    let config = device_as(&server, dir.path(), "it-cli", &reader, "");
+    let checked = stdout(passalong(dir.path(), &config).arg("check"));
+    assert!(
+        checked.contains("api key        ok    ") && checked.contains("(read-only), expires "),
+        "{checked}"
+    );
+    assert!(
+        checked.contains(
+            "storage write  n/a   a read-only API key: this device lists and loads, and cannot send\n"
+        ),
+        "{checked}"
+    );
+}
+
+#[test]
+#[ignore = "needs passalong-server: just test-https"]
+fn https_init_refuses_a_wrong_pin_and_writes_nothing() {
+    let server = TestServer::start();
+    let dir = TempDir::new().unwrap();
+    let config = dir.path().join("config.toml");
+    save_api_key(&dir.path().join("api.key"), &server.key, &SystemGit::new()).unwrap();
+    passalong(dir.path(), &config)
+        .args([
+            "init",
+            "--url",
+            &server.url,
+            "--tls-pin",
+            "sha256/Zmh6rfhivXdsj8GLjp+OIAiXFIVu4jOzkCpZHQ1fKSU=",
+            "--yes",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("mismatch"))
+        .stderr(predicate::str::contains(server.pin.to_string()));
+    assert!(!config.exists());
 }

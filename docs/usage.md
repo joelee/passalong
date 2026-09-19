@@ -60,6 +60,7 @@ per device after [preparing the server](../README.md#server-setup):
 
 ```text
 $ passalong init
+Server kind: ssh, or https for a passalong-server [ssh]:
 Server host name or address: nas.local
 SSH port [22]:
 User on the server [passalong]:
@@ -110,6 +111,55 @@ For scripts, `--yes` alone is refused so a key is never trusted blindly:
 passalong init --host nas.local --fingerprint SHA256:5Si4lWKPwa0+I2wCQf3eOtcF8jWo30BWybHoXLTxABo --yes
 ```
 
+### `init` for a passalong-server
+
+Answer `https` to the first question, or pass `--url`:
+
+```text
+$ passalong init
+Server kind: ssh, or https for a passalong-server [ssh]: https
+Server URL, such as https://box.example:8443: https://box.example:8443
+Name for this device [laptop]:
+The server at https://box.example:8443 presented a certificate whose public key has the pin
+  sha256/Zmh6rfhivXdsj8GLjp+OIAiXFIVu4jOzkCpZHQ1fKSU=
+The operating system does not trust it, so it is pinned. Run this on the server and paste what it prints:
+  passalong-server tls fingerprint
+Pin: sha256/Zmh6rfhivXdsj8GLjp+OIAiXFIVu4jOzkCpZHQ1fKSU=
+API key from the server's operator (pal_...):
+connected to passalong-server 0.1.0: API key laptop (read-write), expires 2026-12-18
+The server says workspace home is not encrypted (0 items). If other devices use it encrypted, stop here: the server is not telling the truth.
+Is it meant to be unencrypted for now? [y/N] y
+wrote /home/you/.config/passalong/api.key
+wrote /home/you/.config/passalong/config.toml
+connected: 0 items on the server
+...
+```
+
+The certificate is read with a handshake that stops before any request, so
+nothing, and no API key, reaches a server you have not confirmed. When the
+operating system trusts the certificate, `init` offers to go without a pin.
+The API key is typed without being shown and saved, readable by you only,
+in `api.key` beside the config file, or where `--api-key-file` says; a key
+already there is used. Before writing anything, `init` asks the server
+about the key and the workspace. A server could claim a workspace is not
+encrypted to make a new device send plaintext, so unless this device
+already holds a store key, you confirm that claim; declining writes
+nothing.
+
+| Option | Meaning |
+|---|---|
+| `--backend <ssh\|https>` | The kind of server; `https` is implied by `--url` |
+| `--url <URL>` | The server's URL |
+| `--tls-pin <sha256/...>` | Accept the certificate only if its public key has this pin |
+| `--api-key-file <PATH>` | Where the API key is kept; with `--yes` it must already be there |
+
+With `--yes`, a certificate the operating system does not trust needs
+`--tls-pin`, and the API key must already be in its file:
+
+```sh
+passalong init --url https://box.example:8443 --tls-pin sha256/Zmh6rfhivXdsj8GLjp+OIAiXFIVu4jOzkCpZHQ1fKSU= --yes
+```
+
 ## `passalong encrypt`
 
 Encrypts the store, or changes its words. It needs a terminal: new words
@@ -155,7 +205,7 @@ shows what it was doing and asks whether to finish or undo it.
 
 ## `passalong check`
 
-Checks the setup in four steps, printing one line for each, then reports
+Checks the setup in five steps, printing one line for each, then reports
 whether `serve` is running:
 
 ```text
@@ -184,6 +234,28 @@ The first failure is shown as `FAIL` with the reason, the remaining checks
 as `skip`, and `check` exits with 1 and an `error: check failed: ...` line.
 A backend that cannot test writes shows `n/a` for the last check, which is
 not a failure.
+
+With a passalong-server, `check` also shows the API key and the
+workspace:
+
+```text
+config         ok    /home/me/.config/passalong/config.toml
+server         ok    https https://box.example:8443: passalong-server 0.1.0, API v1, TLS pinned
+api key        warn  laptop (read-write), expires 2026-09-26, in 7 days: ask the server's operator for a new key
+workspace      ok    home: 1.2 MiB of 20.0 GiB used, 12 items
+encryption     off   not encrypted
+storage read   ok    12 items
+storage write  ok    wrote and removed a 128-byte probe in 21 ms (6.0 KiB/s)
+serve          ok    running (pid 4242)
+```
+
+- `server`: the server's version, its API version, and whether its
+  certificate is pinned or trusted by the operating system.
+- `api key`: the key's label, role, and expiry, with `warn` from 14 days
+  before it expires. `warn` is not a failure. A revoked, expired, or unknown
+  key fails the `server` line.
+- `workspace`: its name, the bytes used out of its quota, and its items.
+- `storage write`: a read-only key shows `n/a` without probing.
 
 The `encryption` line says `off` for a plaintext store, and `on (key …)`
 when this device holds the store's key, with the number of unencrypted

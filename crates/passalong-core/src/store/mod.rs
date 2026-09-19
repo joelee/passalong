@@ -6,6 +6,7 @@
 //! directly.
 
 pub mod factory;
+pub mod format;
 pub mod fs_store;
 
 pub use factory::{BackendFuture, BackendOpener, BackendRegistry, FsFuture, FsOpener, open_store};

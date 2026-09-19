@@ -180,6 +180,12 @@ content from another item fails on its salt. Deduplication and id prefixes
 work as before on the keyed ids. A recent item that does not open yet is
 reported as not complete, for stores in synced folders.
 
+**One format, every store.** `store::format` holds these bytes: it encodes
+and decodes `meta.json`, plaintext or sealed, and copies content into its
+stored form while hashing it. Every store writes items through it, so an
+item has the same bytes whichever backend holds it, and golden tests pin
+them.
+
 **Opening.** Every file-like backend registers a filesystem opener, and
 `encryption::open_store` decides from the store's root and the device's key:
 

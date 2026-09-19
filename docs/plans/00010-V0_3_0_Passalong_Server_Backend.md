@@ -32,14 +32,14 @@ confidence: medium                # high | medium | low
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; Delivery Planner initializes them.
-implementation_status: not-started # not-started | in-progress | blocked | completed | abandoned
-builder_agent: null
-builder_model: null
-execution_branch: null
-execution_started_at: null
-execution_updated_at: null
+implementation_status: in-progress # not-started | in-progress | blocked | completed | abandoned
+builder_agent: "Claude Code"
+builder_model: "anthropic/claude-opus-5"
+execution_branch: "feature/v0.3.0-passalong-server"
+execution_started_at: "2026-09-19T14:48:11Z"
+execution_updated_at: "2026-09-19T14:53:29Z"
 execution_completed_at: null
-current_step: null
+current_step: "PLAN-00010-STEP-02"
 ---
 
 # Delivery Plan 00010: V0 3 0 Passalong Server Backend
@@ -987,7 +987,7 @@ Contract problems stop the Builder (D-14), so they surface early.
 
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
-| PLAN-00010-STEP-01 | not-started | — | — | — | — |
+| PLAN-00010-STEP-01 | completed | 2026-09-19T14:48:11Z | 2026-09-19T14:53:29Z | Golden tests green before and after the move; workspace 613 passed, 0 failed; `just test-integration` 24 passed; `just test-compat` 3 + 1 passed | New `store/format.rs`: `encode_meta`, `decode_meta`, `write_content`, `SealedMetaFile` |
 | PLAN-00010-STEP-02 | not-started | — | — | — | — |
 | PLAN-00010-STEP-03 | not-started | — | — | — | — |
 | PLAN-00010-STEP-04 | not-started | — | — | — | — |
@@ -1007,15 +1007,23 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 
 | Timestamp (UTC) | Step | Event | Evidence or reference | Next action |
 |---|---|---|---|---|
+| 2026-09-19T14:48:11Z | STEP-01 | Started after approval commit 5f07466 | — | Golden tests |
+| 2026-09-19T14:53:29Z | STEP-01 | Completed: golden tests written and passing against the unchanged code first (plaintext `meta.json` of a text and a file item pinned byte for byte; a sealed `meta.json` pinned by its layout and by the exact body it opens to; sealed content pinned by length, magic, and what it opens to, at 0, 5, one record, and two records plus one byte); then `SealedMetaFile`, `SealedMetaBody`, the `meta.json` encoding and decoding, and the content copy moved to `store::format`, which `FsStore` now calls; architecture note | `store::fs_store::golden_tests::*`, `store::format::tests::*` | STEP-02 |
 
 ### Deviations and blockers
 
-None.
+| Timestamp (UTC) | Step | Deviation or blocker | Impact | Decision required from |
+|---|---|---|---|---|
+| 2026-09-19T14:53:29Z | STEP-01 | Sealing draws fresh salts and nonces from `getrandom` inside `crypto/`, which this plan must not change, so sealed bytes cannot be pinned exactly. The golden tests pin a sealed `meta.json`'s layout and the exact body it opens to, and sealed content's length, header, and plaintext, which fixes every byte `store::format` chooses. Two existing test modules gained explicit `use` lines for `CHUNK_LEN` and `SealedMetaFile`, which they had taken through `use super::*`; no test's logic changed | AC-04 evidence is structural for sealed items; exact for plaintext | None |
 
 ### Verification results
 
 | Timestamp (UTC) | Step | Command or check | Result | Evidence |
 |---|---|---|---|---|
+| 2026-09-19T14:53:29Z | STEP-01 | Golden tests against the code before the move | Pass | 3 passed (after capturing the two plaintext literals from the current output) |
+| 2026-09-19T14:53:29Z | STEP-01 | `cargo fmt --all`; `cargo clippy -p passalong-core --all-targets --all-features -D warnings`; the same for `x86_64-pc-windows-msvc` | Pass | Exit 0 |
+| 2026-09-19T14:53:29Z | STEP-01 | `cargo test --workspace --all-features --no-fail-fast` | Pass | 613 passed, 0 failed, 33 ignored |
+| 2026-09-19T14:53:29Z | STEP-01 | `just test-integration`; `just test-compat`; `just links` | Pass | 24 passed; v0.1.6 3 passed, v0.2.0 1 passed; 42 Markdown files |
 
 ### Completion summary
 

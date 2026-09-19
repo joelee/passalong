@@ -1,0 +1,1062 @@
+---
+title: "Delivery Plan 00010: V0 3 0 Passalong Server Backend"
+aliases:
+  - "Plan 00010"
+tags:
+  - delivery-plan
+  - implementation
+  - claude-code
+type: delivery-plan
+plan_id: "PLAN-00010"
+plan_status: approved              # draft | approved | cancelled
+plan_kind: initial                 # initial | superseding
+created_at: "2026-09-19T14:33:35Z"
+approved_at: "2026-09-19T14:48:11Z"
+planner_agent: "Claude Code"
+planner_model: "anthropic/claude-opus-5"
+triggered_by: user                 # user | agent:<agent-name>
+request_kind: direct               # idea | review | idea-and-review | direct | unplanned-query
+repository: "joelee/passalong"
+baseline_branch: "feature/v0.3.0-passalong-server"
+baseline_commit: "5bb7f9a2ad992d1d26458c69e75f8e9cb18ba9f6"
+source_ideas: []
+source_reviews: []
+previous_plan: null
+requirements_count: 17
+steps_count: 12
+acceptance_criteria_count: 26
+blocking_decisions: 0
+build_ready: true
+web_research_used: false
+confidence: medium                # high | medium | low
+
+# Builder-maintained front matter. Builder may update only these keys after
+# explicit user approval; Delivery Planner initializes them.
+implementation_status: not-started # not-started | in-progress | blocked | completed | abandoned
+builder_agent: null
+builder_model: null
+execution_branch: null
+execution_started_at: null
+execution_updated_at: null
+execution_completed_at: null
+current_step: null
+---
+
+# Delivery Plan 00010: V0 3 0 Passalong Server Backend
+
+> [!abstract] Plan status: `draft`
+> passalong v0.3.0 adds an `https` backend that stores items in a
+> [passalong-server](https://github.com/joelee/passalong-server) workspace,
+> with every command, `serve`, `init`, `check`, and encryption (set-up, join,
+> words, fresh start, migrate, rotate, recover) working against it. No user
+> decision is open. STEP-10 (re-encryption over HTTPS) has one external
+> precondition: the server must first expose the new header of an open
+> rewrite (D-05).
+
+## 1. Objective and outcome
+
+A device can use a passalong-server workspace as its store: `kind = "https"`
+with a URL, an optional TLS pin, and an API key kept in an owner-only file.
+Sending, listing, loading, deleting, pruning, `serve` (uploads and pull
+mode), and every `encrypt` operation behave as they do for `ssh` and `local`,
+and the items the client writes are byte-identical to what `FsStore` writes,
+so the server's planned import and export of file stores stays possible.
+
+The server was built from a close reading of this client's `Store` trait and
+encryption code, but no client has ever spoken to it. This plan is that
+client. Its second purpose is to find where the contract is wrong, and to
+raise those problems in the server repository instead of working around them.
+
+## 2. Source traceability
+
+| Requirement | Source | Source location | Interpretation |
+|---|---|---|---|
+| PLAN-00010-REQ-01 | User; server handover | User, 2026-09-19: "plan for the `v0.3.0` to include the support for the `passalong-server`"; `docs/backlog.md` v0.3.0; handover notes, "What the v0.3.0 client has to do" via `api/client-encryption-mapping.md` point 1 | An `https` backend implementing `Store` in a new crate |
+| PLAN-00010-REQ-02 | Server mapping | `api/client-encryption-mapping.md`, "Verdict" and point 2; handover, "What the server needs", point 3 | Shared, byte-identical item formats |
+| PLAN-00010-REQ-03 | Server handover; user | Handover, "TLS, as the client must handle it"; user answer "OS trust store" | TLS: pin or OS trust store; no switch that turns verification off |
+| PLAN-00010-REQ-04 | User; repository | User answer "Owner-only key file"; `crates/passalong-core/src/encryption/key_file.rs` | The API key in an owner-only file |
+| PLAN-00010-REQ-05 | Server mapping | `api/client-encryption-mapping.md`, "The sketch" and points 3-4 | `EncryptionAdmin` and `Rewrite` traits; commands use them |
+| PLAN-00010-REQ-06 | Server mapping; rewrite session; user | `api/client-encryption-mapping.md` tables; `api/rewrite-session.md`; user answer "Fix the server first" | Every encryption operation over HTTPS, including recovery from any device |
+| PLAN-00010-REQ-07 | Server handover | Handover, "What the server needs", points 1-2 and 5 | A key file overrides what the server claims; `expectedKeyId` on every write; verify what is read |
+| PLAN-00010-REQ-08 | Server API | `api/README.md`, "Error codes" and "Replays"; handover, "Behaviour worth knowing" | Problem codes, retries, and limits |
+| PLAN-00010-REQ-09 | Server mapping; handover | Mapping point 6; handover, "`serve` must stop for good…" | `serve` reacts to key and rewrite states |
+| PLAN-00010-REQ-10 | Server handover; repository | Handover, "What the server needs", point 1 and "TLS"; `crates/passalong-cli/src/commands/init.rs` | `init` sets up an `https` store |
+| PLAN-00010-REQ-11 | Server handover; repository | Handover, "One API key is one workspace… show the expiry"; `crates/passalong-cli/src/commands/check.rs` | `check` reports the server, key, and TLS |
+| PLAN-00010-REQ-12 | Repository | `crates/passalong-core/src/cache.rs` `ListCache::store_identity` (ssh only today) | The list cache covers `https` stores |
+| PLAN-00010-REQ-13 | Server API | Handover, "Downloads take `Range`… an interrupted download resumes" | Bounded, verified download resumption |
+| PLAN-00010-REQ-14 | User; server handover | User answers "Build from a pinned commit in CI" and "Current main, e7b1e33"; handover, "A server to build against" | Integration tests against a real server |
+| PLAN-00010-REQ-15 | Server handover | Handover, "The licence boundary: read, do not copy" | No server code or crate in the client |
+| PLAN-00010-REQ-16 | Repository | `deny.toml`; `justfile` `android-check`; `.github/workflows/ci.yml` | Dependencies audited; every platform still builds |
+| PLAN-00010-REQ-17 | Repository instruction | `AGENTS.md` "Release workflow"; `docs/plans/AGENTS.md` "Relationship to ideas, reviews, and backlog" | Docs, version 0.3.0, release records |
+
+Server documents are read at
+[passalong-server `e7b1e33`](https://github.com/joelee/passalong-server/tree/e7b1e33),
+under `docs/`: `handover-notes-v0.3.0-client.md`, `api/openapi.json`,
+`api/README.md`, `api/client-encryption-mapping.md`,
+`api/rewrite-session.md`, and `encryption.md`.
+
+## 3. Repository baseline
+
+| Field | Value |
+|---|---|
+| Repository | joelee/passalong |
+| Branch | feature/v0.3.0-passalong-server |
+| HEAD | 5bb7f9a2ad992d1d26458c69e75f8e9cb18ba9f6 ("Updated backlog"; v0.2.1 released from 785a276) |
+| Working tree at publication | Clean before allocation; the allocated plan file was the only entry at writing |
+| Applicable instructions | `AGENTS.md` (release workflow), `docs/plans/AGENTS.md`, `docs/architecture.md` "Adding a backend" |
+| Server baseline | joelee/passalong-server `e7b1e33` on `main` (`v0.1.0` tag at `40fec41` has no GitHub release); contract `openapi.json` version `1.0.0-draft`, 26 operations |
+
+## 4. Scope
+
+### In scope
+
+- A new crate `passalong-https` providing the `https` backend, and the
+  `[server.https]` configuration section.
+- Moving the item file formats out of `fs_store.rs` into a shared module.
+- `EncryptionAdmin` and `Rewrite` traits, with a filesystem implementation
+  wrapping today's code unchanged and an HTTPS implementation.
+- `init`, `check`, `encrypt` (all modes), `list`, `prune --plain`, and
+  `serve` working with `https` stores.
+- TLS with an SPKI pin or the operating system's trust store.
+- Integration tests against a server built from a pinned commit, locally and
+  in CI.
+- Documentation, version 0.3.0, CHANGELOG, and draft release notes.
+
+### Out of scope
+
+- Any change inside the passalong-server repository. The one change this
+  plan needs there (D-05) is the user's to make or request.
+- Server-sent events (`GET /v1/events`); pull mode polls.
+- Moving an existing `ssh` or `local` store to a server (the server's
+  planned `workspace import` and `export`).
+- Amazon S3, which the road map no longer lists.
+- `init` for a `local` store and the cloud-synced-folder check, which stay
+  in the backlog's "Unscheduled" list.
+- A switch that disables TLS verification, and plain `http://` URLs.
+- An Android or GUI client; the libraries keep building for Android.
+
+## 5. Constraints and preserved decisions
+
+- **Licence boundary.** The server is AGPL-3.0-or-later and the client
+  Apache-2.0. Nothing from the server repository enters this one: no code,
+  no tests, no crate dependency. The client is written from the documents;
+  the server binary is only *run*, in tests.
+- **The key file beats the server.** A device that holds a key file for a
+  store never sends plaintext to it, whatever the server says.
+- The store formats of `ssh` and `local` do not change, byte for byte, and
+  their encryption code (journal, header changes, guards, leftovers,
+  recovery) stays as it is, behind the new trait.
+- `crypto/` is not changed.
+- `unsafe_code = "forbid"` stays.
+- One commit per completed step, with intermediate `build:` commits allowed
+  where CI must iterate (as in PLAN-00008 and PLAN-00009).
+- The Builder never tags, publishes, or creates releases.
+- No secrets in code, tests, docs, logs, or version control; test API keys
+  are created by each test's own server and never stored.
+
+## 6. Assumptions
+
+None. Unresolved matters are recorded as decisions and block approval when
+material.
+
+## 7. Decisions and blockers
+
+| ID | Decision or blocker | Resolution | Owner | Status |
+|---|---|---|---|---|
+| D-01 | Where the API key lives | An owner-only file named by `server.https.api_key_file`, default `api.key` beside the default config file; the same 0600/`icacls` and git work-tree rules as `store.key` | User (2026-09-19) | Resolved |
+| D-02 | Trust without a pin | The operating system's trust store, through `rustls-platform-verifier` | User (2026-09-19) | Resolved |
+| D-03 | Test server | Built from a pinned commit in CI and by a `just` recipe, one instance per test on a free port; no mocks for the replay and rewrite behaviour | User (2026-09-19) | Resolved |
+| D-04 | Server version | Build and test against `main` at `e7b1e33`; the pin moves to the commit that resolves D-05. The user tags a server release at or after that commit before the client's v0.3.0 is tagged | User (2026-09-19) | Resolved |
+| D-05 | A second device cannot resume a rewrite: `RewriteSession` carries `newKeyId` but not the new header, so the new words have nothing to unlock | The server adds `newHeader` (the `Opaque` header sent in `beginRewrite`) to `RewriteSession`, an additive change, first. **Precondition of STEP-10**; STEP-01..09 do not need it | User (2026-09-19) | Resolved; external precondition open |
+| D-06 | HTTP and TLS stack | `reqwest` with `rustls` and the `ring` provider, which is already in the tree for SSH; no `aws-lc-rs`, no OpenSSL. Exact features are settled at STEP-05 | Planner | Resolved |
+| D-07 | Plain HTTP | Refused: `url` must be `https://`. The API key is a bearer credential. The server's "plain HTTP behind a proxy" means the proxy terminates TLS | Planner, from the handover | Resolved |
+| D-08 | Uploading needs the id, metadata, and size before the content (`beginUpload`) | The content is spooled to an owner-only temporary file while it is hashed, then sent from it (sealed on the fly in an encrypted workspace, whose size `sealed_len` gives). The file is removed afterwards, also on failure | Planner | Resolved |
+| D-09 | Names | Crate `passalong-https`; `kind = "https"`; `[server.https]` keys `url`, `tls_pin`, `api_key_file` | Planner, from the mapping | Resolved |
+| D-10 | List cache for `https` | Yes: identity `https <url> <API key public id>` plus the device's key or `plain` | Planner | Resolved |
+| D-11 | A new device and the server's claim | `init` shows what the server says about encryption and asks for confirmation before anything is sent when it says "not encrypted" | Planner, from handover point 1 | Resolved |
+| D-12 | Retries | A single command repeats only codes marked retryable, at most three attempts with 1, 2, 4 s back-off; `RATE_LIMITED` waits for `Retry-After` when it is at most 60 s, otherwise fails saying how long; a 401 is never repeated. `serve` keeps its own back-off | Planner | Resolved |
+| D-13 | Download resumption | An interrupted content read is resumed with `Range` from the last byte received, at most three times; the SHA-256 check covers the whole | Planner | Resolved |
+| D-14 | A contract problem found while building | Stop, report it to the user with a proposed change for the server repository, and wait; no client-side workaround without the user's decision | Planner, from the handover | Resolved |
+| D-15 | Version | 0.3.0. `passalong-core`'s public API changes (traits, moved formats); allowed in 0.x and listed in the release notes | Planner | Resolved |
+| D-16 | `init` for `local` | Not in v0.3.0 (backlog "Unscheduled"); `init` gains a backend choice of `ssh` or `https`, shaped so `local` can be added later | Planner | Resolved |
+
+The change D-05 asks of the server, for the user to raise there:
+
+> `RewriteSession` (in `getWorkspace`'s `encryption.rewrite` and in
+> `getRewrite`) gains `newHeader`: the `Opaque` header its `beginRewrite`
+> sent. Without it, a device that takes a session over has the new words but
+> not the header they unlock, so it can only abort, and the holder itself
+> cannot resume after losing its memory. The header is already wrapped, as
+> `encryption.header` is. Additive; old clients ignore it.
+
+## 8. Affected architecture and components
+
+The new crate sits beside `passalong-ssh`, using route 2 of "Adding a
+backend" (`docs/architecture.md`): it implements `Store` directly and
+registers with `BackendRegistry::register`, not `register_fs`. The
+encryption commands currently take `&dyn RemoteFs`; they move to a trait so
+one command serves both kinds of store.
+
+```mermaid
+flowchart LR
+    cli["passalong CLI: commands"] --> reg["BackendRegistry"]
+    cli --> admin["EncryptionAdmin / Rewrite (core)"]
+    reg --> fsstore["FsStore (local, ssh)"]
+    reg --> http["HttpStore (passalong-https)"]
+    admin --> fsadmin["FsEncryptionAdmin: today's journal code"]
+    admin --> httpadmin["HttpEncryptionAdmin: API calls"]
+    fsstore --> fmt["store/format: meta and content framing"]
+    http --> fmt
+    http --> tls["reqwest + rustls(ring): pin or OS trust store"]
+```
+
+| Area | Paths and symbols |
+|---|---|
+| Item formats | `crates/passalong-core/src/store/fs_store.rs`: `SealedMetaFile`, `SealedMetaBody`, the content framing around `content_sealer`, `FsStore::id_for`, `FsStore::import`; new `crates/passalong-core/src/store/format.rs` |
+| Encryption admin | `crates/passalong-core/src/encryption/{admin,rewrite,open,mod}.rs`: `inspect`, `set_up`, `fresh_start`, `join`, `change_words`, `plain_store`, `migrate`, `rotate`, `finish`, `undo`, `read_journal`, `open_with_key`; new `encryption/admin_trait.rs` (`EncryptionAdmin`, `Rewrite`, `FsEncryptionAdmin`) |
+| Registry | `crates/passalong-core/src/store/factory.rs` `BackendRegistry` (an `open_admin` beside `open` and `open_fs`) |
+| Configuration | `crates/passalong-core/src/config.rs` `ServerConfig` and the raw types: new `HttpsConfig` |
+| Secret files | `crates/passalong-core/src/encryption/key_file.rs`, `owner_only.rs`: the owner-only write and check shared with the API key file |
+| New crate | `crates/passalong-https/`: client, TLS verifier, errors, `HttpStore`, `HttpEncryptionAdmin`, `register` |
+| CLI | `crates/passalong-cli/src/app.rs` (registry built at lines 133, 385, 461), `commands/{encrypt,init,check,prune,list}.rs`, `cli.rs` `InitArgs` |
+| serve | `crates/passalong-core/src/serve/{upload,pull}.rs` failure classes |
+| List cache | `crates/passalong-core/src/cache.rs` `ListCache::store_identity` |
+| Build and CI | `Cargo.toml` workspace members, `deny.toml`, `justfile`, `.github/workflows/ci.yml`, `.github/workflows/release.yml` (publish order) |
+| Docs | `README.md`, `docs/{usage,configuration,architecture,developer-guide,backlog}.md`, `CHANGELOG.md`, `docs/release/v0.3.0.md` |
+
+## 9. Requirement catalogue
+
+### PLAN-00010-REQ-01 — `https` backend
+
+- **Requirement:** A crate `passalong-https` implements `Store` against the
+  server contract, and `kind = "https"` with `[server.https]` selects it.
+  `clipboard`, `file`, `list` (and `--json`, `--nocache`), `load`, `cat`,
+  `get`, `choose`, `delete`, `prune`, and `serve` (uploads, drop folder, and
+  pull mode) work against a workspace, plaintext and sealed. Every `Store`
+  method maps to one API operation, and `list_after`, `list_ids`,
+  `newest_id`, `get_meta`, `exists`, `find_by_content_key`, `resolve`,
+  `clean_staging`, and `probe_write` use their own routes instead of the
+  trait defaults.
+- **Rationale:** The v0.3.0 road-map item.
+- **Source:** User; `docs/backlog.md` v0.3.0; mapping point 1.
+- **Acceptance evidence:** AC-01, AC-02, AC-03.
+
+### PLAN-00010-REQ-02 — Byte-identical item formats
+
+- **Requirement:** The plaintext `meta.json` bytes, the sealed metadata
+  (`SealedMetaFile`, `SealedMetaBody`), and the sealed content framing move
+  into one module used by both `FsStore` and `HttpStore`. An item written
+  through either store has the same `meta` and content bytes for the same
+  input, key, and salts. `crypto/` is unchanged.
+- **Rationale:** The server stores `meta` and content byte for byte, and its
+  planned import and export assume the file layout's bytes.
+- **Source:** Mapping "Verdict", point 2; handover point 3.
+- **Acceptance evidence:** AC-04.
+
+### PLAN-00010-REQ-03 — TLS
+
+- **Requirement:** `url` must start with `https://`. With
+  `tls_pin = "sha256/<base64>"` (the SHA-256 of the certificate's
+  SubjectPublicKeyInfo, as `passalong-server tls fingerprint` prints; the
+  `sha256//` form of `curl --pinnedpubkey` is accepted too), the client
+  trusts that public key alone, with no authority, name, or date check, and
+  still verifies the handshake signature. Without a pin it verifies through
+  the operating system's trust store. There is no option that disables
+  verification.
+- **Rationale:** Self-signed servers work through the pin; public ones need
+  no configuration.
+- **Source:** Handover "TLS"; D-02, D-07.
+- **Acceptance evidence:** AC-05, AC-06.
+
+### PLAN-00010-REQ-04 — The API key file
+
+- **Requirement:** The `pal_…` API key is read from `api_key_file`, written
+  by `init` owner-only (0600 on Unix, current user alone via `icacls` on
+  Windows). A file others may read, or one inside a git work tree that does
+  not ignore it, is refused with the command that fixes it. The key is sent
+  only in the `Authorization` header, and never appears in logs, errors,
+  `Debug` output, or the list-cache identity (which uses its public id).
+- **Rationale:** D-01; the key is a live credential for a whole workspace.
+- **Source:** User; `key_file.rs`.
+- **Acceptance evidence:** AC-07, AC-08.
+
+### PLAN-00010-REQ-05 — Encryption admin traits
+
+- **Requirement:** `EncryptionAdmin` and `Rewrite`, as sketched in the
+  mapping, live in `passalong-core`. `FsEncryptionAdmin` wraps today's
+  functions without changing their behaviour. The rewrite engine (`run` in
+  `rewrite.rs`) becomes generic over `Rewrite`. `encrypt`, `init`, `check`,
+  `list` (the plain-items warning), and `prune --plain` use the traits
+  instead of `&dyn RemoteFs`. Filesystem-only operations (header repair,
+  leftovers, journal recovery) stay reachable for `ssh` and `local`.
+- **Rationale:** One command code path for both kinds of store.
+- **Source:** Mapping "The sketch", points 3-4.
+- **Acceptance evidence:** AC-09.
+
+### PLAN-00010-REQ-06 — Encryption over HTTPS
+
+- **Requirement:** Against a workspace:
+  - set-up is `enableEncryption`, a fresh start is `freshStart`, and a
+    change of words is `replaceHeader`;
+  - `--join` unwraps the header from `getWorkspace`;
+  - migrate and rotate open a session with `beginRewrite`, after unwrapping
+    the header they are about to send with the new words once;
+  - each item is staged by an upload with `inRewrite`, and the lease is kept
+    with `heartbeatRewrite` well inside its length;
+  - every staged item is read back with `partition=staged` and compared
+    (SHA-256 and size) before `commitRewrite`;
+  - `REWRITE_ENDED` begins again under a new key;
+  - `encrypt --recover` shows the holder and lease, takes the session over
+    once the lease has ended, and resumes (with the new words, unwrapping
+    `newHeader`) or aborts, from any device;
+  - `prune --plain` and the `list` warning use `partition=plain`.
+- **Rationale:** Full parity with `ssh` and `local`.
+- **Source:** Mapping tables; `rewrite-session.md`; D-05.
+- **Acceptance evidence:** AC-10, AC-11, AC-12.
+
+### PLAN-00010-REQ-07 — Key state safety
+
+- **Requirement:**
+  - Every write (`beginUpload`, `deleteItem`, and every encryption call)
+    carries `expectedKeyId`: the device's key id, or `null` for a plaintext
+    workspace.
+  - A device with a key file refuses a workspace the server reports as
+    plaintext, or under another key id, before sending anything, with the
+    same refusals `open_with_key` gives today.
+  - Sealed `meta` and content are opened and checked, and plaintext content
+    is checked against its SHA-256, exactly as for the other backends.
+- **Rationale:** A compromised or wrong server must not be able to make a
+  device send plaintext, and nothing read is trusted unverified.
+- **Source:** Handover points 1, 2, and 5.
+- **Acceptance evidence:** AC-13, AC-14.
+
+### PLAN-00010-REQ-08 — Errors, retries, and limits
+
+- **Requirement:**
+  - `application/problem+json` answers map by `code` to messages that name
+    the problem, the limit, or the wait: `ITEM_TOO_LARGE` names
+    `maxItemBytes`, `QUOTA_EXCEEDED` names the quota, and `LEASE_HELD` and
+    `REWRITE_IN_PROGRESS` say until when.
+  - Retries follow D-12.
+  - An item larger than `maxItemBytes` (from `getViewer`) is refused before
+    any content is sent.
+  - A lost `commitUpload` answer is settled by repeating it, then with
+    `getItem`, never by starting a new upload.
+- **Rationale:** The server's replay rules make the simple, safe client the
+  correct one, and a client that retries 401s locks out every device behind
+  the same address.
+- **Source:** `api/README.md` "Error codes", "Replays"; handover.
+- **Acceptance evidence:** AC-15, AC-16.
+
+### PLAN-00010-REQ-09 — `serve` against a server
+
+- **Requirement:**
+  - `serve` stops for good, with a message, on `KEY_EXPIRED` and
+    `KEY_REVOKED`.
+  - It keeps waiting, and retrying, on `REWRITE_IN_PROGRESS` and
+    `SERVICE_UNAVAILABLE`, saying so once the lease has ended.
+  - On `KEY_ID_MISMATCH` it keeps the file and asks for `encrypt --join`, as
+    it does when a rotation overtakes a send today.
+  - Pull mode polls `listItemIds?after=`.
+- **Rationale:** Retrying a revoked key forever helps nobody; giving up on a
+  rewrite loses files.
+- **Source:** Mapping point 6; handover.
+- **Acceptance evidence:** AC-17.
+
+### PLAN-00010-REQ-10 — `init` for a server
+
+- **Requirement:** `init` asks for the backend (`ssh` or `https`). For
+  `https` it asks for the URL and the API key, which is read without echo
+  and written to the key file. It then shows the presented certificate's SPKI
+  pin. If the operating system trusts the certificate it offers to go
+  without a pin; otherwise it requires the pin to be confirmed against
+  `passalong-server tls fingerprint`. It then calls `getViewer`, showing the
+  key's label, role, and expiry, and inspects the workspace. When the server
+  says "not encrypted" and no key file is present, it says so and asks for
+  confirmation (D-11); an encrypted workspace offers `--join`, and an empty
+  one offers encryption, as for SSH. Flags make every answer scriptable:
+  `--backend`, `--url`, `--tls-pin`, `--api-key-file`, and `--yes`.
+- **Rationale:** Parity with SSH `init`, and the handover's first point.
+- **Source:** Handover; `commands/init.rs`.
+- **Acceptance evidence:** AC-18.
+
+### PLAN-00010-REQ-11 — `check` for a server
+
+- **Requirement:** For an `https` store, `check` reports:
+  - the connection: server version, API version, and TLS mode (pinned or
+    trusted by the system);
+  - the API key: label, role, and expiry, warning within 14 days of it;
+  - the workspace: name, bytes used out of the quota, and item count;
+  - a write probe (`probeWrite`), or a read-only key reported as such;
+  - the encryption line, as today.
+- **Rationale:** Keys expire after 90 days by default; users need warning.
+- **Source:** Handover; `commands/check.rs`.
+- **Acceptance evidence:** AC-19.
+
+### PLAN-00010-REQ-12 — List cache
+
+- **Requirement:** `ListCache::store_identity` gives `https` stores an
+  identity from the URL, the API key's public id, and the device's key or
+  `plain` (D-10), and `serve` keeps their cache current as it does for SSH.
+- **Rationale:** A slow link to a server benefits as an SSH link does.
+- **Source:** `cache.rs`.
+- **Acceptance evidence:** AC-20.
+
+### PLAN-00010-REQ-13 — Resumed downloads
+
+- **Requirement:** An interrupted `getItemContent` read resumes with `Range`
+  from the last byte received, at most three times (D-13). The item's
+  SHA-256 is still checked over the whole content before anything is kept.
+- **Rationale:** Large items over mobile links.
+- **Source:** Handover.
+- **Acceptance evidence:** AC-21.
+
+### PLAN-00010-REQ-14 — Tests against a real server
+
+- **Requirement:** `just test-https` builds passalong-server at the pinned
+  commit into a cache folder and runs `passalong-https`'s ignored
+  integration tests. Each test starts its own server with a self-signed
+  certificate, a workspace, and fresh keys on a free port. A CI job does the
+  same on Linux. `just ci` and `coverage-full` include it. The tests cover
+  REQ-01, -03, -06, -07, -08, -09, and -13 with the real server, including a
+  rewrite interrupted and recovered from a second API key. The pin is kept in
+  one place.
+- **Rationale:** D-03: the replay and rewrite behaviour is what a mock would
+  get wrong.
+- **Source:** User; handover.
+- **Acceptance evidence:** AC-22, AC-23.
+
+### PLAN-00010-REQ-15 — Licence boundary
+
+- **Requirement:** No file, function, or test is copied from passalong-server,
+  and no crate of it is a dependency. The client is implemented from the
+  documents listed in section 2.
+- **Rationale:** AGPL code cannot enter this Apache-2.0 work.
+- **Source:** Handover, "The licence boundary".
+- **Acceptance evidence:** AC-24.
+
+### PLAN-00010-REQ-16 — Dependencies and platforms
+
+- **Requirement:** The new dependencies pass `cargo deny` for all five
+  targets. They are `reqwest`, `rustls` with `ring`, and
+  `rustls-platform-verifier`, together with what they bring. Any new licence
+  or duplicate is decided as in `docs/developer-guide.md`, and a new licence
+  needs the user's approval. `aws-lc-rs` and `openssl` are not in the tree.
+  CI stays green on Linux, macOS, Xvfb, Android (the library crates,
+  `passalong-https` included), and Windows.
+- **Rationale:** Supply-chain policy and the platforms already supported.
+- **Source:** `deny.toml`; CI.
+- **Acceptance evidence:** AC-25.
+
+### PLAN-00010-REQ-17 — Documentation and release records
+
+- **Requirement:** The following are updated:
+  - `README.md` (a third way to store, with TLS pin guidance);
+  - `docs/usage.md` (`init` for servers, `check`, `encrypt --recover` with
+    leases);
+  - `docs/configuration.md` (`[server.https]`, the API key file);
+  - `docs/architecture.md` (the traits and the HTTPS backend);
+  - `docs/developer-guide.md` (the server test harness and the pin);
+  - `CHANGELOG.md` Unreleased;
+  - the draft `docs/release/v0.3.0.md` (library changes listed);
+  - `docs/backlog.md`.
+
+  The version is 0.3.0 in `[workspace.package]` and the inter-crate
+  requirements. The Release workflow publishes `passalong-https` before
+  `passalong`.
+- **Rationale:** `AGENTS.md` release workflow.
+- **Source:** `AGENTS.md`; `docs/plans/AGENTS.md`.
+- **Acceptance evidence:** AC-26.
+
+## 10. Delivery strategy
+
+Refactor first, with no behaviour change, then add the backend in layers,
+each tested against a real server.
+
+1. **STEP-01..03** reshape `passalong-core` and the CLI (shared formats, the
+   traits, commands on the traits). The existing suite, the SFTP Docker
+   tests, the fault-injection matrices, and `just test-compat` prove
+   nothing changed for `ssh` and `local`.
+2. **STEP-04..06** add the configuration, the API key file, and the new crate
+   with its transport, then the store. The server harness arrives in STEP-05,
+   so every later step is tested against the real thing.
+3. **STEP-07..09** add header-level encryption, `serve`, the list cache,
+   `init`, and `check`: everything but re-encryption.
+4. **STEP-10** adds re-encryption and recovery, and needs D-05 on the
+   server; placing it last gives that change the most time.
+5. **STEP-11..12** handle release records and the final gate.
+
+Contract problems stop the Builder (D-14), so they surface early.
+
+## 11. Detailed implementation steps
+
+### PLAN-00010-STEP-01 — Shared item formats
+
+- **Objective:** One module produces and reads every byte of an item.
+- **Requirements:** `PLAN-00010-REQ-02`
+- **Depends on:** None
+- **Affected components:** `store/fs_store.rs` (`SealedMetaFile`,
+  `SealedMetaBody`, content framing, plaintext `meta.json` writing), new
+  `store/format.rs`
+- **Preconditions:** Plan approved; clean tree.
+- **Test or evidence first:** Golden tests, written before the move and kept
+  after it. They record the exact `meta.json` and content bytes `FsStore`
+  writes for fixed input, key, and salts: plaintext and sealed, empty and
+  multi-record content.
+- **Implementation tasks:**
+  1. Capture the golden bytes against the current code.
+  2. Move the types and the framing into `format.rs` with public-in-crate or
+     public APIs the new crate needs (`encode_meta`, `decode_meta`,
+     `seal_meta_file`, `open_meta_file`, a streaming content sealer and
+     opener).
+  3. Make `FsStore` use them.
+- **Documentation/configuration/operations:** Architecture note on the
+  shared formats.
+- **Verification:** `cargo test --workspace --all-features`;
+  `just test-integration`; `just test-compat`.
+- **Completion criteria:** Golden tests pass before and after; no other test
+  changed.
+- **Rollback or recovery:** Revert the commit.
+- **Builder stop conditions:** Any golden byte changes.
+
+### PLAN-00010-STEP-02 — Encryption admin traits
+
+- **Objective:** `EncryptionAdmin` and `Rewrite` exist, with a filesystem
+  implementation over today's functions.
+- **Requirements:** `PLAN-00010-REQ-05`
+- **Depends on:** STEP-01
+- **Affected components:** `encryption/{admin,rewrite,open,mod}.rs`, new
+  `encryption/admin_trait.rs`, `store/factory.rs` (`open_admin`)
+- **Preconditions:** STEP-01 committed.
+- **Test or evidence first:** Existing encryption tests, including every
+  fault matrix, run through `FsEncryptionAdmin` and still pass unchanged.
+- **Implementation tasks:**
+  1. Define the traits as in the mapping's sketch, adjusted where our types
+     differ, with each deviation recorded.
+  2. `FsEncryptionAdmin<F: RemoteFs>` delegates to the existing functions;
+     `FsRewrite` wraps the journal engine.
+  3. Make `run` generic over `Rewrite`.
+  4. Factor the refusal table of `open_with_key` into a function of
+     (state, key id, device key) that both stores call.
+  5. Add `BackendRegistry::open_admin`, with openers for file-like kinds.
+- **Documentation/configuration/operations:** None beyond doc comments.
+- **Verification:** `cargo test --workspace --all-features`;
+  `just test-integration`.
+- **Completion criteria:** No behaviour change; all tests green.
+- **Rollback or recovery:** Revert.
+- **Builder stop conditions:** A trait signature that cannot express an
+  existing filesystem flow without changing its behaviour.
+
+### PLAN-00010-STEP-03 — Commands on the traits
+
+- **Objective:** `encrypt`, `init`, `check`, `list`, and `prune --plain` use
+  `EncryptionAdmin` instead of `&dyn RemoteFs`.
+- **Requirements:** `PLAN-00010-REQ-05`
+- **Depends on:** STEP-02
+- **Affected components:** `commands/{encrypt,init,check,prune,list}.rs`,
+  `app.rs`
+- **Preconditions:** STEP-02 committed.
+- **Test or evidence first:** The CLI tests (`cli_local_backend.rs`,
+  `cli_ssh_backend.rs`, command unit tests) pass unchanged.
+- **Implementation tasks:**
+  1. Replace the `fs` parameters with `&dyn EncryptionAdmin`. Keep
+     filesystem-only paths (header repair, leftovers, journal recovery)
+     behind an `as_fs()` accessor or a capability query.
+  2. Update the test doubles.
+- **Documentation/configuration/operations:** None.
+- **Verification:** `just check`; `just test-integration`; `just test-compat`.
+- **Completion criteria:** Output and exit codes unchanged for `ssh` and
+  `local`.
+- **Rollback or recovery:** Revert.
+- **Builder stop conditions:** A visible output change for existing backends.
+
+### PLAN-00010-STEP-04 — Configuration and the API key file
+
+- **Objective:** `[server.https]` parses and validates, and the API key file
+  is read and written owner-only.
+- **Requirements:** `PLAN-00010-REQ-03`, `PLAN-00010-REQ-04`
+- **Depends on:** STEP-03
+- **Affected components:** `config.rs` (`HttpsConfig`, raw types, defaults on
+  every platform), `encryption/key_file.rs` and `owner_only.rs` (a shared
+  secret-file module), new `api_key` module in `passalong-core`
+- **Preconditions:** STEP-03 committed.
+- **Test or evidence first:** Config tests:
+  - `url` without `https://` is refused;
+  - a bad `tls_pin` is refused, and both the `sha256/` and `sha256//` forms
+    are accepted;
+  - `api_key_file` defaults beside the config file, on Unix and Windows.
+
+  API key file tests on Unix and on the Windows runner: a readable file is
+  refused; a file inside a git work tree is refused unless ignored; the key
+  never appears in `Debug` or `Display` output.
+- **Implementation tasks:**
+  1. Add `HttpsConfig { url, tls_pin, api_key_file }`.
+  2. Generalise the owner-only write and check from `key_file.rs` without
+     changing `store.key` behaviour.
+  3. Add an `ApiKey` type that parses `pal_<id>_<secret>`, exposes the
+     public id, and redacts the secret.
+- **Documentation/configuration/operations:** `docs/configuration.md`
+  section.
+- **Verification:** `cargo test --workspace --all-features`; Windows CI.
+- **Completion criteria:** Tests pass on every CI job.
+- **Rollback or recovery:** Revert.
+- **Builder stop conditions:** None beyond failing tests.
+
+### PLAN-00010-STEP-05 — `passalong-https` transport and the server harness
+
+- **Objective:** A client that authenticates, verifies TLS by pin or trust
+  store, maps problems, and retries. A harness that runs a real server per
+  test.
+- **Requirements:** `PLAN-00010-REQ-03`, `PLAN-00010-REQ-08`,
+  `PLAN-00010-REQ-14`, `PLAN-00010-REQ-15`, `PLAN-00010-REQ-16`
+- **Depends on:** STEP-04
+- **Affected components:** new `crates/passalong-https/` (`client.rs`,
+  `tls.rs`, `error.rs`, `lib.rs`), workspace `Cargo.toml`, `deny.toml`,
+  `justfile` (`test-https`, a server-build recipe, the pin), `ci.yml` (an
+  `https` job), `.gitignore` for the server cache
+- **Preconditions:** STEP-04 committed.
+- **Test or evidence first:**
+  - Unit tests: problem+json parsing for every code in `api/README.md`; the
+    retry decision table; SPKI pin computation on a fixed certificate; a pin
+    verifier that refuses a different key and a bad handshake signature.
+  - Integration tests against the harness: `getViewer` succeeds with the
+    right pin and with the pin in the `sha256//` form; a wrong pin fails
+    before any request is sent; an unknown key gets `UNAUTHENTICATED` without
+    a retry.
+- **Implementation tasks:**
+  1. Create the crate. Its dependencies are `reqwest` (no default features;
+     `rustls` without a provider; streaming), `rustls` with `ring`, and
+     `rustls-platform-verifier`.
+  2. Implement `PinnedVerifier`: SPKI SHA-256 equality plus handshake
+     signature verification through the `ring` provider's algorithms.
+  3. Set the `Authorization` header and `X-Request-Id` (the operation's
+     `op=` id).
+  4. Add the problem type and the retry policy of D-12.
+  5. Add the harness:
+     - build the server at the pinned commit into `target/passalong-server`
+       (cloned and cached; reused when the commit matches);
+     - per test, a temporary `HOME` and `init`, a self-signed certificate
+       for `127.0.0.1`, a workspace, and keys;
+     - start `serve` on a free port, wait for `readyz`, and stop it at the
+       end.
+  6. Update `deny.toml` for new duplicates.
+- **Documentation/configuration/operations:** Developer guide: running
+  `just test-https`, moving the pin.
+- **Verification:** `just test-https`; `just audit`; `just android-check`;
+  CI on all jobs.
+- **Completion criteria:** Harness green locally and in CI; `cargo tree`
+  shows no `aws-lc-rs` or `openssl`.
+- **Rollback or recovery:** Revert; the crate is not yet registered.
+- **Builder stop conditions:**
+  - A dependency needs a licence not in `deny.toml` (ask the user).
+  - `aws-lc-rs` or `openssl` cannot be avoided.
+  - The server does not build at the pin.
+  - The contract disagrees with the server's behaviour (D-14).
+
+### PLAN-00010-STEP-06 — `HttpStore`
+
+- **Objective:** Every `Store` method against a workspace, plaintext and
+  sealed.
+- **Requirements:** `PLAN-00010-REQ-01`, `PLAN-00010-REQ-02`,
+  `PLAN-00010-REQ-07`, `PLAN-00010-REQ-08`, `PLAN-00010-REQ-13`
+- **Depends on:** STEP-05
+- **Affected components:** `passalong-https` (`store.rs`, `upload.rs`,
+  `register`), `crates/passalong-cli/src/app.rs` (register `https`),
+  `crates/passalong-cli/Cargo.toml`
+- **Preconditions:** STEP-05 committed.
+- **Test or evidence first:** Integration tests against the harness,
+  plaintext and sealed. Each uses the CLI where the behaviour is the CLI's.
+  1. **Items:**
+     - put and dedup (`created: false`), list newest first, `list_after`,
+       ids, newest;
+     - get and `get_meta`, `exists`, `find_by_content_key`, `resolve`
+       (ambiguous and not found);
+     - delete, and delete of an item already gone;
+     - `clean_staging`, `probe_write`.
+  2. **Limits and replays:**
+     - `maxItemBytes` refused before sending;
+     - a `commitUpload` answer dropped and settled;
+     - a tampered sealed item fails to open;
+     - `CONTENT_MISMATCH` for plaintext content changed after spooling.
+  3. **Downloads:** resumed with `Range` after a cut connection.
+  4. **Key-state safety:** a device key with a plaintext workspace is refused
+     before any write.
+  5. **Bytes on the server:** a sealed item's `meta` from the server equals
+     `format.rs`'s bytes.
+- **Implementation tasks:**
+  1. Map every method to its route (section 8 of `api/README.md`).
+  2. Upload by spooling (D-08), with `expectedKeyId` on every write.
+  3. Open sealed items with `format.rs`.
+  4. Resume reads with `Range` (D-13).
+  5. Apply the shared refusal table from `getWorkspace` at open.
+  6. Register `https` in the three registry builders of `app.rs`.
+- **Documentation/configuration/operations:** `docs/usage.md`: using a
+  server.
+- **Verification:** `just test-https`; `just check`.
+- **Completion criteria:** The CLI round trip works against the harness,
+  plaintext and sealed.
+- **Rollback or recovery:** Revert.
+- **Builder stop conditions:** D-14.
+
+### PLAN-00010-STEP-07 — Header-level encryption over HTTPS
+
+- **Objective:** Set-up, join, change of words, fresh start, and the plain
+  partition.
+- **Requirements:** `PLAN-00010-REQ-05`, `PLAN-00010-REQ-06`,
+  `PLAN-00010-REQ-07`
+- **Depends on:** STEP-06
+- **Affected components:** `passalong-https` `admin.rs`
+  (`HttpEncryptionAdmin` without rewrites), the registry's `open_admin` for
+  `https`
+- **Preconditions:** STEP-06 committed.
+- **Test or evidence first:** Integration tests driving `passalong encrypt`
+  (words piped as the existing tests do):
+  - set-up on an empty workspace;
+  - `--join` from a second config;
+  - a change of words, after which the old words fail;
+  - a fresh start, with `list` warning and `prune --plain` clearing;
+  - a replayed `enableEncryption` with the same key id succeeds, and one
+    with another key id gives `KEY_ID_MISMATCH`.
+- **Implementation tasks:**
+  1. `state`, `header`, `enable`, `fresh_start`, and `replace_header` with
+     `expectedKeyId`.
+  2. `plain_store` over `partition=plain`.
+  3. Make `begin_rewrite` and `take_over` report "not yet supported" until
+     STEP-10.
+- **Documentation/configuration/operations:** Usage: encryption with a
+  server.
+- **Verification:** `just test-https`.
+- **Completion criteria:** Tests green.
+- **Rollback or recovery:** Revert.
+- **Builder stop conditions:** D-14.
+
+### PLAN-00010-STEP-08 — `serve` and the list cache
+
+- **Objective:** `serve` handles server states, and the list cache covers
+  `https`.
+- **Requirements:** `PLAN-00010-REQ-09`, `PLAN-00010-REQ-12`
+- **Depends on:** STEP-07
+- **Affected components:** `serve/{upload,pull}.rs` failure classes (a
+  fatal class), `commands/serve.rs`, `cache.rs` `store_identity`
+- **Preconditions:** STEP-07 committed.
+- **Test or evidence first:**
+  - Unit tests of the failure classification.
+  - Integration tests:
+    - `serve` exits with the message when its key is revoked (`key revoke`
+      on the harness);
+    - it waits during a rewrite and sends afterwards;
+    - it keeps a file on `KEY_ID_MISMATCH`;
+    - pull mode applies an item sent by another key;
+    - `list` uses a fresh cache without connecting.
+- **Implementation tasks:**
+  1. Add a `StoreError` or `EncryptionError` variant set for key expiry,
+     revocation, and rewrites, mapped from problem codes.
+  2. Classify them in `upload.rs` and `pull.rs`.
+  3. Add the `https` identity.
+- **Documentation/configuration/operations:** Usage: `serve` and servers.
+- **Verification:** `just test-https`; `just check`.
+- **Completion criteria:** Tests green.
+- **Rollback or recovery:** Revert.
+- **Builder stop conditions:** None beyond failing tests.
+
+### PLAN-00010-STEP-09 — `init` and `check` for a server
+
+- **Objective:** A server store set up and checked from the CLI.
+- **Requirements:** `PLAN-00010-REQ-10`, `PLAN-00010-REQ-11`
+- **Depends on:** STEP-08
+- **Affected components:** `cli.rs` `InitArgs` (`--backend`, `--url`,
+  `--tls-pin`, `--api-key-file`), `commands/init.rs`, `commands/check.rs`
+- **Preconditions:** STEP-08 committed.
+- **Test or evidence first:**
+  - Scripted-prompt unit tests for each `init` path: pinned, trusted, wrong
+    pin re-asked, server claims plaintext (confirmed and declined), encrypted
+    (join), empty (offer).
+  - Integration tests: `init --yes` against the harness writes a working
+    config and an owner-only key file; `check` passes, shows the key's
+    expiry, and warns for a key made with a 7-day expiry; a read-only key's
+    probe is reported as read-only.
+- **Implementation tasks:**
+  1. Add the backend prompt and flags, keeping every SSH prompt as it is.
+  2. Fetch the certificate and compute its pin for display.
+  3. Add the `check` lines.
+- **Documentation/configuration/operations:** Usage: `init` and `check`
+  sections; README quick start for a server.
+- **Verification:** `just test-https`; `just check`.
+- **Completion criteria:** Tests green; SSH `init` output unchanged.
+- **Rollback or recovery:** Revert.
+- **Builder stop conditions:** None beyond failing tests.
+
+### PLAN-00010-STEP-10 — Re-encryption and recovery over HTTPS
+
+- **Objective:** Migrate, rotate, and `encrypt --recover` against a
+  workspace, from any device.
+- **Requirements:** `PLAN-00010-REQ-06`, `PLAN-00010-REQ-07`,
+  `PLAN-00010-REQ-14`
+- **Depends on:** STEP-09
+- **Affected components:** `passalong-https` `admin.rs` (`HttpRewrite`),
+  `commands/encrypt.rs` (lease display, take-over prompt), `justfile` and CI
+  (the pin moved)
+- **Preconditions:**
+  - STEP-09 committed.
+  - **The server exposes `newHeader` in `RewriteSession` (D-05)** at a commit
+    the user names; the pin moves to it.
+- **Test or evidence first:** Integration tests:
+  - migrate and rotate over a workspace of items, with every item read back;
+  - a rewrite stopped after each stage, then resumed by the same device;
+  - a rewrite stopped, the lease left to expire (short `rewrite.lease_secs`
+    on the harness), then taken over and resumed with the new words by a
+    second key, and in another run taken over and aborted;
+  - a replayed `beginRewrite` after an abort gives `REWRITE_ENDED` and a new
+    attempt succeeds;
+  - a wrong new header is refused before `beginRewrite`;
+  - the heartbeat keeps the lease on a slow run.
+- **Implementation tasks:**
+  1. `begin_rewrite` (unwrap check, then `beginRewrite`), and `import` as an
+     upload with `inRewrite`.
+  2. `read_back` over `partition=staged`, then `heartbeat`, `commit`,
+     `abort`, and `take_over`.
+  3. Handle `REWRITE_ENDED`.
+  4. `encrypt --recover` for servers: holder, lease, take-over, resume or
+     abort.
+- **Documentation/configuration/operations:** Usage and architecture:
+  rewrites and leases on a server.
+- **Verification:** `just test-https`; the fault tests.
+- **Completion criteria:** Tests green; no item lost or duplicated in any
+  interrupted run.
+- **Rollback or recovery:** Revert; STEP-07's "not yet supported" returns.
+- **Builder stop conditions:**
+  - The D-05 precondition is not met: mark the step blocked and report.
+  - D-14.
+
+### PLAN-00010-STEP-11 — Documentation, version 0.3.0, release records
+
+- **Objective:** Records ready for the release commit.
+- **Requirements:** `PLAN-00010-REQ-17`, `PLAN-00010-REQ-15`
+- **Depends on:** STEP-10
+- **Affected components:** docs listed in REQ-17; `Cargo.toml` and
+  `Cargo.lock` (0.3.0); the version-pinned tests; `release.yml` if the
+  publish order needs it (`cargo publish --workspace` orders by
+  dependency); `NOTICE` if a new dependency requires it
+- **Preconditions:** STEP-10 committed.
+- **Test or evidence first:** `just links`; `just lint-workflows`;
+  `cargo publish --workspace --dry-run` including `passalong-https`.
+- **Implementation tasks:**
+  1. Write the docs.
+  2. Bump the version and update the version-pinned tests.
+  3. Write the CHANGELOG and draft release notes, with library changes
+     listed.
+  4. Update the backlog: remove the v0.3.0 item, and add the server's
+     `/v1/events` if polling proved costly.
+  5. Record the licence-boundary check (REQ-15): a `cargo tree` with no
+     server crate, and a statement that nothing was copied.
+- **Documentation/configuration/operations:** As tasks.
+- **Verification:** `just links`; `just publish-dry-run`.
+- **Completion criteria:** Checks pass.
+- **Rollback or recovery:** Revert.
+- **Builder stop conditions:** None.
+
+### PLAN-00010-STEP-12 — Final quality gate
+
+- **Objective:** Evidence for approval.
+- **Requirements:** All
+- **Depends on:** STEP-11
+- **Affected components:** Release notes (tests, coverage, timings); this
+  plan's work log.
+- **Preconditions:** STEP-11 committed and pushed.
+- **Test or evidence first:** Not applicable: this step measures.
+- **Implementation tasks:**
+  1. Run `just ci` locally, and get CI green on every job, the `https` job
+     included.
+  2. Record test counts and `coverage` and `coverage-full` line percentages.
+  3. Record timings from a release build against the harness on one
+     machine: `list --nocache`, `list` from the cache, and
+     `clipboard --stdin` at 10 and 100 items, plaintext and sealed, with SSH
+     measured in the same session for comparison.
+  4. Hand off to the user: the server release to tag, and the pin to move
+     to it if it differs.
+- **Documentation/configuration/operations:** Release notes filled.
+- **Verification:** Outputs recorded in the work log.
+- **Completion criteria:** AC-22, AC-23, and AC-25 met; every AC met or
+  handed to the user.
+- **Rollback or recovery:** Not applicable.
+- **Builder stop conditions:** Coverage below 80 %, or any CI job red.
+
+## 12. Cross-cutting concerns
+
+| Area | Applicability | Planned action or reason not applicable | Step or requirement |
+|---|---|---|---|
+| Compatibility and APIs | Applicable | `ssh` and `local` bytes and behaviour unchanged (golden tests, existing suites, `test-compat`); `passalong-core` API changes listed in the release notes (0.x minor) | STEP-01..03, REQ-02, REQ-05 |
+| Data and migration | Applicable | No store format change; importing file stores into a server is the server's future work | Out of scope |
+| Security and privacy | Applicable | TLS pin or trust store, no disable switch, https only; owner-only API key file; key id checks on every write; a key file overrides the server; nothing read is trusted unverified; spooled content in an owner-only temporary file removed after use | REQ-03, -04, -07, D-08 |
+| Performance and scale | Applicable | Timings recorded against SSH; `listItemIds` for polling; the list cache for `https` | STEP-12, REQ-12 |
+| Reliability and failure handling | Applicable | The server's replay rules followed; bounded retries; rewrite recovery from any device; interrupted-rewrite tests | REQ-06, -08, -13 |
+| Observability and operations | Applicable | `X-Request-Id` carries the operation id; `check` shows key expiry; `serve` states why it stopped or waits | REQ-09, -11 |
+| Dependencies and supply chain | Applicable | `reqwest`, `rustls` (`ring`), `rustls-platform-verifier`; `cargo deny` on five targets; no `aws-lc-rs` or `openssl`; new licences need the user | REQ-16 |
+| Accessibility and UX | Applicable | `init` explains pins and the server's encryption claim; messages name limits and waits | REQ-08, -10 |
+| Documentation and release | Applicable | README, usage, configuration, architecture, developer guide, CHANGELOG, release notes, backlog | REQ-17 |
+| Deployment and rollback | Applicable | New crate published before `passalong`; rollback is not upgrading; stores are untouched by the client version | STEP-11 |
+
+## 13. Verification strategy
+
+| Level | Evidence or command | When | Required result |
+|---|---|---|---|
+| Unit | `cargo test --workspace --all-features` | Every step | Pass |
+| Golden formats | Format tests from STEP-01 | Every step | Bytes unchanged |
+| Existing backends | `just test-integration`, `just test-compat` | STEP-01..03 and at the gate | Pass |
+| Server integration | `just test-https` | STEP-05 onward | Pass |
+| Lint and format | `just check` (fmt, clippy `-D warnings`, links, coverage) | Every step | Pass |
+| Supply chain | `just audit` | STEP-05, STEP-12 | Pass |
+| Platforms | CI: Linux, macOS, Xvfb, Android, Windows, https | Every push | Green |
+| Coverage | `just coverage`, `just coverage-full` | STEP-12 | ≥ 80 % lines |
+| Release readiness | `just publish-dry-run`, `just links`, `just lint-workflows` | STEP-11, STEP-12 | Pass |
+
+## 14. Acceptance criteria
+
+- [ ] `PLAN-00010-AC-01` Against the harness, `clipboard --stdin`, `file`, `list`, `list --json`, `load`, `cat`, `get`, `delete`, and `prune` work on a plaintext and a sealed workspace, and sending identical content twice stores one item.
+- [ ] `PLAN-00010-AC-02` `serve` against the harness sends a dropped file and clipboard text, and in pull mode applies an item sent with another API key.
+- [ ] `PLAN-00010-AC-03` `list_after`, `list_ids`, `newest_id`, `get_meta`, `exists`, `find_by_content_key`, `resolve`, `clean_staging`, and `probe_write` of `HttpStore` each make one request to their own route (shown by a request-counting test or the server's log), not the trait default.
+- [ ] `PLAN-00010-AC-04` Golden tests show `FsStore` writes the same `meta.json` and content bytes before and after STEP-01, and an item uploaded by `HttpStore` has `meta` bytes equal to those `FsStore` writes for the same input.
+- [ ] `PLAN-00010-AC-05` A connection with the right pin (both `sha256/` and `sha256//` forms) succeeds; with a wrong pin it fails before any HTTP request, naming the pin; `url = "http://…"` is refused at configuration.
+- [ ] `PLAN-00010-AC-06` A unit test shows `PinnedVerifier` refuses a certificate with the pinned key but an invalid handshake signature, and no configuration or flag disables verification (checked by search for `danger`/`dangerous` APIs in the crate).
+- [ ] `PLAN-00010-AC-07` An API key file readable by others (Unix mode, and on the Windows runner an `icacls` grant to Users) is refused with the fix command; one inside a non-ignored git work tree is refused.
+- [ ] `PLAN-00010-AC-08` A test captures all log output at `debug` level of a full CLI session against the harness and finds no API key secret, and `Debug` of the config and store shows no secret.
+- [ ] `PLAN-00010-AC-09` After STEP-03 every pre-existing test passes unchanged, including the fault-injection matrices, `just test-integration`, and `just test-compat`.
+- [ ] `PLAN-00010-AC-10` Against the harness: set-up, `--join` from a second config, a change of words (old words then fail), and a fresh start with `prune --plain` succeed.
+- [ ] `PLAN-00010-AC-11` Migrate and rotate against the harness re-encrypt every item, each read back with `partition=staged` before `commitRewrite`; after a rotation a device with the old key gets the join message.
+- [ ] `PLAN-00010-AC-12` A rewrite stopped part-way and left past its lease is taken over and completed with the new words by a second API key, and in another run taken over and aborted; in both, every item loads with its original SHA-256 and none is duplicated.
+- [ ] `PLAN-00010-AC-13` With a key file present, a workspace the server reports as plaintext, or under another key id, is refused before any `beginUpload` or `deleteItem` is sent (server log shows none).
+- [ ] `PLAN-00010-AC-14` Every write request the client sends carries `expectedKeyId` (a test inspects outgoing requests or the server's log), and a sealed item whose content is altered on the server's disk fails to open with a corruption error.
+- [ ] `PLAN-00010-AC-15` A file larger than a workspace's `maxItemBytes` is refused before `beginUpload` with a message naming the limit; a full workspace gives a message naming the quota.
+- [ ] `PLAN-00010-AC-16` An unknown API key makes exactly one request and fails with `UNAUTHENTICATED`; a retryable failure is retried at most three times.
+- [ ] `PLAN-00010-AC-17` `serve` exits non-zero with a message within one retry after its key is revoked; it keeps a dropped file on `KEY_ID_MISMATCH`; it waits during a rewrite and sends the file after the commit.
+- [ ] `PLAN-00010-AC-18` `passalong init --backend https --url … --tls-pin … --api-key-file … --yes` against the harness writes a config and an owner-only key file after which `passalong check` passes; the scripted-prompt tests cover the pinned, trusted, wrong-pin, plaintext-claim, encrypted, and empty paths.
+- [ ] `PLAN-00010-AC-19` `check` against the harness prints the server version, TLS mode, key label, role and expiry, workspace usage, a probe result, and the encryption line, and warns for a key expiring within 14 days.
+- [ ] `PLAN-00010-AC-20` After `list --nocache` against the harness, `list` prints the same items without a request to the server, and the cache identity contains the API key's public id and not its secret.
+- [ ] `PLAN-00010-AC-21` A download cut part-way resumes with `Range` and the file is written only after the whole content's SHA-256 matches.
+- [ ] `PLAN-00010-AC-22` `just test-https` passes locally and the CI `https` job is green on the final commit, building the server at the pinned commit.
+- [ ] `PLAN-00010-AC-23` `just ci` exits 0 locally, CI is green on Linux, macOS, Xvfb, Android, Windows, and `https` on the final commit, and `coverage-full` is at least 80 % of lines.
+- [ ] `PLAN-00010-AC-24` `cargo tree` shows no crate from passalong-server, and the work log records that no server code was copied.
+- [ ] `PLAN-00010-AC-25` `just audit` passes with the new dependencies; `cargo tree -i aws-lc-rs` and `cargo tree -i openssl-sys` find nothing; `just android-check` builds `passalong-https`.
+- [ ] `PLAN-00010-AC-26` README, usage, configuration, architecture, developer guide, CHANGELOG Unreleased, draft `docs/release/v0.3.0.md`, and backlog are updated for v0.3.0, the version is 0.3.0, `just links` and `just publish-dry-run` pass.
+
+## 15. Risks and mitigations
+
+| Risk | Likelihood | Impact | Mitigation or test | Owner/step |
+|---|---|---|---|---|
+| The contract is wrong for a real client in more places than D-05 | Medium | Medium | D-14: stop, report, change the server first while no client is released | Builder, all steps |
+| The server change of D-05 is not made in time | Medium | Medium | STEP-10 last; STEP-01..09 are independent of it | User |
+| New dependencies bring licences or duplicates `deny` refuses | Medium | Low | Stop condition in STEP-05; the user decides licences | STEP-05 |
+| `rustls-platform-verifier` behaves differently on Windows or macOS | Low | Medium | Pinned mode is tested everywhere; trust-store mode unit-tested per platform in CI | STEP-05 |
+| The trait refactor changes filesystem behaviour | Low | High | Golden bytes, fault matrices, SFTP and compat suites unchanged | STEP-01..03 |
+| Building the server makes CI slow | Medium | Low | Cache the built server by commit; a separate CI job | STEP-05 |
+| Spooled plaintext on local disk | Low | Low | Owner-only temp file in the OS temp folder, removed on every path; the content was already on the device | STEP-06 |
+
+## 16. Builder hand-off
+
+- **Start condition:** User approval and a clean repository.
+- **First step:** PLAN-00010-STEP-01.
+- **Required sequence:** STEP-01 → 12 in order; push after each step so CI
+  runs, the `https` job from STEP-05.
+- **Parallel-safe work:** Documentation drafts for STEP-11 may be written
+  alongside earlier steps but committed with STEP-11.
+- **Do not change:** approved scope, requirements, steps, acceptance criteria,
+  or content outside Builder's permitted work-log area; anything in the
+  passalong-server repository.
+- **Escalate when:**
+  - any Builder stop condition triggers;
+  - the contract disagrees with the server or cannot express a client need
+    (D-14);
+  - a new licence is needed;
+  - the D-05 server change is not available at STEP-10.
+- **Completion hand-off:**
+  - The work log is complete.
+  - The user tags a server release at or after the pinned commit before
+    tagging v0.3.0.
+  - The user approves the work; the release commit follows the Release
+    workflow.
+
+<!-- BUILDER_WORK_LOG_START -->
+## 17. Builder Work Log
+
+> [!warning] Builder-maintained section
+> Delivery Planner creates this section. After approval, Builder may update only
+> this delimited section and the Builder-maintained front-matter fields. Builder
+> must preserve prior entries and use UTC timestamps.
+
+### Step status
+
+| Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
+|---|---|---|---|---|---|
+| PLAN-00010-STEP-01 | not-started | — | — | — | — |
+| PLAN-00010-STEP-02 | not-started | — | — | — | — |
+| PLAN-00010-STEP-03 | not-started | — | — | — | — |
+| PLAN-00010-STEP-04 | not-started | — | — | — | — |
+| PLAN-00010-STEP-05 | not-started | — | — | — | — |
+| PLAN-00010-STEP-06 | not-started | — | — | — | — |
+| PLAN-00010-STEP-07 | not-started | — | — | — | — |
+| PLAN-00010-STEP-08 | not-started | — | — | — | — |
+| PLAN-00010-STEP-09 | not-started | — | — | — | — |
+| PLAN-00010-STEP-10 | not-started | — | — | — | — |
+| PLAN-00010-STEP-11 | not-started | — | — | — | — |
+| PLAN-00010-STEP-12 | not-started | — | — | — | — |
+
+Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
+`skipped`. A skipped step requires explicit user approval recorded in Evidence.
+
+### Execution log
+
+| Timestamp (UTC) | Step | Event | Evidence or reference | Next action |
+|---|---|---|---|---|
+
+### Deviations and blockers
+
+None.
+
+### Verification results
+
+| Timestamp (UTC) | Step | Command or check | Result | Evidence |
+|---|---|---|---|---|
+
+### Completion summary
+
+- **Implementation status:** `not-started`
+- **Completed requirements:** None
+- **Incomplete requirements:** All
+- **Outstanding blockers:** None
+- **Review request:** Not ready
+<!-- BUILDER_WORK_LOG_END -->
+
+## 18. Planning change log
+
+| Timestamp (UTC) | Plan status | Change | Reason | Requested/approved by |
+|---|---|---|---|---|
+| 2026-09-19T14:33:35Z | draft | Created | User request to plan v0.3.0 with passalong-server support; decisions D-01..D-05 answered by the user the same day | User |
+| 2026-09-19T14:48:11Z | approved | Approved as drafted | "I approve PLAN-00010" | User |
+
+## 19. External references
+
+1. **Hand-over notes: the `https` backend of passalong v0.3.0**, passalong-server
+   repository, written 2026-09-19, read 2026-09-19 at `e7b1e33`.
+   <https://github.com/joelee/passalong-server/blob/e7b1e33/docs/handover-notes-v0.3.0-client.md>
+2. **passalong-server API** (`openapi.json`, version `1.0.0-draft`) and
+   **API (draft)** (`api/README.md`), read 2026-09-19 at `e7b1e33`.
+   <https://github.com/joelee/passalong-server/tree/e7b1e33/docs/api>
+3. **The client's encryption code, mapped onto the API**
+   (`api/client-encryption-mapping.md`), read 2026-09-19 at `e7b1e33`.
+   <https://github.com/joelee/passalong-server/blob/e7b1e33/docs/api/client-encryption-mapping.md>
+4. **The rewrite session** (`api/rewrite-session.md`), read 2026-09-19 at
+   `e7b1e33`.
+   <https://github.com/joelee/passalong-server/blob/e7b1e33/docs/api/rewrite-session.md>
+5. **Encryption** (`encryption.md`, "If the server is compromised"), read
+   2026-09-19 at `e7b1e33`.
+   <https://github.com/joelee/passalong-server/blob/e7b1e33/docs/encryption.md>
+
+## 20. Confidence
+
+**Medium.** The repository side is well covered: the seams (`Store`,
+`BackendRegistry::register`, the `&dyn RemoteFs` parameters of the encryption
+commands, `ListCache::store_identity`) were read at the baseline, and the
+server's mapping document was written against this client at v0.2.1. The
+principal uncertainty is the contract itself, which no client has used yet:
+D-05 is one gap already found, and D-14 routes any further one back to the
+user rather than into a workaround.

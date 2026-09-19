@@ -40,6 +40,19 @@ Every command below works the same with a server. What differs:
   A device that holds a key never sends plaintext to a workspace, whatever
   the server says about it.
 
+### Encryption with a server
+
+[`passalong encrypt`](#passalong-encrypt) sets up, joins, and changes the
+words of a workspace as it does for any store. The data key is made and
+wrapped on the device; the server keeps only the wrapped key, and each
+change is one request the server makes atomically. A fresh start sets the
+workspace's items aside, unencrypted, until
+`passalong prune --plain` removes them; `list` reminds you while any
+remain.
+
+Migrating a workspace with items, `--rotate`, and `--recover` are not
+supported with a server in this build yet.
+
 ## `passalong init`
 
 Writes a config file for your SSH server and pins its host key. Run it once

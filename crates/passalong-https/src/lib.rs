@@ -5,6 +5,7 @@
 //! backend, it is kept free of CLI dependencies so GUI and Android
 //! front-ends can reuse it.
 
+pub mod admin;
 pub mod api;
 pub mod client;
 pub mod error;
@@ -18,8 +19,9 @@ use passalong_core::clock::SystemClock;
 use passalong_core::config::Config;
 use passalong_core::crypto::KeyId;
 use passalong_core::encryption::{Claim, EncryptionError, SystemGit, load_key_file, opening};
-use passalong_core::store::{BackendFuture, BackendRegistry, Store, StoreError};
+use passalong_core::store::{AdminFuture, BackendFuture, BackendRegistry, Store, StoreError};
 
+pub use admin::HttpEncryptionAdmin;
 pub use client::Client;
 pub use error::{Code, HttpsError, Problem};
 pub use store::{HttpStore, Partition, store_error};
@@ -29,6 +31,14 @@ use crate::api::EncryptionState;
 /// Adds the `https` kind to `registry`.
 pub fn register(registry: &mut BackendRegistry) {
     registry.register("https", opener);
+    registry.register_admin("https", admin_opener);
+}
+
+fn admin_opener(config: &Config) -> AdminFuture<'_> {
+    Box::pin(async move {
+        let admin = HttpEncryptionAdmin::new(connect(config)?, Arc::new(SystemClock));
+        Ok(Box::new(admin) as Box<dyn passalong_core::encryption::EncryptionAdmin>)
+    })
 }
 
 fn opener(config: &Config) -> BackendFuture<'_> {

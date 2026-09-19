@@ -30,15 +30,23 @@ pub type FsFuture<'a> =
 /// ([`encryption::open_store`]), so encryption works on every such backend.
 pub type FsOpener = fn(&Config) -> FsFuture<'_>;
 
+/// The future an [`AdminOpener`] returns.
+pub type AdminFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<Box<dyn EncryptionAdmin>, StoreError>> + Send + 'a>>;
+
+/// Opens what changes the encryption of a backend that is not file-like.
+pub type AdminOpener = fn(&Config) -> AdminFuture<'_>;
+
 /// The backends available to this program, by `server.kind`.
 ///
 /// A file-like backend registers an [`FsOpener`]; any other backend
-/// registers a [`BackendOpener`] and opens its store itself, without
-/// encryption.
+/// registers a [`BackendOpener`] and opens its store itself, and, when it
+/// supports encryption, an [`AdminOpener`] to change it.
 #[derive(Clone, Default)]
 pub struct BackendRegistry {
     openers: BTreeMap<String, BackendOpener>,
     fs_openers: BTreeMap<String, FsOpener>,
+    admin_openers: BTreeMap<String, AdminOpener>,
 }
 
 impl BackendRegistry {
@@ -65,6 +73,12 @@ impl BackendRegistry {
     pub fn register_fs(&mut self, kind: &str, opener: FsOpener) {
         self.openers.remove(kind);
         self.fs_openers.insert(kind.to_owned(), opener);
+    }
+
+    /// Registers `opener` for changing the encryption of `kind`, a backend
+    /// registered with [`BackendRegistry::register`].
+    pub fn register_admin(&mut self, kind: &str, opener: AdminOpener) {
+        self.admin_openers.insert(kind.to_owned(), opener);
     }
 
     /// The registered kinds, sorted.
@@ -115,7 +129,8 @@ impl BackendRegistry {
     }
 
     /// Changes the encryption of the store `server.kind` names: through its
-    /// filesystem for a file-like backend.
+    /// filesystem for a file-like backend, and otherwise through what the
+    /// backend registered.
     ///
     /// # Errors
     ///
@@ -126,6 +141,9 @@ impl BackendRegistry {
         &self,
         config: &Config,
     ) -> Result<Box<dyn EncryptionAdmin>, StoreError> {
+        if let Some(opener) = self.admin_openers.get(&config.server.kind) {
+            return opener(config).await;
+        }
         Ok(Box::new(FsEncryptionAdmin::new(
             self.open_fs(config).await?,
         )))

@@ -63,6 +63,8 @@ pub struct HttpStore {
     partition: Partition,
     /// The server's `maxItemBytes`, read before the first upload.
     limit: OnceCell<Option<u64>>,
+    /// The workspace's key id, which the plain partition's writes name.
+    workspace_key: OnceCell<Option<String>>,
 }
 
 impl std::fmt::Debug for HttpStore {
@@ -116,6 +118,7 @@ impl HttpStore {
             clock,
             partition,
             limit: OnceCell::new(),
+            workspace_key: OnceCell::new(),
         }
     }
 
@@ -140,11 +143,55 @@ impl HttpStore {
         Ok(url)
     }
 
-    /// The expected key id every write names.
-    fn expected(&self) -> Option<String> {
-        self.sealer
-            .as_ref()
-            .map(|sealer| sealer.key_id().to_string())
+    /// The key id every write names: the store's key, or for the plain
+    /// partition, which holds plaintext items in a sealed workspace, the
+    /// workspace's key.
+    async fn expected(&self) -> Result<Option<String>, StoreError> {
+        if self.partition != Partition::Plain {
+            return Ok(self
+                .sealer
+                .as_ref()
+                .map(|sealer| sealer.key_id().to_string()));
+        }
+        self.workspace_key
+            .get_or_try_init(|| async {
+                let workspace = self.client.workspace().await.map_err(store_error)?;
+                Ok::<_, StoreError>(workspace.encryption.key_id)
+            })
+            .await
+            .cloned()
+    }
+
+    /// Warns, as the filesystem store does, while items a fresh start set
+    /// aside remain unencrypted.
+    async fn remind_plain_left(&self) {
+        if self.sealer.is_none() || self.partition != Partition::Current {
+            return;
+        }
+        let Ok(mut url) = Url::parse(&self.client.url("/item-ids")) else {
+            return;
+        };
+        url.query_pairs_mut().append_pair("partition", "plain");
+        let Ok(response) = self
+            .client
+            .send("listItemIds", |http| http.get(url.clone()))
+            .await
+        else {
+            return;
+        };
+        let n = json::<Vec<String>>(response)
+            .await
+            .map_or(0, |ids| ids.len());
+        if n > 0 {
+            let (items, them) = if n == 1 {
+                ("item remains", "it")
+            } else {
+                ("items remain", "them")
+            };
+            tracing::warn!(
+                "{n} unencrypted {items} from before encryption; remove {them} with `passalong prune --plain`"
+            );
+        }
     }
 
     /// An envelope's metadata and, when sealed, its content salt.
@@ -335,7 +382,7 @@ impl Store for HttpStore {
             id: meta.id.as_str(),
             meta: &raw,
             size: size.to_string(),
-            expected_key_id: self.expected(),
+            expected_key_id: self.expected().await?,
             in_rewrite: false,
         })
         .map_err(|err| corrupt(meta.id.as_str(), err))?;
@@ -375,6 +422,7 @@ impl Store for HttpStore {
     }
 
     async fn list(&self) -> Result<Vec<ItemMeta>, StoreError> {
+        self.remind_plain_left().await;
         self.list_after(None).await
     }
 
@@ -485,7 +533,7 @@ impl Store for HttpStore {
     }
 
     async fn delete(&self, id: &ItemId) -> Result<ItemMeta, StoreError> {
-        let expected = self.expected();
+        let expected = self.expected().await?;
         let mut query = Vec::new();
         if let Some(key) = &expected {
             query.push(("expectedKeyId", key.as_str()));

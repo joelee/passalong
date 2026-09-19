@@ -8,8 +8,13 @@ mod support;
 use std::path::{Path, PathBuf};
 
 use assert_cmd::Command;
+use std::sync::Arc;
+
 use passalong_core::api_key::save_api_key;
-use passalong_core::encryption::SystemGit;
+use passalong_core::clock::SystemClock;
+use passalong_core::crypto::{KdfParams, Words};
+use passalong_core::encryption::{EncryptionAdmin, SystemGit, save_key_file};
+use passalong_https::HttpEncryptionAdmin;
 use predicates::prelude::*;
 use support::TestServer;
 use tempfile::TempDir;
@@ -131,4 +136,61 @@ fn https_the_cli_sends_lists_loads_and_deletes_over_a_server() {
         .assert()
         .success()
         .stdout("no items\n");
+}
+
+#[test]
+#[ignore = "needs passalong-server: just test-https"]
+fn https_a_fresh_start_warns_in_list_until_prune_plain_clears_it() {
+    let server = TestServer::start();
+    let dir = TempDir::new().unwrap();
+    let config = device(&server, dir.path());
+    passalong(dir.path(), &config)
+        .args(["clipboard", "--stdin"])
+        .write_stdin("from before encryption")
+        .assert()
+        .success();
+
+    // `encrypt` needs a terminal, so the fresh start is the library's.
+    let key = tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let loaded =
+            passalong_core::config::load(&config, &passalong_core::config::StdEnv).unwrap();
+        let client = passalong_https::connect(&loaded).unwrap();
+        HttpEncryptionAdmin::new(client, Arc::new(SystemClock))
+            .fresh_start(
+                &Words::parse("abacus abdomen abdominal abide abiding ability").unwrap(),
+                KdfParams {
+                    m_kib: 64,
+                    t: 1,
+                    p: 1,
+                    salt: [7; 16],
+                },
+            )
+            .await
+            .unwrap()
+    });
+    save_key_file(&dir.path().join("store.key"), &key, &SystemGit::new()).unwrap();
+
+    passalong(dir.path(), &config)
+        .arg("list")
+        .assert()
+        .success()
+        .stdout("no items\n")
+        .stderr(predicate::str::contains(
+            "1 unencrypted item remains from before encryption; remove it with `passalong prune --plain`",
+        ));
+    passalong(dir.path(), &config)
+        .args(["prune", "--plain", "--keep", "0", "--yes"])
+        .assert()
+        .success();
+    passalong(dir.path(), &config)
+        .arg("list")
+        .assert()
+        .success()
+        .stdout("no items\n")
+        .stderr(predicate::str::contains("unencrypted").not());
+    passalong(dir.path(), &config)
+        .args(["prune", "--plain", "--keep", "0", "--yes"])
+        .assert()
+        .success()
+        .stdout("no unencrypted items remain\n");
 }

@@ -54,6 +54,11 @@ server-build:
     #!/usr/bin/env bash
     set -euo pipefail
     src={{server_dir}}/src
+    # CI's cache restores `target/` with files pruned: a clone it left
+    # broken is made again.
+    if [ -d "$src/.git" ] && ! git -C "$src" status --porcelain >/dev/null 2>&1; then
+        rm -rf "$src"
+    fi
     if [ ! -d "$src/.git" ]; then
         git clone --quiet https://github.com/joelee/passalong-server "$src"
     fi
@@ -61,6 +66,7 @@ server-build:
         git -C "$src" fetch --quiet origin
         git -C "$src" checkout --quiet --detach {{server_commit}}
     fi
+    git -C "$src" reset --quiet --hard {{server_commit}}
     cd "$src" && cargo build --release --locked -p passalong-server --target-dir ../target
 
 # Run the https backend's tests against a real passalong-server, one per test

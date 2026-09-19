@@ -100,8 +100,9 @@ impl ServeOptions {
     }
 }
 
-/// Reasons `serve` cannot start. Once running, it never stops because of a
-/// single failed item.
+/// Reasons `serve` cannot start or, once running, must stop: it never
+/// stops because of a single failed item, only when the store refuses the
+/// device for good.
 #[derive(Debug, thiserror::Error)]
 pub enum ServeError {
     /// The store could not be opened at start-up.
@@ -115,6 +116,10 @@ pub enum ServeError {
         /// Underlying error.
         message: String,
     },
+    /// The store refused this device for good while serving, as when its
+    /// API key was revoked or expired.
+    #[error("serve stopped: {0}")]
+    Denied(String),
     /// The operating system refused to watch the drop folder.
     #[error("cannot watch the drop folder {path}: {message}")]
     Watch {
@@ -206,6 +211,7 @@ pub async fn run_with_ready(
         ))),
         None => tracing::warn!("no clipboard available; only the drop folder is watched"),
     }
+    let (denied_tx, mut denied_rx) = mpsc::unbounded_channel();
     if let Some((puller, pull_store)) = puller {
         tracing::info!(
             interval_ms = options.pull_interval.as_millis() as u64,
@@ -217,6 +223,7 @@ pub async fn run_with_ready(
             open_store.clone(),
             options.pull_interval,
             shutdown.clone(),
+            denied_tx,
         )));
     }
     let (skipped_tx, skipped_rx) = mpsc::unbounded_channel();
@@ -243,31 +250,37 @@ pub async fn run_with_ready(
         options.after_send,
         sent_dir,
     );
-    loop {
+    let result = loop {
         tokio::select! {
-            () = stopped(&mut shutdown) => break,
+            () = stopped(&mut shutdown) => break Ok(()),
+            Some(message) = denied_rx.recv() => break Err(ServeError::Denied(message)),
             job = jobs_rx.recv() => match job {
                 Some(job) => {
                     let file = match &job {
                         Job::File(path) => Some(path.clone()),
                         Job::Text(_) | Job::Image(_) => None,
                     };
-                    if uploader.handle(job, &mut shutdown).await == JobOutcome::Skipped
-                        && let Some(path) = file
-                    {
-                        // The drop watcher offers it again once it changes.
-                        let _ = skipped_tx.send(path);
+                    match uploader.handle(job, &mut shutdown).await {
+                        JobOutcome::Skipped => {
+                            if let Some(path) = file {
+                                // The drop watcher offers it again once it
+                                // changes.
+                                let _ = skipped_tx.send(path);
+                            }
+                        }
+                        JobOutcome::Denied(message) => break Err(ServeError::Denied(message)),
+                        _ => {}
                     }
                 }
-                None => break,
+                None => break Ok(()),
             },
         }
-    }
+    };
     for task in tasks {
         task.abort();
     }
     tracing::info!("serve stopped");
-    Ok(())
+    result
 }
 
 /// Resolves once a stop is requested: the flag turns `true`, or its sender

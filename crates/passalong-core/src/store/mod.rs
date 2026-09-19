@@ -198,6 +198,10 @@ pub enum StoreError {
     /// An encrypted store's data cannot be used.
     #[error(transparent)]
     Encryption(#[from] EncryptionError),
+    /// The server no longer accepts this device's credentials, such as an
+    /// API key that expired or was revoked. Trying again cannot help.
+    #[error("{0}")]
+    Denied(String),
 }
 
 impl From<CryptoError> for StoreError {

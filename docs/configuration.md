@@ -102,7 +102,7 @@ whose certificate is publicly trusted needs no pin.
 | `clipboard_images` | boolean | `true` | Also send clipboard images; an image is read only when the clipboard holds no text |
 | `pull` | boolean | `false` | Also apply items sent by other devices: text and images to the clipboard, files into `client.download_dir` when it exists. `client.download_dir` must then not be `drop_folder` or inside it |
 | `pull_interval_ms` | integer | `5000` | 1000 to 3600000; how often pull mode checks for new items |
-| `list_cache` | boolean | `true` | With the `ssh` backend, keep a local copy of the item list that `list` and `choose` read without connecting (see `serve` files) |
+| `list_cache` | boolean | `true` | With the `ssh` or `https` backend, keep a local copy of the item list that `list` and `choose` read without connecting (see `serve` files) |
 | `list_cache_check_secs` | integer | `60` | 10 to 86400; how often `serve` compares that copy with the server |
 
 ## Environment variables
@@ -129,11 +129,11 @@ override variables already set in the environment. Keep secrets only in
 | macOS | `~/Library/Application Support/passalong/serve.pid` | `~/Library/Logs/passalong/serve.log` |
 | Windows | `%LOCALAPPDATA%\passalong\serve.pid` | `%LOCALAPPDATA%\passalong\serve.log` |
 
-With the `ssh` backend and `serve.list_cache` on, `serve` also keeps
-`list-cache.json` in the pid file's folder: the item list, readable by you
-only, since it holds text previews. `list` and `choose` use it while it was
+With the `ssh` or `https` backend and `serve.list_cache` on, `serve` also
+keeps `list-cache.json` in the pid file's folder: the item list, readable
+by you only, since it holds text previews. `list` and `choose` use it while it was
 checked within two `list_cache_check_secs`, and only for the server it was
-made from.
+made from: for `https`, the URL and the API key's public id.
 
 The pid file is locked while `serve` runs, which is how a second copy is
 refused. A pid file left behind by a crash is harmless and is reused. The

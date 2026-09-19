@@ -1,4 +1,6 @@
 /target/
+# passalong-server's source, which `just server-build` clones.
+/.passalong-server/
 .env
 # Key files of encrypted stores: never commit one.
 *.key

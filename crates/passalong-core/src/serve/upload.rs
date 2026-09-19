@@ -9,6 +9,7 @@ use tracing::Instrument;
 
 use crate::clipboard::{RgbaImage, encode_png};
 use crate::config::AfterSend;
+use crate::encryption::EncryptionError;
 use crate::model::{ContentHasher, ItemId, NewItem};
 use crate::random::StdRandom;
 use crate::serve::drop_watcher::unique_target;
@@ -28,6 +29,9 @@ pub enum JobOutcome {
     Skipped,
     /// `serve` was stopped before the job finished.
     Abandoned,
+    /// The store refuses this device for good, as when its API key was
+    /// revoked; `serve` stops with this message.
+    Denied(String),
 }
 
 enum Failure {
@@ -84,6 +88,7 @@ impl Uploader {
     ) -> JobOutcome {
         let mut backoff = Backoff::default();
         let mut attempt: u64 = 1;
+        let mut waiting_for_rewrite = false;
         loop {
             let result = tokio::select! {
                 result = self.attempt(&job) => result,
@@ -93,7 +98,12 @@ impl Uploader {
                 }
             };
             match result {
-                Ok(outcome) => return outcome,
+                Ok(outcome) => {
+                    if waiting_for_rewrite {
+                        tracing::info!("the store's re-encryption has ended; sending resumed");
+                    }
+                    return outcome;
+                }
                 Err(Failure::Local(message)) => {
                     tracing::warn!(
                         error = message.as_str(),
@@ -101,15 +111,37 @@ impl Uploader {
                     );
                     return JobOutcome::Skipped;
                 }
+                Err(Failure::Store(StoreError::Denied(message))) => {
+                    tracing::error!(error = message.as_str(), "the store refuses this device");
+                    return JobOutcome::Denied(message);
+                }
                 Err(Failure::Store(err)) => {
                     let delay = backoff.next_delay();
-                    tracing::warn!(attempt, error = %err, "upload failed; retrying in {} s", delay.as_secs());
+                    if matches!(
+                        err,
+                        StoreError::Encryption(EncryptionError::Rewriting { .. })
+                    ) {
+                        // A rewrite can take a while: say so once, then wait.
+                        if !waiting_for_rewrite {
+                            tracing::info!(error = %err, "waiting for the store's re-encryption to end");
+                            waiting_for_rewrite = true;
+                        }
+                    } else {
+                        tracing::warn!(attempt, error = %err, "upload failed; retrying in {} s", delay.as_secs());
+                    }
                     tokio::select! {
                         () = tokio::time::sleep(delay) => {}
                         () = stopped(shutdown) => return JobOutcome::Abandoned,
                     }
                     match (self.open_store)().await {
                         Ok(store) => self.store = store,
+                        Err(StoreError::Denied(message)) => {
+                            tracing::error!(
+                                error = message.as_str(),
+                                "the store refuses this device"
+                            );
+                            return JobOutcome::Denied(message);
+                        }
                         Err(err) => tracing::warn!(attempt, error = %err, "reconnecting failed"),
                     }
                     attempt += 1;
@@ -262,11 +294,17 @@ mod tests {
     use tempfile::TempDir;
     use tokio::sync::watch;
 
-    /// A local store whose `put` fails while `failures` is above zero.
+    /// A local store whose `put` fails with `error` while `failures` is
+    /// above zero.
     struct Flaky {
         inner: FsStore<LocalFs>,
         failures: Arc<AtomicUsize>,
         puts: Arc<AtomicUsize>,
+        error: fn() -> StoreError,
+    }
+
+    fn went_away() -> StoreError {
+        StoreError::Backend("server went away".into())
     }
 
     #[async_trait]
@@ -275,7 +313,7 @@ mod tests {
             self.puts.fetch_add(1, Ordering::SeqCst);
             if self.failures.load(Ordering::SeqCst) > 0 {
                 self.failures.fetch_sub(1, Ordering::SeqCst);
-                return Err(StoreError::Backend("server went away".into()));
+                return Err((self.error)());
             }
             self.inner.put(item, content).await
         }
@@ -467,10 +505,14 @@ mod tests {
         failures: Arc<AtomicUsize>,
         puts: Arc<AtomicUsize>,
         opens: Arc<AtomicUsize>,
+        error: fn() -> StoreError,
     }
 
     impl Rig {
         fn new(failures: usize) -> Self {
+            Self::failing_with(failures, went_away)
+        }
+        fn failing_with(failures: usize, error: fn() -> StoreError) -> Self {
             let dir = TempDir::new().unwrap();
             std::fs::create_dir_all(dir.path().join("store")).unwrap();
             std::fs::create_dir_all(dir.path().join("drop/sent")).unwrap();
@@ -479,6 +521,7 @@ mod tests {
                 failures: Arc::new(AtomicUsize::new(failures)),
                 puts: Arc::new(AtomicUsize::new(0)),
                 opens: Arc::new(AtomicUsize::new(0)),
+                error,
             }
         }
         fn flaky(&self) -> Box<dyn Store> {
@@ -490,14 +533,16 @@ mod tests {
                 ),
                 failures: self.failures.clone(),
                 puts: self.puts.clone(),
+                error: self.error,
             })
         }
         fn opener(&self) -> StoreOpener {
-            let (root, failures, puts, opens) = (
+            let (root, failures, puts, opens, error) = (
                 self.dir.path().join("store"),
                 self.failures.clone(),
                 self.puts.clone(),
                 self.opens.clone(),
+                self.error,
             );
             Arc::new(move || -> crate::store::BackendFuture<'static> {
                 opens.fetch_add(1, Ordering::SeqCst);
@@ -509,6 +554,7 @@ mod tests {
                     ),
                     failures: failures.clone(),
                     puts: puts.clone(),
+                    error,
                 });
                 Box::pin(async move { Ok(store) })
             })
@@ -553,6 +599,54 @@ mod tests {
             Duration::from_secs(3),
             "waited 1 s then 2 s"
         );
+        assert_eq!(rig.items().await.len(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_refused_device_gives_up_at_once() {
+        let rig = Rig::failing_with(5, || StoreError::Denied("the key was revoked".into()));
+        let mut uploader = rig.uploader(AfterSend::Move);
+        let (_tx, mut rx) = quiet();
+        let file = rig.drop("keep.txt");
+        std::fs::write(&file, "the only copy").unwrap();
+        let started = tokio::time::Instant::now();
+        assert_eq!(
+            uploader.handle(Job::File(file.clone()), &mut rx).await,
+            JobOutcome::Denied("the key was revoked".into())
+        );
+        assert_eq!(rig.puts.load(Ordering::SeqCst), 1, "never retried");
+        assert_eq!(started.elapsed(), Duration::ZERO);
+        assert!(file.exists(), "the file stays in the drop folder");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_reconnect_the_store_refuses_gives_up_too() {
+        let rig = Rig::new(1);
+        let opener: StoreOpener = Arc::new(|| -> crate::store::BackendFuture<'static> {
+            Box::pin(async { Err(StoreError::Denied("the key expired".into())) })
+        });
+        let mut uploader = Uploader::new(
+            rig.flaky(),
+            opener,
+            "box".into(),
+            AfterSend::Move,
+            rig.drop("sent"),
+        );
+        let (_tx, mut rx) = quiet();
+        assert_eq!(
+            uploader.handle(Job::Text("x".into()), &mut rx).await,
+            JobOutcome::Denied("the key expired".into())
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_rewrite_is_waited_out_and_the_job_sent_after_it() {
+        let rig = Rig::failing_with(4, || EncryptionError::Rewriting { started: None }.into());
+        let mut uploader = rig.uploader(AfterSend::Move);
+        let (_tx, mut rx) = quiet();
+        let outcome = uploader.handle(Job::Text("later".into()), &mut rx).await;
+        assert!(matches!(outcome, JobOutcome::Sent(_)), "{outcome:?}");
+        assert_eq!(rig.puts.load(Ordering::SeqCst), 5);
         assert_eq!(rig.items().await.len(), 1);
     }
 

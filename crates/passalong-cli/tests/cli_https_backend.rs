@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use assert_cmd::Command;
 use std::sync::Arc;
 
-use passalong_core::api_key::save_api_key;
+use passalong_core::api_key::{ApiKey, save_api_key};
 use passalong_core::clock::SystemClock;
 use passalong_core::crypto::{KdfParams, Words};
 use passalong_core::encryption::{EncryptionAdmin, SystemGit, save_key_file};
@@ -21,11 +21,17 @@ use tempfile::TempDir;
 
 /// Writes a device's config for `server` into `dir`, with its API key.
 fn device(server: &TestServer, dir: &Path) -> PathBuf {
+    device_as(server, dir, "it-cli", &server.key, "")
+}
+
+/// A device named `name` with API key `key`, and `extra` at the end of its
+/// config.
+fn device_as(server: &TestServer, dir: &Path, name: &str, key: &ApiKey, extra: &str) -> PathBuf {
     let config = dir.join("config.toml");
     std::fs::write(
         &config,
         format!(
-            "[client]\ndevice_name = \"it-cli\"\nkey_file = '{}'\ndownload_dir = '{}'\n\n[server]\nkind = \"https\"\n\n[server.https]\nurl = \"{}\"\ntls_pin = \"{}\"\napi_key_file = '{}'\n",
+            "[client]\ndevice_name = \"{name}\"\nkey_file = '{}'\ndownload_dir = '{}'\n\n[server]\nkind = \"https\"\n\n[server.https]\nurl = \"{}\"\ntls_pin = \"{}\"\napi_key_file = '{}'\n{extra}",
             dir.join("store.key").display(),
             dir.join("downloads").display(),
             server.url,
@@ -34,8 +40,18 @@ fn device(server: &TestServer, dir: &Path) -> PathBuf {
         ),
     )
     .unwrap();
-    save_api_key(&dir.join("api.key"), &server.key, &SystemGit::new()).unwrap();
+    save_api_key(&dir.join("api.key"), key, &SystemGit::new()).unwrap();
     config
+}
+
+/// `[serve]` settings that act within a test's patience.
+fn quick_serve(dir: &Path, pull: bool) -> String {
+    std::fs::create_dir_all(dir.join("drop")).unwrap();
+    std::fs::create_dir_all(dir.join("downloads")).unwrap();
+    format!(
+        "\n[serve]\ndrop_folder = '{}'\nfile_stable_wait_ms = 100\npull = {pull}\npull_interval_ms = 1000\n",
+        dir.join("drop").display()
+    )
 }
 
 fn passalong(dir: &Path, config: &Path) -> Command {
@@ -46,9 +62,105 @@ fn passalong(dir: &Path, config: &Path) -> Command {
         .env_remove("XDG_STATE_HOME")
         .env_remove("PASSALONG_CONFIG_FILE")
         .env_remove("PASSALONG_LOG_LEVEL")
+        // Never the desktop's clipboard.
+        .env_remove("WAYLAND_DISPLAY")
+        .env_remove("DISPLAY")
         .arg("--config")
         .arg(config);
     cmd
+}
+
+/// `passalong serve` running in the background, stopped when dropped.
+#[cfg(unix)]
+struct Serving {
+    child: std::process::Child,
+    stderr: std::path::PathBuf,
+}
+
+#[cfg(unix)]
+impl Serving {
+    fn start(dir: &Path, config: &Path) -> Self {
+        let stderr = dir.join("serve.stderr");
+        let child = std::process::Command::new(env!("CARGO_BIN_EXE_passalong"))
+            .current_dir(dir)
+            .env("HOME", dir)
+            .env_remove("XDG_CONFIG_HOME")
+            .env_remove("XDG_STATE_HOME")
+            .env_remove("PASSALONG_CONFIG_FILE")
+            .env_remove("PASSALONG_LOG_LEVEL")
+            .env_remove("WAYLAND_DISPLAY")
+            .env_remove("DISPLAY")
+            .arg("--config")
+            .arg(config)
+            .arg("serve")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::fs::File::create(&stderr).unwrap())
+            .spawn()
+            .unwrap();
+        let mut serving = Self { child, stderr };
+        serving.wait_for("serving:");
+        serving
+    }
+
+    fn log(&self) -> String {
+        std::fs::read_to_string(&self.stderr).unwrap_or_default()
+    }
+
+    /// Waits up to 20 s for `text` in the log, while serve runs.
+    fn wait_for(&mut self, text: &str) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while !self.log().contains(text) {
+            assert!(self.running(), "serve exited:\n{}", self.log());
+            assert!(
+                std::time::Instant::now() < deadline,
+                "no `{text}` in:\n{}",
+                self.log()
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+
+    /// Waits up to 20 s for serve to exit on its own.
+    fn exit(&mut self) -> std::process::ExitStatus {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        loop {
+            if let Some(status) = self.child.try_wait().unwrap() {
+                return status;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "serve kept running:\n{}",
+                self.log()
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+
+    fn running(&mut self) -> bool {
+        self.child.try_wait().unwrap().is_none()
+    }
+}
+
+#[cfg(unix)]
+impl Drop for Serving {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// Waits up to 20 s for `path` to exist.
+#[cfg(unix)]
+fn wait_for_file(path: &Path) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !path.exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "{} never appeared",
+            path.display()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
 }
 
 fn stdout(cmd: &mut Command) -> String {
@@ -193,4 +305,218 @@ fn https_a_fresh_start_warns_in_list_until_prune_plain_clears_it() {
         .assert()
         .success()
         .stdout("no unencrypted items remain\n");
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "needs passalong-server: just test-https"]
+fn https_serve_stops_for_good_when_its_key_is_revoked() {
+    let server = TestServer::start();
+    let dir = TempDir::new().unwrap();
+    let key = server.create_key(&[]);
+    let config = device_as(
+        &server,
+        dir.path(),
+        "it-cli",
+        &key,
+        &quick_serve(dir.path(), false),
+    );
+    let mut serving = Serving::start(dir.path(), &config);
+    server.run(&["key", "revoke", key.id()]);
+    let file = dir.path().join("drop/after.txt");
+    std::fs::write(&file, "sent after the revocation").unwrap();
+    let status = serving.exit();
+    let log = serving.log();
+    assert!(!status.success(), "{log}");
+    assert!(log.contains("serve stopped: "), "{log}");
+    assert!(log.contains("KEY_REVOKED"), "{log}");
+    assert!(
+        log.contains("ask the server's operator for a new API key"),
+        "{log}"
+    );
+    assert!(file.exists(), "the file stays for a later serve");
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "needs passalong-server: just test-https"]
+fn https_serve_in_pull_mode_stops_when_its_key_is_revoked() {
+    let server = TestServer::start();
+    let dir = TempDir::new().unwrap();
+    let key = server.create_key(&[]);
+    let config = device_as(
+        &server,
+        dir.path(),
+        "it-cli",
+        &key,
+        &quick_serve(dir.path(), true),
+    );
+    let mut serving = Serving::start(dir.path(), &config);
+    server.run(&["key", "revoke", key.id()]);
+    // Nothing to send: the next poll finds out.
+    let status = serving.exit();
+    let log = serving.log();
+    assert!(!status.success(), "{log}");
+    assert!(log.contains("KEY_REVOKED"), "{log}");
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "needs passalong-server: just test-https"]
+fn https_serve_waits_out_a_rewrite_and_sends_after_it() {
+    use passalong_core::crypto::{DataKey, KdfParams, Words, wrap};
+    use passalong_core::encryption::StoreHeader;
+
+    let server = TestServer::start();
+    let dir = TempDir::new().unwrap();
+    let config = device_as(
+        &server,
+        dir.path(),
+        "it-cli",
+        &server.key,
+        &quick_serve(dir.path(), false),
+    );
+    let mut serving = Serving::start(dir.path(), &config);
+
+    // Another device begins migrating the workspace, and holds the lease.
+    let other = TempDir::new().unwrap();
+    let other_config = device_as(&server, other.path(), "other", &server.create_key(&[]), "");
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let client = passalong_https::connect(
+        &passalong_core::config::load(&other_config, &passalong_core::config::StdEnv).unwrap(),
+    )
+    .unwrap();
+    let new_key = DataKey::generate().unwrap();
+    let header = StoreHeader::new(
+        wrap(
+            &new_key,
+            &Words::generate().unwrap(),
+            KdfParams {
+                m_kib: 64,
+                t: 1,
+                p: 1,
+                salt: [3; 16],
+            },
+        )
+        .unwrap(),
+    );
+    let header = String::from_utf8(header.to_json()).unwrap();
+    let post = |path: &str, body: String| {
+        let url = client.url(path);
+        runtime
+            .block_on(client.send("rewrite", |http| {
+                http.post(&url)
+                    .header("content-type", "application/json")
+                    .body(body.clone())
+            }))
+            .unwrap();
+    };
+    post(
+        "/rewrite",
+        format!(
+            "{{\"kind\":\"migrate\",\"expectedKeyId\":null,\"newKeyId\":\"{}\",\"newHeader\":{}}}",
+            new_key.key_id(),
+            header.trim_end()
+        ),
+    );
+
+    let file = dir.path().join("drop/during.txt");
+    std::fs::write(&file, "sent during a rewrite").unwrap();
+    serving.wait_for("waiting for the store's re-encryption to end");
+    assert!(file.exists());
+    assert!(serving.running());
+
+    post(
+        "/rewrite/abort",
+        format!("{{\"newKeyId\":\"{}\"}}", new_key.key_id()),
+    );
+    wait_for_file(&dir.path().join("drop/sent/during.txt"));
+    serving.wait_for("re-encryption has ended");
+    assert!(serving.running());
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "needs passalong-server: just test-https"]
+fn https_serve_keeps_a_file_when_the_workspace_s_key_changes() {
+    let server = TestServer::start();
+    let dir = TempDir::new().unwrap();
+    let config = device_as(
+        &server,
+        dir.path(),
+        "it-cli",
+        &server.key,
+        &quick_serve(dir.path(), false),
+    );
+    let mut serving = Serving::start(dir.path(), &config);
+    let loaded = passalong_core::config::load(&config, &passalong_core::config::StdEnv).unwrap();
+    tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(server.seal(&passalong_https::connect(&loaded).unwrap()));
+
+    let file = dir.path().join("drop/plain.txt");
+    std::fs::write(&file, "never sent unencrypted").unwrap();
+    serving.wait_for("encrypt --join");
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    assert!(serving.running(), "{}", serving.log());
+    assert!(file.exists(), "the file is kept");
+    let workspace = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(passalong_https::connect(&loaded).unwrap().workspace())
+        .unwrap();
+    assert_eq!(workspace.item_count, 0);
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "needs passalong-server: just test-https"]
+fn https_pull_mode_applies_an_item_another_key_sent() {
+    let server = TestServer::start();
+    let dir = TempDir::new().unwrap();
+    let config = device_as(
+        &server,
+        dir.path(),
+        "it-cli",
+        &server.key,
+        &quick_serve(dir.path(), true),
+    );
+    let _serving = Serving::start(dir.path(), &config);
+
+    let other = TempDir::new().unwrap();
+    let other_config = device_as(&server, other.path(), "other", &server.create_key(&[]), "");
+    let report = other.path().join("from-other.txt");
+    std::fs::write(&report, "sent by another key").unwrap();
+    passalong(other.path(), &other_config)
+        .arg("file")
+        .arg(&report)
+        .assert()
+        .success();
+    let pulled = dir.path().join("downloads/from-other.txt");
+    wait_for_file(&pulled);
+    // Written through a temporary file, so it is whole once it appears.
+    assert_eq!(
+        std::fs::read_to_string(pulled).unwrap(),
+        "sent by another key"
+    );
+}
+
+#[test]
+#[ignore = "needs passalong-server: just test-https"]
+fn https_list_uses_a_fresh_cache_without_connecting() {
+    let server = TestServer::start();
+    let dir = TempDir::new().unwrap();
+    let config = device(&server, dir.path());
+    let id = stdout(
+        passalong(dir.path(), &config)
+            .args(["clipboard", "--stdin"])
+            .write_stdin("cached"),
+    )
+    .trim()
+    .to_owned();
+    let listed = stdout(passalong(dir.path(), &config).arg("list"));
+    assert!(listed.contains(&id), "{listed}");
+
+    drop(server);
+    let cached = stdout(passalong(dir.path(), &config).arg("list"));
+    assert_eq!(cached, listed, "listed from the cache, the server gone");
 }

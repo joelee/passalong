@@ -155,8 +155,8 @@ server is AGPL-3.0-or-later and this client Apache-2.0, so the server is
 only ever *run*. Nothing of it is linked, copied, or depended on; the
 client is written from the server's published API documents.
 
-`just server-build` clones the server into `target/passalong-server/src`
-once and builds the commit named by `server_commit` at the top of the
+`just server-build` clones the server into `.passalong-server/` once and
+builds the commit named by `server_commit` at the top of the
 `justfile`, rebuilding only when that moves. `just test-https` then runs
 the ignored tests of `crates/passalong-https/`. Each test starts its own
 server (`tests/support/mod.rs`): a temporary `HOME`, `passalong-server

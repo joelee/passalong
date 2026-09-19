@@ -460,9 +460,20 @@ time. It never gives up on an item because of a network problem. A file
 that cannot be read, for example because of its permissions, is skipped
 and sent once it changes, such as after you fix its permissions.
 
-`serve` stops cleanly on Ctrl-C or SIGTERM. It exits with code 1 only when
-it cannot start: invalid configuration, an unreachable server at start-up,
-or a drop folder that cannot be created or watched. Without a desktop
+With a [passalong-server](#using-a-passalong-server), `serve` also:
+
+- waits while another device re-encrypts the workspace, saying so once, and
+  sends when the re-encryption has ended;
+- keeps a file whose sending the workspace's key refused, as when another
+  device encrypted it meanwhile, and asks for `passalong encrypt --join`;
+- stops, with code 1 and the server's reason, when its API key has expired
+  or was revoked: retrying cannot help, and a file not yet sent stays in the
+  drop folder.
+
+`serve` stops cleanly on Ctrl-C or SIGTERM. It exits with code 1 when it
+cannot start (invalid configuration, an unreachable server at start-up, or
+a drop folder that cannot be created or watched) and when a server refuses
+its API key for good. Without a desktop
 clipboard, for example over SSH or in a container, it keeps watching the
 drop folder and logs `clipboard unavailable`.
 

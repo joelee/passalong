@@ -84,6 +84,9 @@ pub fn store_error(err: HttpsError) -> StoreError {
     match err.code() {
         Some(Code::KeyIdMismatch) => EncryptionError::KeyChanged.into(),
         Some(Code::RewriteInProgress) => EncryptionError::Rewriting { started: None }.into(),
+        Some(Code::Unauthenticated | Code::KeyExpired | Code::KeyRevoked) => StoreError::Denied(
+            format!("{err}; ask the server's operator for a new API key"),
+        ),
         _ => StoreError::Backend(err.to_string()),
     }
 }

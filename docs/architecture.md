@@ -343,7 +343,7 @@ that lists the candidates.
   checks whether that content key is already stored, which is how text that
   `load` just put on the clipboard is not sent back. After a file is sent,
   it moves to `sent/` or is deleted.
-- **List cache refresh** (only with the ssh backend and
+- **List cache refresh** (only with the ssh or https backend and
   `serve.list_cache = true`). Once `serve` is ready, it opens a store
   connection of its own and brings `list-cache.json` in the state folder up
   to date at once and then every `serve.list_cache_check_secs`: one

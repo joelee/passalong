@@ -9,6 +9,7 @@ compose := "tests/docker/docker-compose.yml"
 # (PLAN-00010 D-04); moved when the server releases.
 server_commit := "e7b1e337d88b151ee0b3c3ad096bc1d4ad3fb4c3"
 server_dir := "target/passalong-server"
+server_src := ".passalong-server"
 server_bin := server_dir / "target/release/passalong-server"
 
 # List available recipes
@@ -47,18 +48,15 @@ test:
 test-integration: (_with-sshd "cargo test --workspace --exclude passalong-https --all-features -- --ignored --skip desktop_ --skip compat_ --skip https_ --test-threads=4")
 
 # The server is AGPL-3.0-or-later: the tests run it; nothing of it is linked
-# or copied into passalong. It is cloned into target/passalong-server once and
+# or copied into passalong. It is cloned into .passalong-server once and
 # rebuilt only when the commit moves.
 # Build passalong-server at `server_commit` for the https tests
 server-build:
     #!/usr/bin/env bash
     set -euo pipefail
-    src={{server_dir}}/src
-    # CI's cache restores `target/` with files pruned: a clone it left
-    # broken is made again.
-    if [ -d "$src/.git" ] && ! git -C "$src" status --porcelain >/dev/null 2>&1; then
-        rm -rf "$src"
-    fi
+    # The clone stays out of `target/`, which CI's cache restores with files
+    # pruned.
+    src={{server_src}}
     if [ ! -d "$src/.git" ]; then
         git clone --quiet https://github.com/joelee/passalong-server "$src"
     fi
@@ -66,8 +64,8 @@ server-build:
         git -C "$src" fetch --quiet origin
         git -C "$src" checkout --quiet --detach {{server_commit}}
     fi
-    git -C "$src" reset --quiet --hard {{server_commit}}
-    cd "$src" && cargo build --release --locked -p passalong-server --target-dir ../target
+    target="$PWD/{{server_dir}}/target"
+    cd "$src" && cargo build --release --locked -p passalong-server --target-dir "$target"
 
 # Run the https backend's tests against a real passalong-server, one per test
 test-https: server-build

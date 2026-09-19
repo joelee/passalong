@@ -43,6 +43,7 @@ pub use journal::{
 pub use key_file::{
     GitCheck, KeyFileError, SystemGit, check_key_location, load_key_file, save_key_file,
 };
+pub(crate) use key_file::{Secret, check_git, load_secret, save_secret};
 pub use open::{Claim, open_store, open_with_key, opening};
 pub use rewrite::{RewriteKind, RewritePlan, finish, migrate, read_plan, rotate, undo};
 

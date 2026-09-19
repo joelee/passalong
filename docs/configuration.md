@@ -50,7 +50,7 @@ Unknown keys are rejected, and every error names the offending key or line.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `kind` | string | required | Storage backend: `ssh` or `local` |
+| `kind` | string | required | Storage backend: `ssh`, `local`, or `https` (a [passalong-server](https://github.com/joelee/passalong-server) workspace) |
 
 ### `[server.ssh]` (required when `kind = "ssh"`)
 
@@ -71,6 +71,25 @@ The key passphrase is never read from this file; see Environment variables.
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `path` | path | required | Storage directory, for example a mounted network share; `~` is expanded |
+
+### `[server.https]` (required when `kind = "https"`)
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `url` | string | required | The server, `https://host[:port][/path]`. Plain `http://` is refused: the API key would travel unencrypted |
+| `tls_pin` | string | none | The pinned public key of the server's certificate, `sha256/<base64>` as `passalong-server tls fingerprint` prints it (`curl`'s `sha256//` form is read too). With a pin, that key alone is trusted, whatever signed the certificate, which is how a self-signed server works. Without one, the certificate must be trusted by the operating system. Verification cannot be turned off |
+| `api_key_file` | path | `api.key` beside the default config file | Where this device keeps its API key (`pal_<id>_<secret>`); `~` is expanded, and the path must be absolute |
+
+The API key is a password for the whole workspace, so it is not kept in
+this file. Its file is protected like the store's key file: written
+readable by you only (mode 0600, or an access list for you alone on
+Windows), and refused when others can read it or when it sits in a git
+work tree that does not ignore it. It is sent only in the `Authorization`
+header, and never logged.
+
+A pin names the certificate's key, not the certificate: a renewal that
+keeps the key keeps the pin (with Let's Encrypt, `--reuse-key`). A server
+whose certificate is publicly trusted needs no pin.
 
 ### `[serve]`
 

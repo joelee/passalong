@@ -41,18 +41,20 @@ pub enum KeyFileError {
     },
     /// The file is in a git work tree that does not ignore it.
     #[error(
-        "{path} is inside the git work tree {repo}, which does not ignore it; add it to .gitignore, or set client.key_file outside the repository"
+        "{path} is inside the git work tree {repo}, which does not ignore it; add it to .gitignore, or set {setting} outside the repository"
     )]
     InGitWorkTree {
         /// The key file.
         path: String,
         /// The work tree.
         repo: String,
+        /// The setting that names the file, such as `client.key_file`.
+        setting: String,
     },
     /// The file is in a git work tree, but git could not say whether it is
     /// ignored.
     #[error(
-        "{path} is inside the git work tree {repo}, but git could not check that it is ignored ({reason}); set client.key_file outside the repository"
+        "{path} is inside the git work tree {repo}, but git could not check that it is ignored ({reason}); set {setting} outside the repository"
     )]
     GitUnavailable {
         /// The key file.
@@ -61,16 +63,35 @@ pub enum KeyFileError {
         repo: String,
         /// Why git could not answer.
         reason: String,
+        /// The setting that names the file, such as `client.key_file`.
+        setting: String,
     },
     /// The file is not a key file of this format.
-    #[error("{path} is not a valid passalong key file: {reason}")]
+    #[error("{path} is not a valid {what}: {reason}")]
     Damaged {
         /// The key file.
         path: String,
+        /// What the file should be, such as `passalong key file`.
+        what: String,
         /// What is wrong, never quoting the file.
         reason: String,
     },
 }
+
+/// A file holding a secret: its setting and what it is, for messages.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Secret {
+    /// The setting that names the file.
+    pub(crate) setting: &'static str,
+    /// What the file is.
+    pub(crate) what: &'static str,
+}
+
+/// The store's data key.
+pub(crate) const STORE_KEY: Secret = Secret {
+    setting: "client.key_file",
+    what: "passalong key file",
+};
 
 /// Asks git whether it ignores a path.
 pub trait GitCheck {
@@ -206,7 +227,11 @@ fn without_verbatim(path: PathBuf) -> PathBuf {
     }
 }
 
-fn check_git(path: &Path, git: &dyn GitCheck) -> Result<(), KeyFileError> {
+pub(crate) fn check_git(
+    path: &Path,
+    git: &dyn GitCheck,
+    secret: Secret,
+) -> Result<(), KeyFileError> {
     let real = physical(path);
     let Some(repo) = work_tree(&real) else {
         return Ok(());
@@ -216,11 +241,13 @@ fn check_git(path: &Path, git: &dyn GitCheck) -> Result<(), KeyFileError> {
         Ok(false) => Err(KeyFileError::InGitWorkTree {
             path: shown(path),
             repo: shown(&repo),
+            setting: secret.setting.to_owned(),
         }),
         Err(err) => Err(KeyFileError::GitUnavailable {
             path: shown(path),
             repo: shown(&repo),
             reason: err.to_string(),
+            setting: secret.setting.to_owned(),
         }),
     }
 }
@@ -272,6 +299,25 @@ fn parse(text: &str) -> Result<DataKey, String> {
 /// the git rule, [`KeyFileError::Damaged`] for a malformed file, and
 /// [`KeyFileError::Io`] otherwise.
 pub fn load_key_file(path: &Path, git: &dyn GitCheck) -> Result<Option<DataKey>, KeyFileError> {
+    let Some(text) = load_secret(path, git, STORE_KEY)? else {
+        return Ok(None);
+    };
+    parse(&text)
+        .map(Some)
+        .map_err(|reason| KeyFileError::Damaged {
+            path: shown(path),
+            what: STORE_KEY.what.to_owned(),
+            reason,
+        })
+}
+
+/// Reads the secret file at `path` once it passes the owner-only rule and
+/// the git rule: `None` when there is none.
+pub(crate) fn load_secret(
+    path: &Path,
+    git: &dyn GitCheck,
+    secret: Secret,
+) -> Result<Option<Zeroizing<String>>, KeyFileError> {
     let metadata = match fs::metadata(path) {
         Ok(metadata) => metadata,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -293,14 +339,10 @@ pub fn load_key_file(path: &Path, git: &dyn GitCheck) -> Result<Option<DataKey>,
     }
     #[cfg(not(any(unix, windows)))]
     let _ = metadata;
-    check_git(path, git)?;
-    let text = Zeroizing::new(fs::read_to_string(path).map_err(|err| io_error(path, &err))?);
-    parse(&text)
-        .map(Some)
-        .map_err(|reason| KeyFileError::Damaged {
-            path: shown(path),
-            reason,
-        })
+    check_git(path, git, secret)?;
+    fs::read_to_string(path)
+        .map(|text| Some(Zeroizing::new(text)))
+        .map_err(|err| io_error(path, &err))
 }
 
 /// Writes `key` to `path`, replacing any key file there.
@@ -311,7 +353,19 @@ pub fn load_key_file(path: &Path, git: &dyn GitCheck) -> Result<Option<DataKey>,
 /// the git rule, and [`KeyFileError::Io`] when writing fails; a failed write
 /// leaves any earlier key file in place.
 pub fn save_key_file(path: &Path, key: &DataKey, git: &dyn GitCheck) -> Result<(), KeyFileError> {
-    check_git(path, git)?;
+    save_secret(path, render(key).as_bytes(), git, STORE_KEY)
+}
+
+/// Writes `bytes` to `path` owner-only, through a temporary file and a
+/// rename, once the git rule allows the place; missing folders are created
+/// owner-only too. A failed write leaves any earlier file in place.
+pub(crate) fn save_secret(
+    path: &Path,
+    bytes: &[u8],
+    git: &dyn GitCheck,
+    secret: Secret,
+) -> Result<(), KeyFileError> {
+    check_git(path, git, secret)?;
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -326,8 +380,7 @@ pub fn save_key_file(path: &Path, key: &DataKey, git: &dyn GitCheck) -> Result<(
         message: err.to_string(),
     })?;
     let temp = parent.join(format!(".{name}.tmp-{}", hex::encode(token)));
-    let written =
-        write_private(&temp, render(key).as_bytes()).and_then(|()| fs::rename(&temp, path));
+    let written = write_private(&temp, bytes).and_then(|()| fs::rename(&temp, path));
     if let Err(err) = written {
         let _ = fs::remove_file(&temp);
         return Err(io_error(path, &err));
@@ -342,7 +395,7 @@ pub fn save_key_file(path: &Path, key: &DataKey, git: &dyn GitCheck) -> Result<(
 ///
 /// [`KeyFileError::InGitWorkTree`] or [`KeyFileError::GitUnavailable`].
 pub fn check_key_location(path: &Path, git: &dyn GitCheck) -> Result<(), KeyFileError> {
-    check_git(path, git)
+    check_git(path, git, STORE_KEY)
 }
 
 /// Creates `dir` and its missing parents, private to their owner. Folders

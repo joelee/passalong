@@ -7,7 +7,7 @@ image := "passalong:dev"
 compose := "tests/docker/docker-compose.yml"
 # The passalong-server commit the https backend is tested against
 # (PLAN-00010 D-04); moved when the server releases.
-server_commit := "d565a286b044d699df695f9826e8edb3dc70589b"
+server_commit := "8c7505685a0258167435bcbd7894af316ab3f2b9"
 server_dir := "target/passalong-server"
 server_src := ".passalong-server"
 server_bin := server_dir / "target/release/passalong-server"

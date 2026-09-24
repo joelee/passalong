@@ -197,9 +197,14 @@ used under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); see
 
 ### A passalong-server
 
-A [passalong-server](https://github.com/joelee/passalong-server) needs
-nothing on the client beyond `passalong init`. Its operator gives each
-device an API key, and for a self-signed certificate its pin, which
+A [passalong-server](https://github.com/joelee/passalong-server) runs
+from its Docker image, `docker pull joeworks/passalong-server:0.1.0`, or
+as a systemd service; the server's
+[Compose walkthrough](https://github.com/joelee/passalong-server/blob/main/deploy/docker/README.md)
+takes it from nothing to a first API key. passalong 0.3.0 works with
+passalong-server 0.1.0 and later. On the client nothing is needed beyond
+`passalong init`. The server's operator gives each device an API key, and
+for a self-signed certificate its pin, which
 `passalong-server tls fingerprint` prints on the server:
 
 ```text

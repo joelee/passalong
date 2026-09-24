@@ -165,11 +165,12 @@ uses, a workspace and keys, and `serve` on a free port, stopped when the
 test ends. `just ci` and `just coverage-full` include them, so the Linux CI
 job runs them too.
 
-The pin is `d565a28`, on the server's `main`, whose rewrite sessions carry
-`newHeader`: finishing another device's re-encryption needs it (PLAN-00010
-D-05). To test against a newer server, move `server_commit` to that
-commit, run `just test-https`, and read the server's changes to its
-`docs/api/` for anything the client must follow.
+The pin is `8c75056`, the server's `v0.1.0` tag, the first release whose
+rewrite sessions carry `newHeader`: finishing another device's
+re-encryption needs it (PLAN-00010 D-05). To test against a newer server,
+move `server_commit` to that release's commit, run `just test-https`, and
+read the server's changes to its `docs/api/` for anything the client must
+follow.
 
 ## Compatibility test
 

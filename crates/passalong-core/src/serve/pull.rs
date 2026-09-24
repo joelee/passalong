@@ -303,6 +303,7 @@ pub(crate) async fn pull_loop(
     open_store: StoreOpener,
     interval: Duration,
     mut shutdown: watch::Receiver<bool>,
+    denied: mpsc::UnboundedSender<String>,
 ) {
     let mut ticker = tokio::time::interval(interval);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -314,6 +315,10 @@ pub(crate) async fn pull_loop(
         }
         match puller.poll(store.as_ref()).await {
             Ok(()) => last_error = None,
+            Err(StoreError::Denied(message)) => {
+                let _ = denied.send(message);
+                return;
+            }
             Err(err) => {
                 let message = err.to_string();
                 if last_error.as_deref() != Some(message.as_str()) {
@@ -325,6 +330,10 @@ pub(crate) async fn pull_loop(
                 }
                 match open_store().await {
                     Ok(fresh) => store = fresh,
+                    Err(StoreError::Denied(message)) => {
+                        let _ = denied.send(message);
+                        return;
+                    }
                     Err(err) => tracing::debug!(error = %err, "reopening the store failed"),
                 }
             }

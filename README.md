@@ -4,14 +4,15 @@ A lightweight, cross-platform clipboard and file sharing tool for macOS,
 Linux, and Windows, with Android planned.
 
 One machine you already own runs a plain SSH server with a storage
-directory. Every other device pushes clipboard text and files there, lists
-what is stored, and pulls items back. There is no cloud service, no account,
-and no custom server daemon.
+directory, or a [passalong-server](https://github.com/joelee/passalong-server).
+Every other device pushes clipboard text and files there, lists what is
+stored, and pulls items back. There is no cloud service and no account.
 
 > **Status:** released versions and their notes are on the
 > [releases page](https://github.com/joelee/passalong/releases), and
 > [CHANGELOG.md](https://github.com/joelee/passalong/blob/main/CHANGELOG.md) lists what changed in each. Windows is
-> supported since v0.2.1; a GUI and Android are planned.
+> supported since v0.2.1, and passalong-server since v0.3.0; a GUI and
+> Android are planned.
 
 ## How it works
 
@@ -35,13 +36,16 @@ flowchart LR
   the newest items list first and identical content is stored only once.
 - Downloads are checked against the item's SHA-256 before anything is
   written.
-- With an SSH server, `serve` keeps a local copy of the item list up to
-  date, so `list` and `choose` show it without waiting for the server.
+- With an SSH server or a passalong-server, `serve` keeps a local copy of
+  the item list up to date, so `list` and `choose` show it without waiting
+  for the server.
 - A store can be encrypted: each device holds the store's key, and the
   server, or the service behind a synced folder, sees only sealed items
   (see [Encryption](#encryption)).
 - Storage sits behind a trait. Besides SSH there is a `local` backend for a
-  mounted share, and others such as S3 can be added.
+  mounted share, and an `https` backend for a passalong-server workspace:
+  each device has its own API key, and the server's certificate is pinned
+  unless the operating system trusts it. Others, such as S3, can be added.
 
 ## Installation
 
@@ -121,7 +125,11 @@ Whichever way you install, `passalong --version` confirms it.
 2. Install the client, as described in [Installation](#installation).
 3. Run `passalong init`. It asks for the server's address and your key,
    shows the server's host-key fingerprint for you to confirm, writes
-   `~/.config/passalong/config.toml`, and tests the connection.
+   `~/.config/passalong/config.toml`, and tests the connection. For a
+   [passalong-server](https://github.com/joelee/passalong-server), answer
+   `https`: `init` asks for its URL and the API key its operator gave you,
+   and shows the certificate's pin for you to compare with the server's
+   `passalong-server tls fingerprint`.
 4. Use it:
 
    ```sh
@@ -153,7 +161,7 @@ Whichever way you install, `passalong --version` confirms it.
 | `passalong delete <id>...` | Delete items |
 | `passalong prune` | Delete items older than `--older-than`, keeping the newest `--keep` (`--plain` for the unencrypted items a fresh start left) |
 | `passalong encrypt` | Encrypt the store or change its words (`--join` to give this device the key, `--rotate` to replace the key, `--recover` after an interruption) |
-| `passalong init` | Write a config file for an SSH server and pin its host key |
+| `passalong init` | Write a config file for an SSH server or a passalong-server, pinning its host key or certificate |
 | `passalong service-install` | Start `serve` at login as a systemd user service or launchd agent |
 | `passalong service-remove` | Stop and remove that service |
 | `passalong check` | Check the config, and that the server can be reached, read, and written |
@@ -186,6 +194,31 @@ used under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); see
 [NOTICE](https://github.com/joelee/passalong/blob/main/NOTICE).
 
 ## Server setup
+
+### A passalong-server
+
+A [passalong-server](https://github.com/joelee/passalong-server) runs
+from its Docker image, `docker pull joeworks/passalong-server:0.1.0`, or
+as a systemd service; the server's
+[Compose walkthrough](https://github.com/joelee/passalong-server/blob/main/deploy/docker/README.md)
+takes it from nothing to a first API key. passalong 0.3.0 works with
+passalong-server 0.1.0 and later. On the client nothing is needed beyond
+`passalong init`. The server's operator gives each device an API key, and
+for a self-signed certificate its pin, which
+`passalong-server tls fingerprint` prints on the server:
+
+```text
+sha256/Zmh6rfhivXdsj8GLjp+OIAiXFIVu4jOzkCpZHQ1fKSU=
+```
+
+The pin is the SHA-256 of the certificate's public key, so it stays the
+same when the certificate is renewed with the same key. `init` shows the
+pin the server presents and has you paste the operator's, so a mismatch is
+caught before anything is sent. A server whose certificate the operating
+system trusts, such as one from Let's Encrypt, needs no pin. See
+[Using a passalong-server](https://github.com/joelee/passalong/blob/main/docs/usage.md#using-a-passalong-server).
+
+### An SSH server
 
 Any machine with an OpenSSH server can be the server. To run one in
 Docker with the storage on the host, follow

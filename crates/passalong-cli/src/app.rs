@@ -132,6 +132,7 @@ async fn dispatch(
     let config: &Config = context.config;
     let mut backends = BackendRegistry::with_builtin();
     passalong_ssh::register(&mut backends);
+    passalong_https::register(&mut backends);
     let device = config.client.device_name.as_str();
     let cache = CacheFile::for_config(config, context.env);
     match command {
@@ -146,7 +147,7 @@ async fn dispatch(
         // `serve` opens, and re-opens, its own store.
         Command::Serve(args) => commands::serve::run(context, &args, backends, out).await,
         Command::Encrypt(args) => {
-            let fs = backends.open_fs(config).await?;
+            let admin = backends.open_admin(config).await?;
             let key_file = config.client.key_file.as_deref().context(
                 "set client.key_file: it has no default because neither XDG_CONFIG_HOME nor HOME is set",
             )?;
@@ -158,7 +159,7 @@ async fn dispatch(
                 new_kdf: KdfParams::generate,
             };
             let mut prompt = TerminalPrompt;
-            commands::encrypt::run(&args, fs.as_ref(), &keys, &mut prompt, out).await
+            commands::encrypt::run(&args, admin.as_ref(), &keys, &mut prompt, out).await
         }
         Command::Clipboard { stdin } => {
             let opened = backends.open(config).await?;
@@ -280,7 +281,7 @@ async fn dispatch(
             plain,
         } => {
             if plain {
-                let fs = backends.open_fs(config).await?;
+                let admin = backends.open_admin(config).await?;
                 let options = commands::prune::PruneOptions {
                     older_than,
                     keep,
@@ -290,7 +291,7 @@ async fn dispatch(
                 };
                 let mut prompt = TerminalPrompt;
                 return commands::prune::run_plain(
-                    fs.as_ref(),
+                    admin.as_ref(),
                     &options,
                     Utc::now(),
                     &mut prompt,
@@ -384,6 +385,7 @@ async fn check(cli: &Cli, env: &dyn EnvProvider, out: &mut dyn Write) -> anyhow:
     let _ = telemetry::init(level, crate::logs::writer);
     let mut backends = BackendRegistry::with_builtin();
     passalong_ssh::register(&mut backends);
+    passalong_https::register(&mut backends);
     let span = telemetry::op_span("check", &mut StdRandom::new());
     let serve = crate::daemon::StatePaths::resolve(env, crate::daemon::Os::current())
         .context("cannot find serve's pid file: set HOME")
@@ -460,12 +462,14 @@ async fn init(
     };
     let mut backends = BackendRegistry::with_builtin();
     passalong_ssh::register(&mut backends);
+    passalong_https::register(&mut backends);
     let mut prompt = TerminalPrompt;
     let git = SystemGit::new();
     let deps = commands::init::InitDeps {
         env,
         prompt: &mut prompt,
         keys: &commands::init::NetworkHostKeys,
+        server: &commands::init::NetworkServer,
         check: &commands::init::StoreCheck(backends),
         quiet,
         git: &git,

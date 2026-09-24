@@ -22,6 +22,8 @@ crates/
 ├── passalong-core/   config, item model, storage (RemoteFs, FsStore, Store),
 │                     clipboard trait, serve loop, telemetry, test doubles
 ├── passalong-ssh/    SftpFs over russh, host-key pinning, the `ssh` backend
+├── passalong-https/  the `https` backend: a passalong-server workspace over
+│                     its HTTPS API, with TLS pinning
 └── passalong-cli/    package `passalong`, the binary: argument parsing, commands, output
 docs/                 user and developer documentation; plans in docs/plans/
 tests/docker/         OpenSSH server for the integration tests
@@ -35,17 +37,19 @@ tests/docker/         OpenSSH server for the integration tests
 | `just fmt-check` | `cargo fmt --all -- --check` |
 | `just lint` | `cargo clippy --workspace --all-targets --all-features -- -D warnings` |
 | `just test` | `cargo test --workspace --all-targets --all-features` |
-| `just test-integration` | Starts the Docker OpenSSH server and runs the ignored tests |
+| `just test-integration` | Starts the Docker OpenSSH server and runs the ignored tests, except `passalong-https`'s |
+| `just server-build` | Clones passalong-server into `.passalong-server/` and builds the pinned commit into `target/passalong-server/` (see Server tests) |
+| `just test-https` | `server-build`, then `passalong-https`'s ignored tests, each against a server of its own |
 | `just test-deploy` | Starts `deploy/ssh-server` from a temporary directory and checks `init`, a round trip, host-owned storage, and a stable host key (Linux, Docker) |
 | `just coverage` | `cargo llvm-cov --workspace --all-features --fail-under-lines 80 --summary-only` |
-| `just coverage-full` | Coverage including the Docker-backed tests |
+| `just coverage-full` | Coverage including the Docker-backed and server-backed tests |
 | `just build` | `cargo build --workspace --all-features --locked` |
 | `just links` | `scripts/check-links.sh`: relative links and heading anchors resolve, links to `main` name existing paths, and crate READMEs use only absolute links, because crates.io cannot resolve relative ones |
 | `just check` | `fmt-check`, `lint`, `links`, `test`, `coverage`, `build` |
 | `just audit` | `cargo deny check`: advisories, licences, duplicate crates, and sources per `deny.toml` |
-| `just android-check` | `cargo check` of `passalong-core` and `passalong-ssh` for `aarch64-linux-android` without default features; needs the Android NDK (see Android) |
+| `just android-check` | `cargo check` of `passalong-core`, `passalong-ssh`, and `passalong-https` for `aarch64-linux-android` without default features; needs the Android NDK (see Android) |
 | `just lint-workflows` | `actionlint` on the GitHub Actions workflows, or its Docker image when not installed |
-| `just ci` | `check`, `audit`, `publish-dry-run`, `lint-workflows`, `test-integration`, `test-deploy`, `coverage-full` |
+| `just ci` | `check`, `audit`, `publish-dry-run`, `lint-workflows`, `test-integration`, `test-https`, `test-compat`, `test-deploy`, `coverage-full` |
 | `just docker-build` | Builds the `passalong:dev` image |
 | `just run <args>` | `cargo run -p passalong -- <args>` |
 | `just publish-dry-run` | `cargo publish --workspace --dry-run --locked`: packages and verifies every crate without uploading |
@@ -141,6 +145,32 @@ runners, starts `tests/docker/docker-compose.yml`, exports the variables,
 runs the ignored tests, and always removes the container. At most 4
 tests run at once, because the server drops new connections while too many
 are still logging in.
+
+## Server tests
+
+The `https` backend is tested against a real
+[passalong-server](https://github.com/joelee/passalong-server), not a mock:
+its replays and its rewrite sessions are what a mock would get wrong. The
+server is AGPL-3.0-or-later and this client Apache-2.0, so the server is
+only ever *run*. Nothing of it is linked, copied, or depended on; the
+client is written from the server's published API documents.
+
+`just server-build` clones the server into `.passalong-server/` once and
+builds the commit named by `server_commit` at the top of the
+`justfile`, rebuilding only when that moves. `just test-https` then runs
+the ignored tests of `crates/passalong-https/`. Each test starts its own
+server (`tests/support/mod.rs`): a temporary `HOME`, `passalong-server
+init`, a self-signed pair for `127.0.0.1` whose printed pin the client then
+uses, a workspace and keys, and `serve` on a free port, stopped when the
+test ends. `just ci` and `just coverage-full` include them, so the Linux CI
+job runs them too.
+
+The pin is `8c75056`, the server's `v0.1.0` tag, the first release whose
+rewrite sessions carry `newHeader`: finishing another device's
+re-encryption needs it (PLAN-00010 D-05). To test against a newer server,
+move `server_commit` to that release's commit, run `just test-https`, and
+read the server's changes to its `docs/api/` for anything the client must
+follow.
 
 ## Compatibility test
 

@@ -6,9 +6,13 @@
 //! directly.
 
 pub mod factory;
+pub mod format;
 pub mod fs_store;
 
-pub use factory::{BackendFuture, BackendOpener, BackendRegistry, FsFuture, FsOpener, open_store};
+pub use factory::{
+    AdminFuture, AdminOpener, BackendFuture, BackendOpener, BackendRegistry, FsFuture, FsOpener,
+    open_store,
+};
 pub use fs_store::FsStore;
 
 use std::time::Duration;
@@ -194,6 +198,10 @@ pub enum StoreError {
     /// An encrypted store's data cannot be used.
     #[error(transparent)]
     Encryption(#[from] EncryptionError),
+    /// The server no longer accepts this device's credentials, such as an
+    /// API key that expired or was revoked. Trying again cannot help.
+    #[error("{0}")]
+    Denied(String),
 }
 
 impl From<CryptoError> for StoreError {

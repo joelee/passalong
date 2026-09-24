@@ -21,6 +21,7 @@
 //!   [`read_journal`]).
 
 mod admin;
+mod admin_trait;
 pub(crate) mod header;
 mod header_change;
 mod journal;
@@ -32,6 +33,9 @@ pub use admin::{
     Leftovers, StoreState, change_words, fresh_start, inspect, join, leftovers, plain_store,
     remove_leftovers, remove_plain_if_empty, set_up,
 };
+pub use admin_trait::{
+    EncryptionAdmin, FsEncryptionAdmin, HEARTBEAT_EVERY, OpenRewrite, Rewrite, run_rewrite,
+};
 pub use header::{StoreHeader, create_header, read_header, replace_header, write_stop_file};
 pub use header_change::restore_header;
 pub use journal::{
@@ -41,7 +45,8 @@ pub use journal::{
 pub use key_file::{
     GitCheck, KeyFileError, SystemGit, check_key_location, load_key_file, save_key_file,
 };
-pub use open::{open_store, open_with_key};
+pub(crate) use key_file::{Secret, check_git, load_secret, save_secret};
+pub use open::{Claim, open_store, open_with_key, opening};
 pub use rewrite::{RewriteKind, RewritePlan, finish, migrate, read_plan, rotate, undo};
 
 use crate::crypto::CryptoError;

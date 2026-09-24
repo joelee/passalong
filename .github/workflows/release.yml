@@ -28,7 +28,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       # A restored cache may hold same-version builds of these crates, which
       # cargo would reuse when verifying the packages.
-      - run: cargo clean -p passalong-core -p passalong-ssh -p passalong
+      - run: cargo clean -p passalong-core -p passalong-ssh -p passalong-https -p passalong
       - run: cargo publish --workspace --dry-run --locked
       # Swatinem/rust-cache's post step fails with ENOENT on the tests/
       # folders of the crates cargo unpacks into target/package, which are

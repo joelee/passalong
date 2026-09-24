@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 use tokio::time::MissedTickBehavior;
 
+use crate::api_key::load_api_key;
 use crate::clock::Clock;
 use crate::config::Config;
 use crate::encryption::{SystemGit, load_key_file};
@@ -60,7 +61,8 @@ impl ListCache {
 
     /// Which store `config` names, for telling caches apart, or `None` for
     /// backends that are not cached: listing a `local` store needs no
-    /// network.
+    /// network. A server's workspace is named by its URL and the API key's
+    /// public id, and is `None` until that key is in place.
     ///
     /// The identity also names this device's key, or `plain`, so a cache
     /// from before a migration, a rotation, or a join is never used; it is
@@ -71,6 +73,12 @@ impl ListCache {
                 "ssh {}@{}:{} {}",
                 ssh.user, ssh.host, ssh.port, ssh.remote_path
             ),
+            // The API key names the workspace: a key belongs to one.
+            ("https", _) => {
+                let https = config.server.https.as_ref()?;
+                let api_key = load_api_key(&https.api_key_file, &SystemGit::new()).ok()??;
+                format!("https {} {}", https.url, api_key.id())
+            }
             _ => return None,
         };
         let key = match &config.client.key_file {
@@ -383,7 +391,28 @@ mod tests {
     }
 
     #[test]
-    fn only_ssh_stores_have_an_identity() {
+    fn an_https_store_is_named_by_its_url_and_api_key() {
+        let dir = TempDir::new().unwrap();
+        let api_key_file = dir.path().join("api.key");
+        let text = format!(
+            "[server]\nkind = \"https\"\n\n[server.https]\nurl = \"https://box.example:8443\"\napi_key_file = '{}'\n",
+            api_key_file.display()
+        );
+        let env = crate::testing::MapEnv::new().with("HOME", "/home/u");
+        let config = crate::config::parse(&text, std::path::Path::new("/c.toml"), &env).unwrap();
+        assert_eq!(ListCache::store_identity(&config), None, "no key yet");
+        let key =
+            crate::api_key::ApiKey::parse(&format!("pal_{}_{}", "k1d".repeat(4), "0".repeat(64)))
+                .unwrap();
+        crate::api_key::save_api_key(&api_key_file, &key, &SystemGit::new()).unwrap();
+        assert_eq!(
+            ListCache::store_identity(&config).as_deref(),
+            Some("https https://box.example:8443 k1dk1dk1dk1d plain")
+        );
+    }
+
+    #[test]
+    fn only_ssh_and_https_stores_have_an_identity() {
         let ssh = parse(
             "[server]\nkind = \"ssh\"\n\n[server.ssh]\nhost = \"nas\"\nport = 2222\nuser = \"pa\"\nhost_key = \"ssh-ed25519 AAAAkey\"\nidentity_file = \"/keys/id\"\nremote_path = \"/srv/passalong\"\n",
         );

@@ -26,6 +26,9 @@ pub const LOG_LEVEL_ENV: &str = "PASSALONG_LOG_LEVEL";
 const CONFIG_FILE_NAME: &str = "config.toml";
 /// Name of the key file in the default config folder.
 pub const KEY_FILE_NAME: &str = "store.key";
+/// File name of the default passalong-server API key file, beside the
+/// config file.
+pub const API_KEY_FILE_NAME: &str = "api.key";
 const DEFAULT_SSH_PORT: i64 = 22;
 const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
 const DEFAULT_DROP_FOLDER: &str = "~/PassAlong";
@@ -368,6 +371,8 @@ pub struct ServerConfig {
     pub ssh: Option<SshConfig>,
     /// `[server.local]`, present when `kind = "local"`.
     pub local: Option<LocalConfig>,
+    /// `[server.https]`, present when `kind = "https"`.
+    pub https: Option<HttpsConfig>,
 }
 
 /// `[server.ssh]` section.
@@ -391,6 +396,124 @@ pub struct SshConfig {
     pub connect_timeout_secs: u64,
     /// Key passphrase from [`PASSPHRASE_ENV`]; never read from the file.
     pub passphrase: Option<Passphrase>,
+}
+
+/// `[server.https]` section: a passalong-server workspace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct HttpsConfig {
+    /// The server's base URL, `https://` only, without a trailing `/`.
+    pub url: String,
+    /// The pinned public key of the server's certificate. Without one the
+    /// certificate is checked against the system's trust store.
+    pub tls_pin: Option<TlsPin>,
+    /// Where this device keeps its API key; absolute, `~` expanded.
+    /// Default: [`API_KEY_FILE_NAME`] beside the default config file.
+    pub api_key_file: PathBuf,
+}
+
+/// A TLS public-key pin: the SHA-256 of a certificate's
+/// SubjectPublicKeyInfo, written `sha256/<base64>` as
+/// `passalong-server tls fingerprint` prints it. `curl --pinnedpubkey`'s
+/// `sha256//<base64>` is read too.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TlsPin([u8; 32]);
+
+impl TlsPin {
+    /// The pin of a SubjectPublicKeyInfo whose SHA-256 is `digest`.
+    pub fn from_digest(digest: [u8; 32]) -> Self {
+        Self(digest)
+    }
+
+    /// Reads a pin.
+    ///
+    /// # Errors
+    ///
+    /// A description when `text` is not `sha256/` and 32 bytes in base64.
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let text = text.trim();
+        if !text.starts_with("sha256/") {
+            return Err("a pin starts with `sha256/`".to_owned());
+        }
+        // Base64 can itself start with `/`, so `sha256//…` is first read as
+        // `sha256/` and a pin that begins with a slash, and only then as
+        // curl's form. The two differ in length, so at most one fits.
+        [text.strip_prefix("sha256/"), text.strip_prefix("sha256//")]
+            .into_iter()
+            .flatten()
+            .find_map(|encoded| {
+                let bytes = b64::decode(encoded)?;
+                <[u8; 32]>::try_from(bytes).ok()
+            })
+            .map(Self)
+            .ok_or_else(|| "a pin is `sha256/` and 32 bytes of base64, 44 characters".to_owned())
+    }
+
+    /// The SHA-256 the pin names.
+    pub fn digest(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+impl fmt::Display for TlsPin {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "sha256/{}", b64::encode(&self.0))
+    }
+}
+
+impl fmt::Debug for TlsPin {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "TlsPin({self})")
+    }
+}
+
+/// Standard base64 with padding, for pins.
+mod b64 {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    pub(super) fn encode(bytes: &[u8]) -> String {
+        let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+        for chunk in bytes.chunks(3) {
+            let b = [
+                chunk[0],
+                *chunk.get(1).unwrap_or(&0),
+                *chunk.get(2).unwrap_or(&0),
+            ];
+            let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+            for i in 0..4 {
+                if i <= chunk.len() {
+                    out.push(char::from(ALPHABET[((n >> (18 - 6 * i)) & 63) as usize]));
+                } else {
+                    out.push('=');
+                }
+            }
+        }
+        out
+    }
+
+    pub(super) fn decode(text: &str) -> Option<Vec<u8>> {
+        let bytes = text.as_bytes();
+        if bytes.is_empty() || !bytes.len().is_multiple_of(4) {
+            return None;
+        }
+        let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
+        for (index, chunk) in bytes.chunks(4).enumerate() {
+            let last = index == bytes.len() / 4 - 1;
+            let pad = chunk.iter().rev().take_while(|&&c| c == b'=').count();
+            if pad > 2 || (pad > 0 && !last) {
+                return None;
+            }
+            let mut n = 0_u32;
+            for &c in &chunk[..4 - pad] {
+                let value = ALPHABET.iter().position(|&a| a == c)?;
+                n = (n << 6) | value as u32;
+            }
+            n <<= 6 * pad as u32;
+            let decoded = [(n >> 16) as u8, (n >> 8) as u8, n as u8];
+            out.extend_from_slice(&decoded[..3 - pad]);
+        }
+        Some(out)
+    }
 }
 
 /// `[server.local]` section.
@@ -699,6 +822,7 @@ struct RawServer {
     kind: Option<String>,
     ssh: Option<RawSsh>,
     local: Option<RawLocal>,
+    https: Option<RawHttps>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -721,6 +845,14 @@ struct RawLocal {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawHttps {
+    url: Option<String>,
+    tls_pin: Option<String>,
+    api_key_file: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawServe {
     drop_folder: Option<String>,
     clipboard_poll_interval_ms: Option<i64>,
@@ -738,12 +870,19 @@ impl RawConfig {
         // Server first: it holds the required keys users most often miss.
         let server = self.server.unwrap_or_default();
         let kind = required(server.kind, "server.kind")?;
-        let (ssh, local) = match kind.as_str() {
-            "ssh" => (Some(server.ssh.unwrap_or_default().validate(env)?), None),
-            "local" => (None, Some(server.local.unwrap_or_default().validate(env)?)),
-            _ => (None, None),
+        let (mut ssh, mut local, mut https) = (None, None, None);
+        match kind.as_str() {
+            "ssh" => ssh = Some(server.ssh.unwrap_or_default().validate(env)?),
+            "local" => local = Some(server.local.unwrap_or_default().validate(env)?),
+            "https" => https = Some(server.https.unwrap_or_default().validate(env)?),
+            _ => {}
+        }
+        let server = ServerConfig {
+            kind,
+            ssh,
+            local,
+            https,
         };
-        let server = ServerConfig { kind, ssh, local };
         let client = self.client.validate(env)?;
         let serve = self.serve.validate(env)?;
         // A pulled file written into the drop folder would be sent back.
@@ -837,6 +976,83 @@ impl RawSsh {
             passphrase: non_empty(env, PASSPHRASE_ENV).map(Passphrase::new),
         })
     }
+}
+
+impl RawHttps {
+    fn validate(self, env: &dyn EnvProvider) -> Result<HttpsConfig, ConfigError> {
+        let url = https_url(&required(self.url, "server.https.url")?)
+            .map_err(|reason| invalid("server.https.url", reason))?;
+        let tls_pin = match self.tls_pin {
+            Some(pin) => Some(
+                TlsPin::parse(&pin).map_err(|reason| invalid("server.https.tls_pin", reason))?,
+            ),
+            None => None,
+        };
+        let api_key_file = match self.api_key_file {
+            Some(path) => {
+                let path = required(Some(path), "server.https.api_key_file")?;
+                expand_tilde(&path, "server.https.api_key_file", env)?
+            }
+            None => default_api_key_path(env)
+                .ok_or_else(|| ConfigError::MissingKey("server.https.api_key_file".to_owned()))?,
+        };
+        if !api_key_file.has_root() {
+            return Err(invalid(
+                "server.https.api_key_file",
+                "must be an absolute path or start with `~/`",
+            ));
+        }
+        Ok(HttpsConfig {
+            url,
+            tls_pin,
+            api_key_file,
+        })
+    }
+}
+
+/// `text` as a server's base URL: `https://`, a host and optional port, and
+/// an optional path, without a user, query, or fragment, and without a
+/// trailing `/`.
+fn https_url(text: &str) -> Result<String, String> {
+    let text = text.trim();
+    let scheme_len = "https://".len();
+    if text.len() < scheme_len || !text[..scheme_len].eq_ignore_ascii_case("https://") {
+        return Err(
+            "must start with `https://`: over plain http the API key would travel unencrypted"
+                .to_owned(),
+        );
+    }
+    let rest = &text[scheme_len..];
+    if rest.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err("must not contain spaces".to_owned());
+    }
+    if rest.contains(['?', '#']) {
+        return Err("must not have a query or a fragment".to_owned());
+    }
+    let (authority, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+    if authority.contains('@') {
+        return Err("must not name a user; the API key authenticates".to_owned());
+    }
+    let host = match authority.rsplit_once(':') {
+        Some((host, port)) if !host.ends_with(']') && host.contains(':') => {
+            // An IPv6 address without brackets.
+            return Err(format!(
+                "put the IPv6 address in brackets: https://[{host}:{port}]"
+            ));
+        }
+        Some((host, port)) if !port.contains(']') => {
+            port.parse::<u16>()
+                .ok()
+                .filter(|port| *port != 0)
+                .ok_or("the port must be between 1 and 65535")?;
+            host
+        }
+        _ => authority,
+    };
+    if host.is_empty() {
+        return Err("must name a host".to_owned());
+    }
+    Ok(format!("https://{authority}{}", path.trim_end_matches('/')))
 }
 
 impl RawLocal {
@@ -966,6 +1182,63 @@ after_send = "move"
     )
 }
 
+/// The answers `passalong init` collects for a passalong-server.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HttpsInitAnswers {
+    /// `client.device_name`.
+    pub device_name: String,
+    /// `server.https.url`.
+    pub url: String,
+    /// `server.https.tls_pin`, confirmed against the server's own; `None`
+    /// to trust the operating system's certificate authorities.
+    pub tls_pin: Option<TlsPin>,
+    /// `server.https.api_key_file`, absolute.
+    pub api_key_file: PathBuf,
+}
+
+/// Renders a complete, commented config file for a passalong-server, as
+/// [`render`] does for SSH.
+pub fn render_https(answers: &HttpsInitAnswers) -> String {
+    let q = |value: &str| toml::Value::String(value.to_owned()).to_string();
+    let pin = match &answers.tls_pin {
+        Some(pin) => format!(
+            "# The server's public key, pinned after you confirmed it.\ntls_pin = {}\n",
+            q(&pin.to_string())
+        ),
+        None => "# No tls_pin: the operating system's certificate authorities vouch for it.\n"
+            .to_owned(),
+    };
+    format!(
+        r#"# passalong configuration, written by `passalong init`.
+# Every key is documented in docs/configuration.md. Secrets never go here:
+# the API key is kept in api_key_file, readable by you only.
+
+[client]
+# Name recorded on every item you send.
+device_name = {device}
+# error | warning | info | verbose | debug
+log_level = "info"
+
+[server]
+kind = "https"
+
+[server.https]
+url = {url}
+{pin}api_key_file = {key_file}
+
+[serve]
+drop_folder = "~/PassAlong"
+clipboard_poll_interval_ms = 750
+file_stable_wait_ms = 1000
+# What to do with a dropped file after it is sent: "move" (into drop_folder/sent/) or "delete".
+after_send = "move"
+"#,
+        device = q(&answers.device_name),
+        url = q(&answers.url),
+        key_file = q(&answers.api_key_file.to_string_lossy()),
+    )
+}
+
 /// Where `passalong init` writes without `--config`:
 /// `$XDG_CONFIG_HOME/passalong/config.toml` when that variable is absolute,
 /// otherwise `$HOME/.config/passalong/config.toml`; on Windows,
@@ -998,6 +1271,12 @@ pub(crate) fn default_config_path_on(env: &dyn EnvProvider, platform: Platform) 
 /// [`default_config_path`].
 pub fn default_key_path(env: &dyn EnvProvider) -> Option<PathBuf> {
     default_config_path(env).map(|config| config.with_file_name(KEY_FILE_NAME))
+}
+
+/// Where the API key file is by default: [`API_KEY_FILE_NAME`] in the
+/// folder of [`default_config_path`].
+pub fn default_api_key_path(env: &dyn EnvProvider) -> Option<PathBuf> {
+    default_config_path(env).map(|config| config.with_file_name(API_KEY_FILE_NAME))
 }
 
 #[cfg(test)]
@@ -1685,6 +1964,28 @@ remote_path = "/srv/pa"
     }
 
     #[test]
+    fn a_rendered_https_config_parses_back_to_the_answers() {
+        let pin = TlsPin::parse("sha256/Zmh6rfhivXdsj8GLjp+OIAiXFIVu4jOzkCpZHQ1fKSU=").unwrap();
+        let mut answers = HttpsInitAnswers {
+            device_name: "box".into(),
+            url: "https://box.example:8443".into(),
+            tls_pin: Some(pin),
+            api_key_file: std::env::temp_dir().join("it's").join("api.key"),
+        };
+        let cfg = parse(&render_https(&answers), Path::new("/c.toml"), &env()).unwrap();
+        assert_eq!(cfg.server.kind, "https");
+        assert_eq!(cfg.client.device_name, "box");
+        let https = cfg.server.https.unwrap();
+        assert_eq!(https.url, "https://box.example:8443");
+        assert_eq!(https.tls_pin, Some(pin));
+        assert_eq!(https.api_key_file, answers.api_key_file);
+
+        answers.tls_pin = None;
+        let cfg = parse(&render_https(&answers), Path::new("/c.toml"), &env()).unwrap();
+        assert_eq!(cfg.server.https.unwrap().tls_pin, None);
+    }
+
+    #[test]
     fn rendered_values_are_escaped() {
         let mut a = answers();
         a.device_name = r#"my "box" \ 1"#.into();
@@ -1832,5 +2133,150 @@ remote_path = "/srv/pa"
             "{MINIMAL_SSH}\n[client]\ndownload_dir = \"/drop2\"\n\n[serve]\ndrop_folder = \"/drop\"\npull = true\n"
         );
         assert_eq!(parse_ok(&text).client.download_dir, PathBuf::from("/drop2"));
+    }
+
+    const MINIMAL_HTTPS: &str =
+        "[server]\nkind = \"https\"\n[server.https]\nurl = \"https://pal.example:8443/\"\n";
+    /// A real pin: the SHA-256 of 32 zero bytes, base64.
+    const PIN: &str = "sha256/Zmh6rfhivXdsj8GLjp+OIAiXFIVu4jOzkCpZHQ1fKSU=";
+
+    #[test]
+    fn an_https_server_needs_a_url_and_defaults_its_key_file() {
+        let home = MapEnv::new().with("HOME", "/home/u");
+        let cfg = parse(MINIMAL_HTTPS, Path::new("/c.toml"), &home).unwrap();
+        let https = cfg.server.https.unwrap();
+        assert_eq!(https.url, "https://pal.example:8443");
+        assert_eq!(https.tls_pin, None);
+        assert_eq!(
+            https.api_key_file,
+            Path::new("/home/u/.config/passalong/api.key")
+        );
+        assert!(cfg.server.ssh.is_none() && cfg.server.local.is_none());
+        match parse("[server]\nkind = \"https\"\n", Path::new("/c.toml"), &home).unwrap_err() {
+            ConfigError::MissingKey(key) => assert_eq!(key, "server.https.url"),
+            other => panic!("{other:?}"),
+        }
+        match parse(MINIMAL_HTTPS, Path::new("/c.toml"), &MapEnv::new()).unwrap_err() {
+            ConfigError::MissingKey(key) => assert_eq!(key, "server.https.api_key_file"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn only_https_urls_without_users_queries_or_spaces_are_taken() {
+        for (url, kept) in [
+            ("https://pal.example", "https://pal.example"),
+            ("HTTPS://pal.example/", "https://pal.example"),
+            ("https://127.0.0.1:8443", "https://127.0.0.1:8443"),
+            ("https://[::1]:8443/base/", "https://[::1]:8443/base"),
+        ] {
+            assert_eq!(https_url(url).unwrap(), kept, "{url}");
+        }
+        for url in [
+            "http://pal.example",
+            "pal.example",
+            "https://",
+            "https://:8443",
+            "https://user@pal.example",
+            "https://pal.example?x=1",
+            "https://pal.example/#top",
+            "https://pal example",
+            "https://pal.example:0",
+            "https://pal.example:99999",
+            "https://::1:8443",
+        ] {
+            assert!(https_url(url).is_err(), "{url}");
+        }
+        let err = https_url("http://pal.example").unwrap_err();
+        assert!(err.contains("unencrypted"), "{err}");
+    }
+
+    #[test]
+    fn a_tls_pin_is_sha256_and_32_bytes_of_base64_in_either_form() {
+        let pin = TlsPin::parse(PIN).unwrap();
+        assert_eq!(pin.to_string(), PIN);
+        assert_eq!(
+            TlsPin::parse(&PIN.replacen("sha256/", "sha256//", 1)).unwrap(),
+            pin
+        );
+        assert_eq!(pin.digest()[..4], [0x66, 0x68, 0x7a, 0xad]);
+        // A pin whose base64 starts with `/`, as a real server gave one, in
+        // both forms.
+        let slash = "sha256//tc0nTavCJC9TZBAEDUCNy4Q/HiXKyxwMio61TAj/PU=";
+        let read = TlsPin::parse(slash).unwrap();
+        assert_eq!(read.to_string(), slash);
+        assert_eq!(
+            TlsPin::parse(&slash.replacen("sha256/", "sha256//", 1)).unwrap(),
+            read
+        );
+        for bad in [
+            "Zmh6rfhivXdsj8GLjp+OIAiXFIVu4jOzkCpZHQ1fKSU=",
+            "sha1/Zmh6rfhivXdsj8GLjp+OIAiXFIVu4jOzkCpZHQ1fKSU=",
+            "sha256/not base64!",
+            "sha256/AAAA",
+        ] {
+            assert!(TlsPin::parse(bad).is_err(), "{bad}");
+        }
+        let home = MapEnv::new().with("HOME", "/home/u");
+        let with = |extra: &str| {
+            parse(
+                &format!("{MINIMAL_HTTPS}{extra}"),
+                Path::new("/c.toml"),
+                &home,
+            )
+        };
+        assert_eq!(
+            with(&format!("tls_pin = \"{PIN}\"\n"))
+                .unwrap()
+                .server
+                .https
+                .unwrap()
+                .tls_pin,
+            Some(pin)
+        );
+        assert_eq!(
+            invalid_key(with("tls_pin = \"sha256/AAAA\"\n").unwrap_err()),
+            "server.https.tls_pin"
+        );
+        assert_eq!(
+            with("api_key_file = \"~/k/api.key\"\n")
+                .unwrap()
+                .server
+                .https
+                .unwrap()
+                .api_key_file,
+            Path::new("/home/u/k/api.key")
+        );
+        assert_eq!(
+            invalid_key(with("api_key_file = \"k/api.key\"\n").unwrap_err()),
+            "server.https.api_key_file"
+        );
+        assert_eq!(
+            invalid_key(
+                parse(
+                    "[server]\nkind = \"https\"\n[server.https]\nurl = \"http://x\"\n",
+                    Path::new("/c.toml"),
+                    &home
+                )
+                .unwrap_err()
+            ),
+            "server.https.url"
+        );
+    }
+
+    #[test]
+    fn base64_round_trips_every_length() {
+        for len in 0..40_usize {
+            let bytes: Vec<u8> = (0..len).map(|i| (i * 37 % 256) as u8).collect();
+            let text = b64::encode(&bytes);
+            if len == 0 {
+                assert_eq!(text, "");
+                continue;
+            }
+            assert_eq!(b64::decode(&text).unwrap(), bytes, "{len}");
+        }
+        for bad in ["A", "AB=C", "A===", "AA==AAAA", "AA*A"] {
+            assert!(b64::decode(bad).is_none(), "{bad}");
+        }
     }
 }

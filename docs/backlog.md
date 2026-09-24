@@ -4,16 +4,13 @@ Future work not covered by an active plan. Completed items are removed.
 
 ## @joelee road map for next releases
 
-### v0.2.2
-- **Amazon S3 support** for `serve`
+### Unscheduled
 - **Check encrypted stores on a cloud-synced folder** (PLAN-00008 AC-21,
   deferred on 2026-09-15 for lack of a setup). Two devices share one
   Dropbox, Google Drive, or OneDrive folder as a `local` store: encrypt on
   one, join on the other, and send text and files both ways. Every item
   should list and load on both, and none be reported corrupt once syncing
   is done. See IDEA-00001-R05-MED-01.
-
-### Unscheduled
 - **`passalong init` for a `local` store** (requested 2026-09-16). `init`
   only sets up an SSH server, so a `local` store, such as a mounted share
   or a synced folder, needs its config written by hand. `init` should offer
@@ -37,10 +34,18 @@ Future work not covered by an active plan. Completed items are removed.
   identity file.
 - **Connection reuse.** One-shot commands open a new SSH connection each
   time; reuse or multiplex connections.
-- **More backends.** S3 and HTTP API backends behind the existing registry.
-  Their config sections must be added to the core configuration module.
-- **Android client and desktop GUI** on top of `passalong-core` and
-  `passalong-ssh`.
+- **More backends.** An S3 backend behind the existing registry. Its config
+  section must be added to the core configuration module.
+- **Android client and desktop GUI** on top of `passalong-core`,
+  `passalong-ssh`, and `passalong-https`.
+- **`serve` and an abandoned rewrite** (PLAN-00010 STEP-10). While a
+  server's re-encryption is open, `serve` waits and logs that once. Once the
+  session's lease has ended, nobody may be coming back to it, so `serve`
+  should say so and name `passalong encrypt --recover`.
+- **`init` taking the API key from standard input** (PLAN-00010 STEP-09).
+  With `--yes`, the key must already be in its file. Reading it from
+  standard input would let a script set up a device in one step without
+  putting the key in an argument.
 - **A windowless Windows launcher** (PLAN-00009 D-07). The Task Scheduler
   task from `service-install --scheduler` runs `serve` in the foreground,
   so its console window stays open while it runs. A small `windows`

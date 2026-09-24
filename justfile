@@ -5,6 +5,12 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 image := "passalong:dev"
 compose := "tests/docker/docker-compose.yml"
+# The passalong-server commit the https backend is tested against
+# (PLAN-00010 D-04); moved when the server releases.
+server_commit := "8c7505685a0258167435bcbd7894af316ab3f2b9"
+server_dir := "target/passalong-server"
+server_src := ".passalong-server"
+server_bin := server_dir / "target/release/passalong-server"
 
 # List available recipes
 default:
@@ -39,14 +45,39 @@ test:
 # Run the Docker-backed SSH integration tests (ignored tests). At most 4
 # tests run at once: OpenSSH drops new connections while too many are still
 # logging in (MaxStartups), which made unrelated tests fail at random.
-test-integration: (_with-sshd "cargo test --workspace --all-features -- --ignored --skip desktop_ --skip compat_ --test-threads=4")
+test-integration: (_with-sshd "cargo test --workspace --exclude passalong-https --all-features -- --ignored --skip desktop_ --skip compat_ --skip https_ --test-threads=4")
+
+# The server is AGPL-3.0-or-later: the tests run it; nothing of it is linked
+# or copied into passalong. It is cloned into .passalong-server once and
+# rebuilt only when the commit moves.
+# Build passalong-server at `server_commit` for the https tests
+server-build:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # The clone stays out of `target/`, which CI's cache restores with files
+    # pruned.
+    src={{server_src}}
+    if [ ! -d "$src/.git" ]; then
+        git clone --quiet https://github.com/joelee/passalong-server "$src"
+    fi
+    if [ "$(git -C "$src" rev-parse HEAD)" != "{{server_commit}}" ]; then
+        git -C "$src" fetch --quiet origin
+        git -C "$src" checkout --quiet --detach {{server_commit}}
+    fi
+    target="$PWD/{{server_dir}}/target"
+    cd "$src" && cargo build --release --locked -p passalong-server --target-dir "$target"
+
+# Run the https backend's tests against a real passalong-server, one per test
+test-https: server-build
+    PASSALONG_SERVER_BIN="$PWD/{{server_bin}}" cargo test -p passalong-https --all-features -- --ignored --test-threads=4
+    PASSALONG_SERVER_BIN="$PWD/{{server_bin}}" cargo test -p passalong --all-features --test cli_https_backend -- --ignored --test-threads=4
 
 # Line coverage gate (>= 80%) without Docker-backed tests
 coverage:
     cargo llvm-cov --workspace --all-features --fail-under-lines 80 --summary-only
 
 # Line coverage gate including the Docker-backed tests
-coverage-full: (_with-sshd "cargo llvm-cov --workspace --all-features --fail-under-lines 80 --summary-only -- --include-ignored --skip desktop_ --skip compat_ --test-threads=4")
+coverage-full: server-build (_with-sshd "PASSALONG_SERVER_BIN=$PWD/" + server_bin + " cargo llvm-cov --workspace --all-features --fail-under-lines 80 --summary-only -- --include-ignored --skip desktop_ --skip compat_ --test-threads=4")
 
 # Run the released v0.1.6 binary against encrypted-store layouts, which it
 # must refuse without writing item data, and the released v0.2.0 binary
@@ -170,7 +201,7 @@ android-check:
     # ring compiles C code for the target, with the NDK's clang for API 24.
     export CC_aarch64_linux_android="$bin/aarch64-linux-android24-clang"
     export AR_aarch64_linux_android="$bin/llvm-ar"
-    cargo check --locked --target aarch64-linux-android -p passalong-core -p passalong-ssh --no-default-features
+    cargo check --locked --target aarch64-linux-android -p passalong-core -p passalong-ssh -p passalong-https --no-default-features
 
 # Build the workspace from the lockfile
 build:
@@ -185,7 +216,7 @@ links:
 check: fmt-check lint links test coverage build
 
 # Full CI pipeline: all checks, then Docker-backed integration and coverage
-ci: check audit publish-dry-run lint-workflows test-integration test-compat test-deploy coverage-full
+ci: check audit publish-dry-run lint-workflows test-integration test-https test-compat test-deploy coverage-full
 
 # Build the container image
 docker-build:
@@ -198,7 +229,7 @@ publish-dry-run *ARGS:
     # unchanged, so clear earlier builds of the workspace crates and their
     # sources unpacked from cargo's temporary registries (the `-<hash>`
     # folders; the crates.io cache is left alone) first.
-    cargo clean -p passalong-core -p passalong-ssh -p passalong
+    cargo clean -p passalong-core -p passalong-ssh -p passalong-https -p passalong
     rm -rf "${CARGO_HOME:-$HOME/.cargo}"/registry/src/-*/passalong-*
     cargo publish --workspace --dry-run --locked {{ARGS}}
     # The unpacked packages in target/package are only needed during

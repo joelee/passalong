@@ -6,6 +6,7 @@
 //! telemetry. It must never depend on CLI or terminal crates so that future
 //! GUI and Android front-ends can reuse it.
 
+pub mod api_key;
 pub mod cache;
 pub mod clipboard;
 pub mod clock;
@@ -31,6 +32,6 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 mod tests {
     #[test]
     fn version_is_the_workspace_version() {
-        assert_eq!(super::VERSION, "0.2.1");
+        assert_eq!(super::VERSION, "0.3.0");
     }
 }

@@ -50,7 +50,7 @@ Unknown keys are rejected, and every error names the offending key or line.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `kind` | string | required | Storage backend: `ssh` or `local` |
+| `kind` | string | required | Storage backend: `ssh`, `local`, or `https` (a [passalong-server](https://github.com/joelee/passalong-server) workspace) |
 
 ### `[server.ssh]` (required when `kind = "ssh"`)
 
@@ -72,6 +72,25 @@ The key passphrase is never read from this file; see Environment variables.
 |---|---|---|---|
 | `path` | path | required | Storage directory, for example a mounted network share; `~` is expanded |
 
+### `[server.https]` (required when `kind = "https"`)
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `url` | string | required | The server, `https://host[:port][/path]`. Plain `http://` is refused: the API key would travel unencrypted |
+| `tls_pin` | string | none | The pinned public key of the server's certificate, `sha256/<base64>` as `passalong-server tls fingerprint` prints it (`curl`'s `sha256//` form is read too). With a pin, that key alone is trusted, whatever signed the certificate, which is how a self-signed server works. Without one, the certificate must be trusted by the operating system. Verification cannot be turned off |
+| `api_key_file` | path | `api.key` beside the default config file | Where this device keeps its API key (`pal_<id>_<secret>`); `~` is expanded, and the path must be absolute |
+
+The API key is a password for the whole workspace, so it is not kept in
+this file. Its file is protected like the store's key file: written
+readable by you only (mode 0600, or an access list for you alone on
+Windows), and refused when others can read it or when it sits in a git
+work tree that does not ignore it. It is sent only in the `Authorization`
+header, and never logged.
+
+A pin names the certificate's key, not the certificate: a renewal that
+keeps the key keeps the pin (with Let's Encrypt, `--reuse-key`). A server
+whose certificate is publicly trusted needs no pin.
+
 ### `[serve]`
 
 | Key | Type | Default | Description |
@@ -83,7 +102,7 @@ The key passphrase is never read from this file; see Environment variables.
 | `clipboard_images` | boolean | `true` | Also send clipboard images; an image is read only when the clipboard holds no text |
 | `pull` | boolean | `false` | Also apply items sent by other devices: text and images to the clipboard, files into `client.download_dir` when it exists. `client.download_dir` must then not be `drop_folder` or inside it |
 | `pull_interval_ms` | integer | `5000` | 1000 to 3600000; how often pull mode checks for new items |
-| `list_cache` | boolean | `true` | With the `ssh` backend, keep a local copy of the item list that `list` and `choose` read without connecting (see `serve` files) |
+| `list_cache` | boolean | `true` | With the `ssh` or `https` backend, keep a local copy of the item list that `list` and `choose` read without connecting (see `serve` files) |
 | `list_cache_check_secs` | integer | `60` | 10 to 86400; how often `serve` compares that copy with the server |
 
 ## Environment variables
@@ -110,11 +129,11 @@ override variables already set in the environment. Keep secrets only in
 | macOS | `~/Library/Application Support/passalong/serve.pid` | `~/Library/Logs/passalong/serve.log` |
 | Windows | `%LOCALAPPDATA%\passalong\serve.pid` | `%LOCALAPPDATA%\passalong\serve.log` |
 
-With the `ssh` backend and `serve.list_cache` on, `serve` also keeps
-`list-cache.json` in the pid file's folder: the item list, readable by you
-only, since it holds text previews. `list` and `choose` use it while it was
+With the `ssh` or `https` backend and `serve.list_cache` on, `serve` also
+keeps `list-cache.json` in the pid file's folder: the item list, readable
+by you only, since it holds text previews. `list` and `choose` use it while it was
 checked within two `list_cache_check_secs`, and only for the server it was
-made from.
+made from: for `https`, the URL and the API key's public id.
 
 The pid file is locked while `serve` runs, which is how a second copy is
 refused. A pid file left behind by a crash is harmless and is reused. The

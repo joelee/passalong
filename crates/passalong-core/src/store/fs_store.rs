@@ -14,19 +14,17 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::{DateTime, TimeDelta, Utc};
-use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::clock::Clock;
-use crate::crypto::{self, CHUNK_LEN, CONTENT_SALT_LEN, KeyId, SealedMeta, Sealer, read_full};
+use crate::crypto::{self, CONTENT_SALT_LEN, KeyId, Sealer};
 use crate::encryption::{
     ENCRYPTION_DIR, EncryptionError, Leftovers, PLAIN_DIR, REWRITE_DIR, read_header,
 };
 use crate::fs::{BoxRead, FsError, RemoteFs, RemotePath};
-use crate::model::{
-    ContentDigest, ContentHasher, ContentKey, ItemId, ItemKind, ItemMeta, NewItem, preview_of,
-};
+use crate::model::{ContentDigest, ContentKey, ItemId, ItemMeta, NewItem};
 use crate::random::RandomSource;
+use crate::store::format::{self, CopyError, MAX_META_BYTES, MetaError, decode_array};
 use crate::store::{PROBE_BYTES, PutOutcome, Store, StoreError, WriteProbe};
 
 const ITEMS_DIR: &str = "items";
@@ -35,18 +33,11 @@ const TMP_DIR: &str = "tmp";
 const SEALED_ITEMS_DIR: &str = "v2/items";
 /// Where a sealed store stages uploads and deletions.
 const SEALED_TMP_DIR: &str = "v2/tmp";
-/// Version of a sealed store's `meta.json`.
-const SEALED_SCHEMA: u32 = 2;
 /// How long after its creation a sealed item that does not open counts as
 /// still arriving, rather than corrupt.
 pub(crate) const INCOMPLETE_GRACE_SECS: i64 = 5 * 60;
 const CONTENT_FILE: &str = "content";
 const META_FILE: &str = "meta.json";
-const CHUNK_SIZE: usize = 64 * 1024;
-/// Bytes kept from the start of text content to build its preview.
-const PREVIEW_HEAD_BYTES: usize = 4096;
-/// `meta.json` is tiny; the cap stops a hostile file from exhausting memory.
-const MAX_META_BYTES: u64 = 64 * 1024;
 const MIN_PREFIX_LEN: usize = 4;
 
 /// A [`Store`] on top of a [`RemoteFs`].
@@ -390,37 +381,10 @@ impl<F: RemoteFs> FsStore<F> {
             .read_to_end(&mut buf)
             .await
             .map_err(|err| corrupt(id, format!("reading meta.json: {err}")))?;
-        let Some(sealer) = &self.sealer else {
-            let meta: ItemMeta = serde_json::from_slice(&buf)
-                .map_err(|err| corrupt(id, format!("meta.json: {err}")))?;
-            if meta.id != *id {
-                return Err(corrupt(id, format!("meta.json describes {}", meta.id)));
-            }
-            return Ok((meta, None));
-        };
-        let file: SealedMetaFile = serde_json::from_slice(&buf)
-            .map_err(|err| self.unreadable(id, format!("meta.json: {err}")))?;
-        if file.schema != SEALED_SCHEMA {
-            return Err(corrupt(
-                id,
-                format!("meta.json has schema {}, not {SEALED_SCHEMA}", file.schema),
-            ));
-        }
-        if file.id != *id {
-            return Err(corrupt(id, format!("meta.json describes {}", file.id)));
-        }
-        let sealed = file.sealed().map_err(|reason| corrupt(id, reason))?;
-        let plain = sealer
-            .open_meta(id, &sealed)
-            .map_err(|_| self.unreadable(id, "meta.json does not open with this store's key"))?;
-        let body: SealedMetaBody = serde_json::from_slice(&plain)
-            .map_err(|err| corrupt(id, format!("sealed meta.json: {err}")))?;
-        if body.meta.id != *id {
-            return Err(corrupt(id, format!("meta.json describes {}", body.meta.id)));
-        }
-        let salt = decode_array(&body.content_salt)
-            .map_err(|reason| corrupt(id, format!("content salt: {reason}")))?;
-        Ok((body.meta, Some(salt)))
+        format::decode_meta(id, &buf, self.sealer.as_ref()).map_err(|err| match err {
+            MetaError::Corrupt(reason) => corrupt(id, reason),
+            MetaError::Unopened(reason) => self.unreadable(id, reason),
+        })
     }
 
     /// Streams `content` into `path`, hashing it and keeping the first bytes
@@ -428,73 +392,18 @@ impl<F: RemoteFs> FsStore<F> {
     /// one chunk ahead to find the last, and also returns the content salt.
     async fn write_content(
         &self,
-        mut content: BoxRead,
+        content: BoxRead,
         path: &RemotePath,
     ) -> Result<(ContentDigest, Vec<u8>, Option<[u8; CONTENT_SALT_LEN]>), StoreError> {
         let mut writer = self.fs.open_write(path).await?;
-        let mut hasher = ContentHasher::new();
-        let mut head = Vec::new();
-        let mut keep = |chunk: &[u8]| {
-            hasher.update(chunk);
-            let room = PREVIEW_HEAD_BYTES.saturating_sub(head.len());
-            head.extend_from_slice(&chunk[..room.min(chunk.len())]);
-        };
-        let reading = |err: std::io::Error| StoreError::Content(err.to_string());
-        let salt = match &self.sealer {
-            None => {
-                let mut buf = vec![0_u8; CHUNK_SIZE];
-                loop {
-                    let n = content.read(&mut buf).await.map_err(reading)?;
-                    if n == 0 {
-                        break;
-                    }
-                    keep(&buf[..n]);
-                    writer
-                        .write_all(&buf[..n])
-                        .await
-                        .map_err(|err| FsError::from_io(path, err))?;
-                }
-                None
-            }
-            Some(sealer) => {
-                let mut sealing = sealer.content_sealer()?;
-                writer
-                    .write_all(&sealing.header())
-                    .await
-                    .map_err(|err| FsError::from_io(path, err))?;
-                let mut current = vec![0_u8; CHUNK_LEN];
-                let mut next = vec![0_u8; CHUNK_LEN];
-                let mut len = read_full(&mut content, &mut current)
-                    .await
-                    .map_err(reading)?;
-                loop {
-                    // Only a full chunk can have more after it.
-                    let next_len = if len == CHUNK_LEN {
-                        read_full(&mut content, &mut next).await.map_err(reading)?
-                    } else {
-                        0
-                    };
-                    let chunk = &current[..len];
-                    keep(chunk);
-                    let sealed = sealing.seal_chunk(chunk, next_len == 0)?;
-                    writer
-                        .write_all(&sealed)
-                        .await
-                        .map_err(|err| FsError::from_io(path, err))?;
-                    if next_len == 0 {
-                        break;
-                    }
-                    std::mem::swap(&mut current, &mut next);
-                    len = next_len;
-                }
-                Some(sealing.salt())
-            }
-        };
-        writer
-            .shutdown()
+        let written = format::write_content(content, &mut writer, self.sealer.as_ref())
             .await
-            .map_err(|err| FsError::from_io(path, err))?;
-        Ok((hasher.finalize(), head, salt))
+            .map_err(|err| match err {
+                CopyError::Read(err) => StoreError::Content(err.to_string()),
+                CopyError::Write(err) => FsError::from_io(path, err).into(),
+                CopyError::Crypto(err) => err.into(),
+            })?;
+        Ok((written.digest, written.head, written.salt))
     }
 
     /// Writes `meta`, sealed with its content salt in a sealed store.
@@ -504,22 +413,16 @@ impl<F: RemoteFs> FsStore<F> {
         meta: &ItemMeta,
         salt: Option<[u8; CONTENT_SALT_LEN]>,
     ) -> Result<(), StoreError> {
-        let encoding =
-            |err: serde_json::Error| corrupt(&meta.id, format!("encoding meta.json: {err}"));
-        let mut json = match (&self.sealer, salt) {
-            (Some(sealer), Some(salt)) => {
-                let body = serde_json::to_vec(&SealedMetaBody {
-                    meta: meta.clone(),
-                    content_salt: hex::encode(salt),
-                })
-                .map_err(encoding)?;
-                let sealed = sealer.seal_meta(&meta.id, &body)?;
-                serde_json::to_vec_pretty(&SealedMetaFile::new(&meta.id, &sealed))
-                    .map_err(encoding)?
-            }
-            _ => serde_json::to_vec_pretty(meta).map_err(encoding)?,
+        let sealing = match (&self.sealer, &salt) {
+            (Some(sealer), Some(salt)) => Some((sealer, salt)),
+            _ => None,
         };
-        json.push(b'\n');
+        let json = format::encode_meta(meta, sealing).map_err(|err| match err {
+            format::EncodeError::Crypto(err) => err.into(),
+            format::EncodeError::Json(err) => {
+                corrupt(&meta.id, format!("encoding meta.json: {err}"))
+            }
+        })?;
         let mut writer = self.fs.open_write(path).await?;
         writer
             .write_all(&json)
@@ -550,7 +453,7 @@ impl<F: RemoteFs> FsStore<F> {
                 created: false,
             });
         }
-        let preview = (item.kind == ItemKind::Text).then(|| preview_of(utf8_prefix(&head)));
+        let preview = format::preview(item.kind, &head);
         let meta = item.finish_keyed(self.clock.now(), &digest, key, preview)?;
         self.write_meta(&staging.join(META_FILE)?, &meta, salt)
             .await?;
@@ -851,59 +754,10 @@ impl<F: RemoteFs> FsStore<F> {
     }
 }
 
-/// A sealed store's `meta.json`: only the schema and the id are readable.
-#[derive(Debug, Serialize, Deserialize)]
-struct SealedMetaFile {
-    schema: u32,
-    id: ItemId,
-    nonce: String,
-    sealed: String,
-}
-
-impl SealedMetaFile {
-    fn new(id: &ItemId, sealed: &SealedMeta) -> Self {
-        Self {
-            schema: SEALED_SCHEMA,
-            id: id.clone(),
-            nonce: hex::encode(sealed.nonce),
-            sealed: hex::encode(&sealed.ciphertext),
-        }
-    }
-
-    fn sealed(&self) -> Result<SealedMeta, String> {
-        Ok(SealedMeta {
-            nonce: decode_array(&self.nonce).map_err(|reason| format!("nonce: {reason}"))?,
-            ciphertext: hex::decode(&self.sealed)
-                .map_err(|_| "the sealed metadata is not hexadecimal".to_owned())?,
-        })
-    }
-}
-
-/// What a sealed `meta.json` seals: the item's metadata and the salt of its
-/// content.
-#[derive(Debug, Serialize, Deserialize)]
-struct SealedMetaBody {
-    meta: ItemMeta,
-    content_salt: String,
-}
-
-fn decode_array<const N: usize>(text: &str) -> Result<[u8; N], String> {
-    let bytes = hex::decode(text).map_err(|_| "not hexadecimal".to_owned())?;
-    bytes.try_into().map_err(|_| format!("not {N} bytes"))
-}
-
 fn corrupt(id: &ItemId, reason: impl std::fmt::Display) -> StoreError {
     StoreError::Corrupt {
         id: id.to_string(),
         reason: reason.to_string(),
-    }
-}
-
-/// The longest valid UTF-8 prefix; the preview head may end mid-character.
-fn utf8_prefix(bytes: &[u8]) -> &str {
-    match std::str::from_utf8(bytes) {
-        Ok(text) => text,
-        Err(err) => std::str::from_utf8(&bytes[..err.valid_up_to()]).unwrap_or_default(),
     }
 }
 
@@ -1699,7 +1553,7 @@ mod sealed_tests {
     //! nothing readable on the storage.
 
     use super::*;
-    use crate::crypto::DataKey;
+    use crate::crypto::{CHUNK_LEN, DataKey};
     use crate::fs::LocalFs;
     use crate::model::{ContentHasher, NewItem};
     use crate::random::StdRandom;
@@ -2245,5 +2099,150 @@ mod sealed_tests {
         .unwrap();
         assert_eq!(json["schema"], 1);
         assert_eq!(json["preview"], "plain");
+    }
+}
+
+/// The bytes an item is stored as, pinned before they moved to
+/// `store::format` (PLAN-00010 STEP-01), so that moving them, and a second
+/// store writing them, cannot change them. Sealing draws fresh salts and
+/// nonces, so sealed items are pinned by their shape and by what they open
+/// to.
+#[cfg(test)]
+mod golden_tests {
+    use super::*;
+    use crate::crypto::{CHUNK_LEN, DataKey, HEADER_LEN};
+    use crate::fs::LocalFs;
+    use crate::random::StdRandom;
+    use crate::store::format::SealedMetaFile;
+    use crate::testing::ManualClock;
+    use tempfile::TempDir;
+
+    const T: &str = "2026-09-12T09:53:11Z";
+
+    fn content(bytes: &[u8]) -> BoxRead {
+        Box::new(std::io::Cursor::new(bytes.to_vec()))
+    }
+
+    fn store(dir: &TempDir, sealer: Option<Sealer>) -> FsStore<LocalFs> {
+        let fs = LocalFs::new(dir.path());
+        let clock = Arc::new(ManualClock::at(T));
+        let rng = Box::new(StdRandom::new());
+        match sealer {
+            Some(sealer) => FsStore::sealed(fs, clock, rng, sealer),
+            None => FsStore::new(fs, clock, rng),
+        }
+    }
+
+    fn stored(dir: &TempDir, items: &str, id: &ItemId, file: &str) -> Vec<u8> {
+        std::fs::read(dir.path().join(items).join(id.as_str()).join(file)).unwrap()
+    }
+
+    #[tokio::test]
+    async fn plaintext_meta_json_is_byte_for_byte_unchanged() {
+        let dir = TempDir::new().unwrap();
+        let store = store(&dir, None);
+        let text = store
+            .put(NewItem::text("box"), content(b"hello"))
+            .await
+            .unwrap()
+            .meta;
+        let file = store
+            .put(
+                NewItem::file("report.pdf", "laptop"),
+                content(b"%PDF-1.7 x"),
+            )
+            .await
+            .unwrap()
+            .meta;
+        let text_json = String::from_utf8(stored(&dir, ITEMS_DIR, &text.id, META_FILE)).unwrap();
+        let file_json = String::from_utf8(stored(&dir, ITEMS_DIR, &file.id, META_FILE)).unwrap();
+        assert_eq!(text_json, GOLDEN_TEXT_META, "{text_json}");
+        assert_eq!(file_json, GOLDEN_FILE_META, "{file_json}");
+        assert_eq!(stored(&dir, ITEMS_DIR, &text.id, CONTENT_FILE), b"hello");
+    }
+
+    const GOLDEN_TEXT_META: &str = r#"{
+  "schema": 1,
+  "id": "6aa52107-2cf24dba5fb0",
+  "kind": "text",
+  "name": null,
+  "mime": "text/plain; charset=utf-8",
+  "size": 5,
+  "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+  "created_at": "2026-09-12T09:53:11Z",
+  "device": "box",
+  "preview": "hello"
+}
+"#;
+    const GOLDEN_FILE_META: &str = r#"{
+  "schema": 1,
+  "id": "6aa52107-ec2792f52c44",
+  "kind": "file",
+  "name": "report.pdf",
+  "mime": "application/pdf",
+  "size": 10,
+  "sha256": "ec2792f52c4416be86b9c3d9f4ce1122e68027a8549c54be5040c913d671aa02",
+  "created_at": "2026-09-12T09:53:11Z",
+  "device": "laptop",
+  "preview": null
+}
+"#;
+
+    #[tokio::test]
+    async fn sealed_meta_json_keeps_its_shape_and_its_sealed_body() {
+        let dir = TempDir::new().unwrap();
+        let sealer = Sealer::new(DataKey::generate().unwrap());
+        let store = store(&dir, Some(sealer.clone()));
+        let meta = store
+            .put(NewItem::text("box"), content(b"hello"))
+            .await
+            .unwrap()
+            .meta;
+        let json = String::from_utf8(stored(&dir, SEALED_ITEMS_DIR, &meta.id, META_FILE)).unwrap();
+        let file: SealedMetaFile = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            json,
+            format!(
+                "{{\n  \"schema\": 2,\n  \"id\": \"{}\",\n  \"nonce\": \"{}\",\n  \"sealed\": \"{}\"\n}}\n",
+                meta.id, file.nonce, file.sealed
+            )
+        );
+        assert_eq!(file.nonce.len(), 2 * crypto::NONCE_LEN);
+        let body = sealer.open_meta(&meta.id, &file.sealed().unwrap()).unwrap();
+        let sealed_content = stored(&dir, SEALED_ITEMS_DIR, &meta.id, CONTENT_FILE);
+        let salt = hex::encode(&sealed_content[crypto::CONTENT_MAGIC.len()..HEADER_LEN]);
+        assert_eq!(
+            String::from_utf8(body.to_vec()).unwrap(),
+            format!(
+                "{{\"meta\":{},\"content_salt\":\"{salt}\"}}",
+                serde_json::to_string(&meta).unwrap()
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn sealed_content_is_framed_as_before() {
+        for len in [0, 5, CHUNK_LEN, 2 * CHUNK_LEN + 1] {
+            let dir = TempDir::new().unwrap();
+            let sealer = Sealer::new(DataKey::generate().unwrap());
+            let store = store(&dir, Some(sealer.clone()));
+            let plain: Vec<u8> = (0..len).map(|i| (i % 251) as u8).collect();
+            let meta = store
+                .put(NewItem::file("f.bin", "box"), content(&plain))
+                .await
+                .unwrap()
+                .meta;
+            let sealed = stored(&dir, SEALED_ITEMS_DIR, &meta.id, CONTENT_FILE);
+            assert_eq!(sealed.len() as u64, crypto::sealed_len(len as u64), "{len}");
+            assert_eq!(&sealed[..4], &crypto::CONTENT_MAGIC);
+            let salt: [u8; CONTENT_SALT_LEN] = sealed[4..HEADER_LEN].try_into().unwrap();
+            let mut opened = Vec::new();
+            sealer
+                .open_item_content(std::io::Cursor::new(sealed), salt)
+                .read_to_end(&mut opened)
+                .await
+                .unwrap();
+            assert_eq!(opened, plain, "{len}");
+        }
     }
 }

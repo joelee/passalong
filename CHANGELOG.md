@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+## v0.3.0 - 2026-09-24T23:48:42Z
+
 ### Added
 
 - A third kind of store: a workspace on a

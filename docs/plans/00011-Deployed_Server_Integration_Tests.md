@@ -32,13 +32,13 @@ confidence: high                  # high | medium | low
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; Delivery Planner initializes them.
-implementation_status: in-progress # not-started | in-progress | blocked | completed | abandoned
+implementation_status: completed   # not-started | in-progress | blocked | completed | abandoned
 builder_agent: "Claude Code"
 builder_model: "anthropic/claude-fable-5-1"
 execution_branch: "feature/deployed-server-integration-tests"
 execution_started_at: "2026-10-11T13:23:08Z"
-execution_updated_at: "2026-10-11T13:38:30Z"
-execution_completed_at: null
+execution_updated_at: "2026-10-11T13:41:26Z"
+execution_completed_at: "2026-10-11T13:41:26Z"
 current_step: "PLAN-00011-STEP-07"
 ---
 
@@ -511,7 +511,7 @@ workspace, which the next run's prune and the step's rollback remove.
 | PLAN-00011-STEP-04 | completed | 2026-10-11T13:30:03Z | 2026-10-11T13:32:11Z | Commit of this step; `just test-deployed` 6 + 8 passed; quota test 3.75 s on its own | `Serving`, `quick_serve`, and `wait_for_file` moved to `crates/passalong-https/tests/support/cli.rs`, shared by both CLI test files; `cli_https_backend.rs` otherwise unchanged and its suite green. `Cargo.lock` (dev-dependencies of STEP-03) is in this commit |
 | PLAN-00011-STEP-05 | completed | 2026-10-11T13:32:11Z | 2026-10-11T13:35:03Z | Commit of this step; `just test-deployed` 6 + 11 passed; skip path 3 skipped and passed | `Admin::home_snapshot` was not written: tests never name `home` (REQ-10); STEP-07's evidence is gathered by hand over SSH. `Admin::show`, `workspace_names`, `key_ids_of`, and `logs` serve the tests. `workspace delete` takes `--yes --force` |
 | PLAN-00011-STEP-06 | completed | 2026-10-11T13:35:03Z | 2026-10-11T13:38:30Z | Commit of this step; `just test-deployed` 6 + 13 passed; no it-* workspace or key left on phoenix | Item ids are keyed by the store's key, so a rotation renames every item while every content hash stays; the test compares hashes across the rotation, as the harness's `assert_holds` does. The developer guide's section already says the encryption tests never run on `integration-test` |
-| PLAN-00011-STEP-07 | not-started | — | — | — | — |
+| PLAN-00011-STEP-07 | completed | 2026-10-11T13:38:30Z | 2026-10-11T13:41:26Z | Commit of this step; gate log gate-step07.log; `just test-deployed` 6 + 13 passed on the final tree | STEP-03's CI run failed only on `--locked` (Cargo.lock left out of that commit, included in STEP-04's); every later push is for the user to confirm green |
 
 Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 `skipped`. A skipped step requires explicit user approval recorded in Evidence.
@@ -531,6 +531,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-10-11T13:35:03Z | PLAN-00011-STEP-05 | Green: throwaway workspace lifecycle, revoked key, serve after revocation; developer guide section drafted | just test-deployed: 6 + 11 passed | STEP-06 |
 | 2026-10-11T13:38:30Z | PLAN-00011-STEP-06 | Red: the cycle test first compared (id, hash) pairs across the rotation and failed on the ids | rotation renames items by design | Compare hashes |
 | 2026-10-11T13:38:30Z | PLAN-00011-STEP-06 | Green: set-up, join, rotate, re-join, an interrupted rotation recovered by its device, a fresh start pruned | just test-deployed: 6 + 13 passed | STEP-07 |
+| 2026-10-11T13:41:26Z | PLAN-00011-STEP-07 | Docs: developer guide table row and section (from STEP-05), README pointer, CHANGELOG (from STEP-01), backlog follow-ups | README.md, docs/backlog.md | Gate |
+| 2026-10-11T13:41:26Z | PLAN-00011-STEP-07 | Gate: just check, just test-integration, just test-https, just test-deployed; home snapshot after | all exit 0 | Hand-off |
 
 ### Deviations and blockers
 
@@ -559,14 +561,18 @@ None.
 | 2026-10-11T13:35:03Z | PLAN-00011-STEP-05 | cargo clippy -p passalong-https -p passalong --all-targets --all-features -D warnings; cargo fmt; shell_quote unit test | pass | — |
 | 2026-10-11T13:38:30Z | PLAN-00011-STEP-06 | just test-deployed | pass: workspace show reports sealed with the key id after set-up and after recovery; device B is told to join before and after the rotation, old words refused; B cannot send while the rotation is open; after resume_rewrite with the device's key the open rewrite is gone, 2 items, hashes equal to the originals; fresh start leaves plainItems 1 until prune --plain | the throwaway workspaces were deleted |
 | 2026-10-11T13:38:30Z | PLAN-00011-STEP-06 | cargo clippy -p passalong --all-targets --all-features -D warnings; cargo fmt | pass | — |
+| 2026-10-11T13:41:26Z | PLAN-00011-STEP-07 | just check (fmt-check, lint, links, test, coverage, build) | exit 0; line coverage 90.19 % (24208 lines, 2375 missed), above the 80 % gate | gate-step07.log |
+| 2026-10-11T13:41:26Z | PLAN-00011-STEP-07 | just test-integration; just test-https | exit 0 each; every deployed_ test listed as ignored (38 ignored listings across the gate's runs, none run) | gate-step07.log |
+| 2026-10-11T13:41:26Z | PLAN-00011-STEP-07 | just test-deployed on the final tree | 19 passed (6 in passalong-https, 13 in passalong) | — |
+| 2026-10-11T13:41:26Z | PLAN-00011-STEP-07 | workspace show home --json and key list --json over SSH, before STEP-01 and after the final run | home unchanged: 0 items, plaintext, keys b2c38ff363e8 6437a8b21c81 25dddb1677f7 active with the same lastUsedAt; only home and integration-test exist | home-before.json, home-final.json |
 
 ### Completion summary
 
-- **Implementation status:** `in-progress`
-- **Completed requirements:** None
-- **Incomplete requirements:** All
+- **Implementation status:** `completed`
+- **Completed requirements:** PLAN-00011-REQ-01 to REQ-14
+- **Incomplete requirements:** None
 - **Outstanding blockers:** None
-- **Review request:** Not ready
+- **Review request:** Ready: 7 steps committed on `feature/deployed-server-integration-tests`; `just check` exit 0 with 90.19 % line coverage; `just test-deployed` 19 passed against phoenix; `home` untouched. AC-15 and the CI part of AC-14 are for the user to confirm on the final push
 <!-- BUILDER_WORK_LOG_END -->
 
 ## 18. Planning change log

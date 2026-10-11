@@ -14,15 +14,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use assert_cmd::Command;
 #[cfg(unix)]
 use cli_support::{Serving, quick_serve, wait_for_file};
-use deployed::Deployed;
+use deployed::{Deployed, SKIPPED, ThrowawayWorkspace};
 use passalong_core::api_key::{ApiKey, save_api_key};
 use passalong_core::encryption::SystemGit;
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 
 /// Writes a device's config for `server` into `dir` with API key `key`,
-/// named `name`, with `extra` at the end of its config.
+/// named `name`, with `extra` at the end of its config. The key decides
+/// the workspace: a throwaway workspace's key reaches that workspace.
 fn device_as(server: &Deployed, dir: &Path, name: &str, key: &ApiKey, extra: &str) -> PathBuf {
+    std::fs::create_dir_all(dir).unwrap();
     let config = dir.join("config.toml");
     std::fs::write(
         &config,
@@ -552,4 +554,125 @@ fn deployed_serve_pulls_an_item_from_another_device() {
 
     sent.delete_all();
     assert_eq!(listed_ids(dir.path(), &config), before);
+}
+
+#[test]
+#[ignore = "needs the deployed server: just test-deployed"]
+fn deployed_a_throwaway_workspace_is_created_and_deleted() {
+    let server = Deployed::from_env();
+    let Some(admin) = server.admin() else {
+        eprintln!("{SKIPPED}");
+        return;
+    };
+    let dir = TempDir::new().unwrap();
+    let workspace = ThrowawayWorkspace::new(&admin, "64MiB");
+    let name = workspace.name.clone();
+    assert!(name.starts_with("it-") && name.len() == 11, "{name}");
+    assert!(admin.workspace_names().contains(&name));
+    let shown = admin.show(&name);
+    assert_eq!(shown["effectiveQuotaBytes"], "67108864", "{shown}");
+    assert_eq!(shown["keys"].as_array().unwrap().len(), 1, "{shown}");
+
+    // Its key reaches it, and nothing else.
+    let config = device_as(&server, dir.path(), "it-throwaway", &workspace.key, "");
+    let checked = stdout(passalong(dir.path(), &config).arg("check"));
+    assert!(
+        checked.contains(&format!(
+            "workspace      ok    {name}: 0 B of 64.0 MiB used, 0 items"
+        )),
+        "{checked}"
+    );
+    let mut sent = Sent::new(dir.path(), &config);
+    sent.text(&format!("in a throwaway workspace at {}", nonce()));
+    assert_eq!(admin.show(&name)["items"], 1);
+    let home_config = device(&server, dir.path().join("home").as_path());
+    assert!(
+        !listed_ids(&dir.path().join("home"), &home_config)
+            .iter()
+            .any(|id| sent.ids.contains(id)),
+        "the item stayed in the throwaway workspace"
+    );
+    sent.ids.clear();
+
+    drop(workspace);
+    assert!(!admin.workspace_names().contains(&name), "deleted");
+    assert!(admin.key_ids_of(&name).is_empty(), "its keys went with it");
+}
+
+#[test]
+#[ignore = "needs the deployed server: just test-deployed"]
+fn deployed_a_revoked_key_is_refused_from_the_next_request() {
+    let server = Deployed::from_env();
+    let Some(admin) = server.admin() else {
+        eprintln!("{SKIPPED}");
+        return;
+    };
+    let dir = TempDir::new().unwrap();
+    let workspace = ThrowawayWorkspace::new(&admin, "64MiB");
+    let key = workspace.create_key(&[]);
+    let config = device_as(&server, dir.path(), "it-revoked", &key, "");
+    passalong(dir.path(), &config)
+        .arg("check")
+        .assert()
+        .success();
+
+    workspace.revoke(&key);
+    let checked = passalong(dir.path(), &config)
+        .arg("check")
+        .assert()
+        .failure()
+        .get_output()
+        .clone();
+    let out = String::from_utf8_lossy(&checked.stdout);
+    let err = String::from_utf8_lossy(&checked.stderr);
+    assert!(out.contains("server         FAIL  "), "{out}");
+    assert!(out.contains("KEY_REVOKED"), "{out}");
+    assert!(
+        err.contains("ask the server's operator for a new API key"),
+        "{err}"
+    );
+    // The workspace's other key still works: only the one key was refused.
+    let other = device_as(
+        &server,
+        dir.path().join("other").as_path(),
+        "it-other",
+        &workspace.key,
+        "",
+    );
+    passalong(&dir.path().join("other"), &other)
+        .arg("check")
+        .assert()
+        .success();
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "needs the deployed server: just test-deployed"]
+fn deployed_serve_stops_after_its_key_is_revoked() {
+    let server = Deployed::from_env();
+    let Some(admin) = server.admin() else {
+        eprintln!("{SKIPPED}");
+        return;
+    };
+    let dir = TempDir::new().unwrap();
+    let workspace = ThrowawayWorkspace::new(&admin, "64MiB");
+    let key = workspace.create_key(&[]);
+    let config = device_as(
+        &server,
+        dir.path(),
+        "it-serve",
+        &key,
+        &quick_serve(dir.path(), false),
+    );
+    let mut serving = Serving::start(dir.path(), &config);
+    workspace.revoke(&key);
+    let file = dir.path().join("drop/after.txt");
+    std::fs::write(&file, "sent after the revocation").unwrap();
+    let status = serving.exit();
+    let log = serving.log();
+    assert!(!status.success(), "{log}");
+    assert!(log.contains("serve stopped: "), "{log}");
+    assert!(log.contains("KEY_REVOKED"), "{log}");
+    assert!(file.exists(), "the file stays for a later serve");
+    assert_eq!(admin.show(&workspace.name)["items"], 0, "nothing was sent");
 }

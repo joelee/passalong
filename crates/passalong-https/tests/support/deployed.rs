@@ -9,6 +9,8 @@
 #![allow(dead_code)]
 
 use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use passalong_core::api_key::ApiKey;
 use passalong_core::config::{self, Config};
@@ -121,6 +123,189 @@ impl Deployed {
     pub fn key_file(dir: &Path) -> PathBuf {
         dir.join("api.key")
     }
+
+    /// The server's admin commands, when `.env` says how to reach them. A
+    /// test that needs them and gets `None` prints that it is skipped and
+    /// returns.
+    pub fn admin(&self) -> Option<Admin> {
+        self.ssh.clone().map(|ssh| Admin { ssh })
+    }
+}
+
+/// What a test prints when it cannot run without the admin commands.
+pub const SKIPPED: &str =
+    "skipped: INTEGRATION_TEST_SSH_HOST and INTEGRATION_TEST_SSH_COMPOSE_DIR are not set";
+
+/// `passalong-server` admin commands, run on the host over SSH inside the
+/// Compose service, as the note's walkthrough runs them.
+#[derive(Debug, Clone)]
+pub struct Admin {
+    ssh: Ssh,
+}
+
+impl Admin {
+    /// Runs `passalong-server <args>` and returns what it printed on
+    /// standard output. A failure panics with both outputs, secrets
+    /// redacted.
+    pub fn run(&self, args: &[&str]) -> String {
+        let remote = format!(
+            "cd {} && docker compose exec -T server passalong-server {}",
+            shell_quote(&self.ssh.compose_dir),
+            args.iter()
+                .map(|arg| shell_quote(arg))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        let out = Command::new("ssh")
+            .args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=10"])
+            .arg(&self.ssh.host)
+            .arg(&remote)
+            .output()
+            .unwrap_or_else(|err| panic!("cannot run ssh: {err}"));
+        assert!(
+            out.status.success(),
+            "passalong-server {} failed on {} ({}):\n{}\n{}",
+            redact(&args.join(" ")),
+            self.ssh.host,
+            out.status,
+            redact(&String::from_utf8_lossy(&out.stdout)),
+            redact(&String::from_utf8_lossy(&out.stderr)),
+        );
+        String::from_utf8(out.stdout).unwrap()
+    }
+
+    /// Runs a listing command with `--json` and parses it.
+    pub fn json(&self, args: &[&str]) -> serde_json::Value {
+        let mut args = args.to_vec();
+        args.push("--json");
+        let out = self.run(&args);
+        serde_json::from_str(&out)
+            .unwrap_or_else(|err| panic!("not JSON ({err}): {}", redact(&out)))
+    }
+
+    /// `workspace show <name> --json`.
+    pub fn show(&self, workspace: &str) -> serde_json::Value {
+        self.json(&["workspace", "show", workspace])
+    }
+
+    /// The names `workspace list` prints.
+    pub fn workspace_names(&self) -> Vec<String> {
+        self.json(&["workspace", "list"])
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|workspace| workspace["name"].as_str().unwrap().to_owned())
+            .collect()
+    }
+
+    /// The ids of the keys of `workspace`, from `key list`.
+    pub fn key_ids_of(&self, workspace: &str) -> Vec<String> {
+        self.json(&["key", "list"])
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|key| key["workspace"] == workspace)
+            .map(|key| key["id"].as_str().unwrap().to_owned())
+            .collect()
+    }
+
+    /// The server's last `lines` log lines, for a failing test.
+    pub fn logs(&self, lines: usize) -> String {
+        let remote = format!(
+            "cd {} && docker compose logs --no-color --tail={lines} server",
+            shell_quote(&self.ssh.compose_dir)
+        );
+        let out = Command::new("ssh")
+            .args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=10"])
+            .arg(&self.ssh.host)
+            .arg(&remote)
+            .output();
+        match out {
+            Ok(out) => redact(&String::from_utf8_lossy(&out.stdout)),
+            Err(err) => format!("(no server log: {err})"),
+        }
+    }
+}
+
+/// A workspace made for one test and deleted with its items and keys when
+/// the test ends, however it ends.
+pub struct ThrowawayWorkspace {
+    admin: Admin,
+    /// `it-<8 hex>`.
+    pub name: String,
+    /// A read-write key of it that never expires.
+    pub key: ApiKey,
+}
+
+impl ThrowawayWorkspace {
+    /// Creates `it-<8 hex>` with `quota`, such as `64MiB`, and a key.
+    pub fn new(admin: &Admin, quota: &str) -> Self {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+        let stamp = (now.as_nanos() as u64) ^ (u64::from(std::process::id()) << 40);
+        let name = format!("it-{:08x}", (stamp as u32) ^ ((stamp >> 32) as u32));
+        admin.run(&["workspace", "create", &name, "--quota", quota]);
+        let mut workspace = Self {
+            admin: admin.clone(),
+            name,
+            key: ApiKey::parse("pal_0_0").unwrap(),
+        };
+        workspace.key = workspace.create_key(&[]);
+        workspace
+    }
+
+    /// A new key of this workspace, labelled `it`, never expiring, made
+    /// with `extra` options such as `--read-only`.
+    pub fn create_key(&self, extra: &[&str]) -> ApiKey {
+        let mut args = vec![
+            "key",
+            "create",
+            "--workspace",
+            &self.name,
+            "--label",
+            "it",
+            "--never",
+            "--json",
+        ];
+        args.extend_from_slice(extra);
+        let out = self.admin.run(&args);
+        let json: serde_json::Value = serde_json::from_str(&out)
+            .unwrap_or_else(|err| panic!("not JSON ({err}): {}", redact(&out)));
+        ApiKey::parse(json["key"].as_str().unwrap()).unwrap()
+    }
+
+    /// `key revoke <id>`.
+    pub fn revoke(&self, key: &ApiKey) {
+        self.admin.run(&["key", "revoke", key.id()]);
+    }
+
+    /// The admin these commands run through.
+    pub fn admin(&self) -> &Admin {
+        &self.admin
+    }
+}
+
+impl Drop for ThrowawayWorkspace {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            eprintln!("--- server log ---\n{}", self.admin.logs(100));
+        }
+        // Best effort: `--force` also closes a rewrite a test left open.
+        let remote = format!(
+            "cd {} && docker compose exec -T server passalong-server workspace delete {} --yes --force",
+            shell_quote(&self.admin.ssh.compose_dir),
+            shell_quote(&self.name)
+        );
+        let _ = Command::new("ssh")
+            .args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=10"])
+            .arg(&self.admin.ssh.host)
+            .arg(&remote)
+            .output();
+    }
+}
+
+/// `text` as one word for a POSIX shell.
+fn shell_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "'\\''"))
 }
 
 /// `text` with the secret of every API key in it replaced by `…`, so that a
@@ -168,7 +353,14 @@ fn parse_key(name: &str) -> ApiKey {
 
 #[cfg(test)]
 mod tests {
-    use super::redact;
+    use super::{redact, shell_quote};
+
+    #[test]
+    fn shell_quote_keeps_a_word_whole() {
+        assert_eq!(shell_quote("plain"), "'plain'");
+        assert_eq!(shell_quote("it's"), "'it'\\''s'");
+        assert_eq!(shell_quote("a b;c"), "'a b;c'");
+    }
 
     #[test]
     fn redact_keeps_ids_and_drops_secrets() {

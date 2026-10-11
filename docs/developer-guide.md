@@ -40,6 +40,7 @@ tests/docker/         OpenSSH server for the integration tests
 | `just test-integration` | Starts the Docker OpenSSH server and runs the ignored tests, except `passalong-https`'s |
 | `just server-build` | Clones passalong-server into `.passalong-server/` and builds the pinned commit into `target/passalong-server/` (see Server tests) |
 | `just test-https` | `server-build`, then `passalong-https`'s ignored tests, each against a server of its own |
+| `just test-deployed` | The `deployed_*` tests against a deployed passalong-server named by the `INTEGRATION_TEST_*` variables of `.env` (see Deployed server tests); never part of `ci` |
 | `just test-deploy` | Starts `deploy/ssh-server` from a temporary directory and checks `init`, a round trip, host-owned storage, and a stable host key (Linux, Docker) |
 | `just coverage` | `cargo llvm-cov --workspace --all-features --fail-under-lines 80 --summary-only` |
 | `just coverage-full` | Coverage including the Docker-backed and server-backed tests |
@@ -171,6 +172,78 @@ re-encryption needs it (PLAN-00010 D-05). To test against a newer server,
 move `server_commit` to that release's commit, run `just test-https`, and
 read the server's changes to its `docs/api/` for anything the client must
 follow.
+
+## Deployed server tests
+
+The server tests above start a server of their own. `just test-deployed`
+runs a second suite against a *deployed* passalong-server, such as the
+Docker deployment described in the server's walkthrough: a published image,
+a self-signed certificate with several names, a port published by Docker,
+keys that expire or never do, and a quota set by an operator. The suite
+covers TLS and every name on the certificate, `init --yes`, `check`, text
+and file round trips, duplicate content, the read-only key, the quota,
+`serve` in both modes, a revoked key, and the encryption cycle.
+
+The tests are ignored, named `deployed_*`, and live in
+`crates/passalong-https/tests/deployed.rs` and
+`crates/passalong-cli/tests/cli_deployed_server.rs`, with their helpers in
+`crates/passalong-https/tests/support/deployed.rs`. They read the
+`INTEGRATION_TEST_*` variables, which `just test-deployed` loads from
+`.env` (git-ignored; `.env.sample` lists them):
+
+| Variable | Secret | Meaning |
+|---|---|---|
+| `INTEGRATION_TEST_SERVER_URL` | no | The server, `https://host:port` |
+| `INTEGRATION_TEST_SERVER_ALT_URLS` | no | Other URLs the certificate names, comma-separated; the tests check each presents the same pin. May be empty |
+| `INTEGRATION_TEST_TLS_PIN` | no | What `passalong-server tls fingerprint` prints on the server |
+| `INTEGRATION_TEST_WORKSPACE` | no | A workspace made for the tests, with a 256 MiB quota |
+| `INTEGRATION_TEST_API_KEY` | yes | A read-write key of that workspace |
+| `INTEGRATION_TEST_API_KEY_READ_ONLY` | yes | A read-only key of it |
+| `INTEGRATION_TEST_SSH_HOST` | no | `user@host` where the admin commands run; empty skips the tests that need them |
+| `INTEGRATION_TEST_SSH_COMPOSE_DIR` | no | The Compose project directory on that host |
+
+On the server, make the workspace and the keys once; each key is printed
+once, so put it straight into `.env`:
+
+```sh
+cd /path/to/the/compose/project
+docker compose exec server passalong-server workspace create integration-test --quota 256MiB
+docker compose exec server passalong-server key create --workspace integration-test --label integration-test --never
+docker compose exec server passalong-server key create --workspace integration-test --label integration-test-ro --never --read-only
+docker compose exec server passalong-server tls fingerprint
+```
+
+The keys never expire so that the suite does not stop working on a date;
+revoke them with `key revoke <id>` when they are no longer wanted. The
+workspace is only ever used by the tests: never a workspace devices use.
+
+The recipe checks `.env`, probes `/readyz`, prunes the test workspace,
+builds `passalong`, and runs the two test targets one test at a time,
+because they share the workspace. Every test deletes what it sent, on
+failure too, and compares item counts to what it found rather than to
+zero.
+
+The tests that revoke keys or encrypt need the server's admin commands.
+With `INTEGRATION_TEST_SSH_HOST` set, they run
+`ssh $INTEGRATION_TEST_SSH_HOST`, then `docker compose exec -T server
+passalong-server …` in `INTEGRATION_TEST_SSH_COMPOSE_DIR`, so the host
+must accept the key without a prompt (`BatchMode=yes`) and the user must
+be in the `docker` group. Each such test creates a workspace `it-<8 hex>`
+with a 64 MiB quota and its own keys, and deletes it when it ends, with
+`--force` in case it left a re-encryption open. Without the SSH variables,
+those tests print that they are skipped and pass. A run that is killed
+outright can leave an `it-*` workspace behind; `workspace list` shows it
+and this removes it:
+
+```sh
+docker compose exec server passalong-server workspace delete it-XXXXXXXX --yes --force
+```
+
+The suite is not part of `just ci`: GitHub's runners cannot reach a server
+on a private network, and the other recipes (`test-integration`,
+`test-https`, `coverage-full`) skip `deployed_` tests by name. To run it
+against another deployment, change the variables in `.env`; nothing in the
+tests names a host.
 
 ## Compatibility test
 

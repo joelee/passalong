@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-fable-5-1"
 execution_branch: "feature/deployed-server-integration-tests"
 execution_started_at: "2026-10-11T13:23:08Z"
-execution_updated_at: "2026-10-11T13:32:11Z"
+execution_updated_at: "2026-10-11T13:35:03Z"
 execution_completed_at: null
-current_step: "PLAN-00011-STEP-05"
+current_step: "PLAN-00011-STEP-06"
 ---
 
 # Delivery Plan 00011: Deployed Server Integration Tests
@@ -509,7 +509,7 @@ workspace, which the next run's prune and the step's rollback remove.
 | PLAN-00011-STEP-02 | completed | 2026-10-11T13:26:08Z | 2026-10-11T13:27:56Z | Commit of this step; `just test-deployed` 6 + 1 passed | The deployment's pin is `sha256//MOMQ…`: canonical `sha256/` and a base64 that itself begins with `/`, not curl's form; the helper derives both forms from the parsed pin |
 | PLAN-00011-STEP-03 | completed | 2026-10-11T13:27:56Z | 2026-10-11T13:30:03Z | Commit of this step; `just test-deployed` 6 + 5 passed | `sha2` and `hex` added as dev-dependencies of `passalong` (workspace crates already in the lock) to hash what the tests send; a `Sent` guard deletes a test's items on drop |
 | PLAN-00011-STEP-04 | completed | 2026-10-11T13:30:03Z | 2026-10-11T13:32:11Z | Commit of this step; `just test-deployed` 6 + 8 passed; quota test 3.75 s on its own | `Serving`, `quick_serve`, and `wait_for_file` moved to `crates/passalong-https/tests/support/cli.rs`, shared by both CLI test files; `cli_https_backend.rs` otherwise unchanged and its suite green. `Cargo.lock` (dev-dependencies of STEP-03) is in this commit |
-| PLAN-00011-STEP-05 | not-started | — | — | — | — |
+| PLAN-00011-STEP-05 | completed | 2026-10-11T13:32:11Z | 2026-10-11T13:35:03Z | Commit of this step; `just test-deployed` 6 + 11 passed; skip path 3 skipped and passed | `Admin::home_snapshot` was not written: tests never name `home` (REQ-10); STEP-07's evidence is gathered by hand over SSH. `Admin::show`, `workspace_names`, `key_ids_of`, and `logs` serve the tests. `workspace delete` takes `--yes --force` |
 | PLAN-00011-STEP-06 | not-started | — | — | — | — |
 | PLAN-00011-STEP-07 | not-started | — | — | — | — |
 
@@ -527,6 +527,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-10-11T13:30:03Z | PLAN-00011-STEP-03 | Red: the no-secret test first failed on an extra assertion that the key id is logged (it is not); the assertion was not in the plan and was removed | cli_deployed_server.rs | — |
 | 2026-10-11T13:30:03Z | PLAN-00011-STEP-03 | Green: init --yes, check, round trips, duplicate content, read-only key, no secret | just test-deployed: 6 + 5 passed | STEP-04 |
 | 2026-10-11T13:32:11Z | PLAN-00011-STEP-04 | Green: quota refusal, serve upload, serve pull | just test-deployed: 6 + 8 passed | STEP-05 |
+| 2026-10-11T13:35:03Z | PLAN-00011-STEP-05 | Red: the throwaway and revocation tests first failed writing a key file into a directory that did not exist; `device_as` now creates it | cli_deployed_server.rs | — |
+| 2026-10-11T13:35:03Z | PLAN-00011-STEP-05 | Green: throwaway workspace lifecycle, revoked key, serve after revocation; developer guide section drafted | just test-deployed: 6 + 11 passed | STEP-06 |
 
 ### Deviations and blockers
 
@@ -550,6 +552,9 @@ None.
 | 2026-10-11T13:32:11Z | PLAN-00011-STEP-04 | just test-deployed | pass: a 257 MiB sparse file refused with QUOTA_EXCEEDED naming 268435456 bytes, nothing stored, 3.75 s for the whole test; a dropped 64 KiB file is sent (sent/, listed with its SHA-256 and device) and in pull mode a file sent as it-other arrives in downloads/ byte for byte | — |
 | 2026-10-11T13:32:11Z | PLAN-00011-STEP-04 | just test-https | pass: 27 + 12 tests, 0 deployed_ tests run, after the helper move | test-https-step04.log |
 | 2026-10-11T13:32:11Z | PLAN-00011-STEP-04 | cargo clippy -p passalong --all-targets --all-features -D warnings; cargo fmt | pass | — |
+| 2026-10-11T13:35:03Z | PLAN-00011-STEP-05 | just test-deployed | pass: it-<hex> created with 64 MiB and one key, reached by its key only, deleted with its keys; a revoked key fails check on the server line with KEY_REVOKED while the workspace's other key works; serve exits non-zero with KEY_REVOKED keeping the dropped file, nothing sent | phoenix shows only home and integration-test afterwards |
+| 2026-10-11T13:35:03Z | PLAN-00011-STEP-05 | INTEGRATION_TEST_SSH_HOST= INTEGRATION_TEST_SSH_COMPOSE_DIR= cargo test … deployed_a_throwaway deployed_a_revoked deployed_serve_stops | 3 passed, each printing the skip line | — |
+| 2026-10-11T13:35:03Z | PLAN-00011-STEP-05 | cargo clippy -p passalong-https -p passalong --all-targets --all-features -D warnings; cargo fmt; shell_quote unit test | pass | — |
 
 ### Completion summary
 

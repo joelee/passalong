@@ -5,6 +5,8 @@
 
 #![allow(dead_code)]
 
+// Everything here is Unix-only, so on Windows the import would be unused.
+#[cfg(unix)]
 use std::path::Path;
 
 /// `[serve]` settings that act within a test's patience.

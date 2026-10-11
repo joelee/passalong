@@ -8,10 +8,10 @@ tags:
   - claude-code
 type: delivery-plan
 plan_id: "PLAN-00011"
-plan_status: draft                 # draft | approved | cancelled
+plan_status: approved              # draft | approved | cancelled
 plan_kind: initial                 # initial | superseding
 created_at: "2026-10-11T12:24:44Z"
-approved_at: null
+approved_at: "2026-10-11T13:23:08Z"
 planner_agent: "Claude Code"
 planner_model: "anthropic/claude-fable-5-1"
 triggered_by: user                 # user | agent:<agent-name>
@@ -26,25 +26,25 @@ requirements_count: 14
 steps_count: 7
 acceptance_criteria_count: 15
 blocking_decisions: 0
-build_ready: false
+build_ready: true
 web_research_used: false
 confidence: high                  # high | medium | low
 
 # Builder-maintained front matter. Builder may update only these keys after
 # explicit user approval; Delivery Planner initializes them.
-implementation_status: not-started # not-started | in-progress | blocked | completed | abandoned
-builder_agent: null
-builder_model: null
-execution_branch: null
-execution_started_at: null
-execution_updated_at: null
+implementation_status: in-progress # not-started | in-progress | blocked | completed | abandoned
+builder_agent: "Claude Code"
+builder_model: "anthropic/claude-fable-5-1"
+execution_branch: "feature/deployed-server-integration-tests"
+execution_started_at: "2026-10-11T13:23:08Z"
+execution_updated_at: "2026-10-11T13:23:08Z"
 execution_completed_at: null
-current_step: null
+current_step: "PLAN-00011-STEP-01"
 ---
 
 # Delivery Plan 00011: Deployed Server Integration Tests
 
-> [!abstract] Plan status: `draft`
+> [!abstract] Plan status: `approved`
 > A suite of ignored integration tests runs the released client against the
 > passalong-server deployed on phoenix (the "Passalong HTTPS Server" note),
 > reading its connection details and secrets from `.env` as
@@ -535,7 +535,7 @@ None.
 
 ### Completion summary
 
-- **Implementation status:** `not-started`
+- **Implementation status:** `in-progress`
 - **Completed requirements:** None
 - **Incomplete requirements:** All
 - **Outstanding blockers:** None
@@ -547,6 +547,7 @@ None.
 | Timestamp (UTC) | Plan status | Change | Reason | Requested/approved by |
 |---|---|---|---|---|
 | 2026-10-11T12:24:44Z | draft | Created | User request for integration tests against the deployed server; D-01..D-04 answered by the user the same day; the workspace and keys were created and `.env` written during planning | User |
+| 2026-10-11T13:23:08Z | approved | Approved as drafted | "I've reviewed, approved and pushed the Plan. Please build." | User |
 
 ## 19. External references
 

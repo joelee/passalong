@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-fable-5-1"
 execution_branch: "feature/deployed-server-integration-tests"
 execution_started_at: "2026-10-11T13:23:08Z"
-execution_updated_at: "2026-10-11T13:26:08Z"
+execution_updated_at: "2026-10-11T13:27:56Z"
 execution_completed_at: null
-current_step: "PLAN-00011-STEP-02"
+current_step: "PLAN-00011-STEP-03"
 ---
 
 # Delivery Plan 00011: Deployed Server Integration Tests
@@ -506,7 +506,7 @@ workspace, which the next run's prune and the step's rollback remove.
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
 | PLAN-00011-STEP-01 | completed | 2026-10-11T13:23:08Z | 2026-10-11T13:26:08Z | Commit of this step; `just test-deployed` 2 passed | home before: 0 items, keys b2c38ff363e8 6437a8b21c81 25dddb1677f7 (over SSH, 13:23Z) |
-| PLAN-00011-STEP-02 | not-started | — | — | — | — |
+| PLAN-00011-STEP-02 | completed | 2026-10-11T13:26:08Z | 2026-10-11T13:27:56Z | Commit of this step; `just test-deployed` 6 + 1 passed | The deployment's pin is `sha256//MOMQ…`: canonical `sha256/` and a base64 that itself begins with `/`, not curl's form; the helper derives both forms from the parsed pin |
 | PLAN-00011-STEP-03 | not-started | — | — | — | — |
 | PLAN-00011-STEP-04 | not-started | — | — | — | — |
 | PLAN-00011-STEP-05 | not-started | — | — | — | — |
@@ -522,6 +522,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 |---|---|---|---|---|
 | 2026-10-11T13:26:08Z | PLAN-00011-STEP-01 | Red: the smoke test without the variables panicked with `INTEGRATION_TEST_SERVER_URL` is not set: run these tests with `just test-deployed` | cargo test -p passalong-https --test deployed -- --ignored | Write the recipe |
 | 2026-10-11T13:26:08Z | PLAN-00011-STEP-01 | Green: recipe, support module, CLI smoke test | just test-deployed: 2 passed | STEP-02 |
+| 2026-10-11T13:27:56Z | PLAN-00011-STEP-02 | Red: pin-form and SAN tests failed on a helper that stripped a slash from the base64 | the pin's base64 starts with `/` | Derive forms from `TlsPin::parse` |
+| 2026-10-11T13:27:56Z | PLAN-00011-STEP-02 | Green: five TLS and identity tests | just test-deployed: 6 + 1 passed | STEP-03 |
 
 ### Deviations and blockers
 
@@ -538,6 +540,8 @@ None.
 | 2026-10-11T13:26:08Z | PLAN-00011-STEP-01 | cargo test -p passalong-https --test deployed; -p passalong --test cli_deployed_server (no --ignored) | 1 ignored each, redact unit test passes | default runs leave the suite out |
 | 2026-10-11T13:26:08Z | PLAN-00011-STEP-01 | just test-https | pass: 27 + 12 tests, 0 deployed_ tests run | --skip deployed_ in effect |
 | 2026-10-11T13:26:08Z | PLAN-00011-STEP-01 | cargo clippy -p passalong-https -p passalong --all-targets --all-features -D warnings; cargo fmt | pass | — |
+| 2026-10-11T13:27:56Z | PLAN-00011-STEP-02 | just test-deployed | pass: pin forms, wrong pin (not retryable, under 1 s, names the pin), 3 URLs under the pin and by handshake, unknown key UNAUTHENTICATED once, read-only key FORBIDDEN_ROLE on the probe with counts unchanged | — |
+| 2026-10-11T13:27:56Z | PLAN-00011-STEP-02 | cargo clippy -p passalong-https --all-targets --all-features -D warnings; cargo fmt | pass | — |
 
 ### Completion summary
 

@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Added
+
+- `just test-deployed`: tests against a deployed passalong-server, such as
+  one running in Docker on another machine, named by the `INTEGRATION_TEST_*`
+  variables of `.env`. They cover TLS and the certificate's names, keys,
+  `init`, `check`, round trips, the workspace quota, `serve`, revocation,
+  and the encryption cycle, on workspaces made for them
+  (PLAN-00011).
+
 ## v0.3.0 - 2026-09-24T23:48:42Z
 
 ### Added

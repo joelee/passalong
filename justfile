@@ -45,7 +45,7 @@ test:
 # Run the Docker-backed SSH integration tests (ignored tests). At most 4
 # tests run at once: OpenSSH drops new connections while too many are still
 # logging in (MaxStartups), which made unrelated tests fail at random.
-test-integration: (_with-sshd "cargo test --workspace --exclude passalong-https --all-features -- --ignored --skip desktop_ --skip compat_ --skip https_ --test-threads=4")
+test-integration: (_with-sshd "cargo test --workspace --exclude passalong-https --all-features -- --ignored --skip desktop_ --skip compat_ --skip https_ --skip deployed_ --test-threads=4")
 
 # The server is AGPL-3.0-or-later: the tests run it; nothing of it is linked
 # or copied into passalong. It is cloned into .passalong-server once and
@@ -69,15 +69,49 @@ server-build:
 
 # Run the https backend's tests against a real passalong-server, one per test
 test-https: server-build
-    PASSALONG_SERVER_BIN="$PWD/{{server_bin}}" cargo test -p passalong-https --all-features -- --ignored --test-threads=4
+    PASSALONG_SERVER_BIN="$PWD/{{server_bin}}" cargo test -p passalong-https --all-features -- --ignored --skip deployed_ --test-threads=4
     PASSALONG_SERVER_BIN="$PWD/{{server_bin}}" cargo test -p passalong --all-features --test cli_https_backend -- --ignored --test-threads=4
+
+# Run the tests against a deployed passalong-server named by the
+# INTEGRATION_TEST_* variables of .env (docs/developer-guide.md, "Deployed
+# server tests"). One test at a time: they share one workspace. Never part
+# of `ci`: the runners cannot reach the server.
+test-deployed:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -f .env ]; then
+        echo "error: no .env; copy .env.sample and fill in the INTEGRATION_TEST_* variables" >&2
+        exit 1
+    fi
+    set -a; . ./.env; set +a
+    for name in INTEGRATION_TEST_SERVER_URL INTEGRATION_TEST_TLS_PIN INTEGRATION_TEST_WORKSPACE INTEGRATION_TEST_API_KEY INTEGRATION_TEST_API_KEY_READ_ONLY; do
+        if [ -z "${!name:-}" ]; then
+            echo "error: $name is not set in .env" >&2
+            exit 1
+        fi
+    done
+    # The server first, so that an unreachable one is one line, not a suite.
+    status="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "$INTEGRATION_TEST_SERVER_URL/readyz" || true)"
+    if [ "$status" != "204" ]; then
+        echo "error: $INTEGRATION_TEST_SERVER_URL/readyz answered '$status', not 204: is the server up and this machine on its network?" >&2
+        exit 1
+    fi
+    cargo build -q -p passalong
+    # Items an aborted run left behind would skew the counts.
+    work="$(mktemp -d)"
+    trap 'rm -rf "$work"' EXIT
+    (umask 077 && printf '%s\n' "$INTEGRATION_TEST_API_KEY" > "$work/api.key")
+    printf '[client]\ndevice_name = "test-deployed"\nkey_file = "%s/store.key"\n[server]\nkind = "https"\n[server.https]\nurl = "%s"\ntls_pin = "%s"\napi_key_file = "%s/api.key"\n' "$work" "$INTEGRATION_TEST_SERVER_URL" "$INTEGRATION_TEST_TLS_PIN" "$work" > "$work/config.toml"
+    env -u XDG_CONFIG_HOME -u XDG_STATE_HOME -u PASSALONG_CONFIG_FILE HOME="$work" target/debug/passalong --config "$work/config.toml" prune --keep 0 --yes >/dev/null
+    cargo test -p passalong-https --all-features --test deployed -- --ignored --test-threads=1
+    cargo test -p passalong --all-features --test cli_deployed_server -- --ignored --test-threads=1
 
 # Line coverage gate (>= 80%) without Docker-backed tests
 coverage:
     cargo llvm-cov --workspace --all-features --fail-under-lines 80 --summary-only
 
 # Line coverage gate including the Docker-backed tests
-coverage-full: server-build (_with-sshd "PASSALONG_SERVER_BIN=$PWD/" + server_bin + " cargo llvm-cov --workspace --all-features --fail-under-lines 80 --summary-only -- --include-ignored --skip desktop_ --skip compat_ --test-threads=4")
+coverage-full: server-build (_with-sshd "PASSALONG_SERVER_BIN=$PWD/" + server_bin + " cargo llvm-cov --workspace --all-features --fail-under-lines 80 --summary-only -- --include-ignored --skip desktop_ --skip compat_ --skip deployed_ --test-threads=4")
 
 # Run the released v0.1.6 binary against encrypted-store layouts, which it
 # must refuse without writing item data, and the released v0.2.0 binary

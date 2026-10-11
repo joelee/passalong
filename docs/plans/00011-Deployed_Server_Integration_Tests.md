@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-fable-5-1"
 execution_branch: "feature/deployed-server-integration-tests"
 execution_started_at: "2026-10-11T13:23:08Z"
-execution_updated_at: "2026-10-11T13:23:08Z"
+execution_updated_at: "2026-10-11T13:26:08Z"
 execution_completed_at: null
-current_step: "PLAN-00011-STEP-01"
+current_step: "PLAN-00011-STEP-02"
 ---
 
 # Delivery Plan 00011: Deployed Server Integration Tests
@@ -505,7 +505,7 @@ workspace, which the next run's prune and the step's rollback remove.
 
 | Step | Status | Started (UTC) | Completed (UTC) | Evidence | Builder notes |
 |---|---|---|---|---|---|
-| PLAN-00011-STEP-01 | not-started | — | — | — | — |
+| PLAN-00011-STEP-01 | completed | 2026-10-11T13:23:08Z | 2026-10-11T13:26:08Z | Commit of this step; `just test-deployed` 2 passed | home before: 0 items, keys b2c38ff363e8 6437a8b21c81 25dddb1677f7 (over SSH, 13:23Z) |
 | PLAN-00011-STEP-02 | not-started | — | — | — | — |
 | PLAN-00011-STEP-03 | not-started | — | — | — | — |
 | PLAN-00011-STEP-04 | not-started | — | — | — | — |
@@ -520,6 +520,8 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 
 | Timestamp (UTC) | Step | Event | Evidence or reference | Next action |
 |---|---|---|---|---|
+| 2026-10-11T13:26:08Z | PLAN-00011-STEP-01 | Red: the smoke test without the variables panicked with `INTEGRATION_TEST_SERVER_URL` is not set: run these tests with `just test-deployed` | cargo test -p passalong-https --test deployed -- --ignored | Write the recipe |
+| 2026-10-11T13:26:08Z | PLAN-00011-STEP-01 | Green: recipe, support module, CLI smoke test | just test-deployed: 2 passed | STEP-02 |
 
 ### Deviations and blockers
 
@@ -532,6 +534,10 @@ None.
 
 | Timestamp (UTC) | Step | Command or check | Result | Evidence |
 |---|---|---|---|---|
+| 2026-10-11T13:26:08Z | PLAN-00011-STEP-01 | just test-deployed | pass (deployed_the_server_answers_the_viewer_and_workspace, deployed_check_passes_with_the_read_write_key) | recipe probes /readyz, prunes, runs both test targets with --test-threads=1 |
+| 2026-10-11T13:26:08Z | PLAN-00011-STEP-01 | cargo test -p passalong-https --test deployed; -p passalong --test cli_deployed_server (no --ignored) | 1 ignored each, redact unit test passes | default runs leave the suite out |
+| 2026-10-11T13:26:08Z | PLAN-00011-STEP-01 | just test-https | pass: 27 + 12 tests, 0 deployed_ tests run | --skip deployed_ in effect |
+| 2026-10-11T13:26:08Z | PLAN-00011-STEP-01 | cargo clippy -p passalong-https -p passalong --all-targets --all-features -D warnings; cargo fmt | pass | — |
 
 ### Completion summary
 

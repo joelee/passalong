@@ -3,6 +3,8 @@
 //! at a time, because they share the deployment's test workspace. Their
 //! names start with `deployed_`, so every other recipe leaves them out.
 
+#[path = "../../passalong-https/tests/support/cli.rs"]
+mod cli_support;
 #[path = "../../passalong-https/tests/support/deployed.rs"]
 mod deployed;
 
@@ -10,6 +12,8 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use assert_cmd::Command;
+#[cfg(unix)]
+use cli_support::{Serving, quick_serve, wait_for_file};
 use deployed::Deployed;
 use passalong_core::api_key::{ApiKey, save_api_key};
 use passalong_core::encryption::SystemGit;
@@ -419,4 +423,133 @@ fn deployed_no_secret_reaches_the_output() {
             "an API key's secret was in the output"
         );
     }
+}
+
+#[test]
+#[ignore = "needs the deployed server: just test-deployed"]
+fn deployed_a_file_over_the_quota_is_refused_naming_it() {
+    let server = Deployed::from_env();
+    let dir = TempDir::new().unwrap();
+    let config = device(&server, dir.path());
+    let before = listed_ids(dir.path(), &config);
+    let quota: u64 = 256 * 1024 * 1024;
+
+    // Sparse: the server refuses at `beginUpload`, so no content is sent.
+    let big = dir.path().join("too-big.bin");
+    let file = std::fs::File::create(&big).unwrap();
+    file.set_len(quota + 1024 * 1024).unwrap();
+    drop(file);
+
+    let started = std::time::Instant::now();
+    let err = stderr(passalong(dir.path(), &config).arg("file").arg(&big));
+    let elapsed = started.elapsed();
+    assert!(err.contains("QUOTA_EXCEEDED"), "{err}");
+    assert!(err.contains(&quota.to_string()), "names the quota: {err}");
+    assert!(
+        elapsed < std::time::Duration::from_secs(30),
+        "refused only after {elapsed:?}: was the content sent?"
+    );
+    assert_eq!(
+        listed_ids(dir.path(), &config),
+        before,
+        "nothing was stored"
+    );
+}
+
+/// The id of the item named `name` in `list --json`, once it is there.
+#[cfg(unix)]
+fn wait_for_listed(dir: &Path, config: &Path, name: &str) -> String {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    loop {
+        let json: serde_json::Value = serde_json::from_str(&stdout(passalong(dir, config).args([
+            "list",
+            "--json",
+            "--nocache",
+        ])))
+        .unwrap();
+        if let Some(item) = json
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["name"] == name)
+        {
+            return item["id"].as_str().unwrap().to_owned();
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "{name} never listed: {json}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "needs the deployed server: just test-deployed"]
+fn deployed_serve_sends_a_dropped_file() {
+    let server = Deployed::from_env();
+    let dir = TempDir::new().unwrap();
+    let config = device_as(
+        &server,
+        dir.path(),
+        "it-deployed",
+        &server.key,
+        &quick_serve(dir.path(), false),
+    );
+    let before = listed_ids(dir.path(), &config);
+    let mut sent = Sent::new(dir.path(), &config);
+    let serving = Serving::start(dir.path(), &config);
+
+    let name = format!("dropped-{}.bin", nonce());
+    let bytes = fresh_bytes(64 * 1024);
+    std::fs::write(dir.path().join("drop").join(&name), &bytes).unwrap();
+    wait_for_file(&dir.path().join("drop/sent").join(&name));
+    let id = wait_for_listed(dir.path(), &config, &name);
+    sent.remember(&id);
+    drop(serving);
+
+    let got = stdout(passalong(dir.path(), &config).args(["get", &id]));
+    assert!(
+        got.contains(&format!("sha256:  {}", sha256_hex(&bytes))),
+        "{got}"
+    );
+    assert!(got.contains("device:  it-deployed"), "{got}");
+    sent.delete_all();
+    assert_eq!(listed_ids(dir.path(), &config), before);
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "needs the deployed server: just test-deployed"]
+fn deployed_serve_pulls_an_item_from_another_device() {
+    let server = Deployed::from_env();
+    let dir = TempDir::new().unwrap();
+    let config = device_as(
+        &server,
+        dir.path(),
+        "it-deployed",
+        &server.key,
+        &quick_serve(dir.path(), true),
+    );
+    let before = listed_ids(dir.path(), &config);
+    let serving = Serving::start(dir.path(), &config);
+
+    // Pull mode applies what other device names sent, under any key.
+    let other = TempDir::new().unwrap();
+    let other_config = device_as(&server, other.path(), "it-other", &server.key, "");
+    let mut sent = Sent::new(other.path(), &other_config);
+    let name = format!("from-other-{}.bin", nonce());
+    let bytes = fresh_bytes(64 * 1024);
+    let report = other.path().join(&name);
+    std::fs::write(&report, &bytes).unwrap();
+    sent.file(&report);
+
+    let pulled = dir.path().join("downloads").join(&name);
+    wait_for_file(&pulled);
+    // Written through a temporary file, so it is whole once it appears.
+    assert_eq!(std::fs::read(&pulled).unwrap(), bytes);
+    drop(serving);
+
+    sent.delete_all();
+    assert_eq!(listed_ids(dir.path(), &config), before);
 }

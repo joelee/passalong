@@ -37,9 +37,9 @@ builder_agent: "Claude Code"
 builder_model: "anthropic/claude-fable-5-1"
 execution_branch: "feature/deployed-server-integration-tests"
 execution_started_at: "2026-10-11T13:23:08Z"
-execution_updated_at: "2026-10-11T13:30:03Z"
+execution_updated_at: "2026-10-11T13:32:11Z"
 execution_completed_at: null
-current_step: "PLAN-00011-STEP-04"
+current_step: "PLAN-00011-STEP-05"
 ---
 
 # Delivery Plan 00011: Deployed Server Integration Tests
@@ -508,7 +508,7 @@ workspace, which the next run's prune and the step's rollback remove.
 | PLAN-00011-STEP-01 | completed | 2026-10-11T13:23:08Z | 2026-10-11T13:26:08Z | Commit of this step; `just test-deployed` 2 passed | home before: 0 items, keys b2c38ff363e8 6437a8b21c81 25dddb1677f7 (over SSH, 13:23Z) |
 | PLAN-00011-STEP-02 | completed | 2026-10-11T13:26:08Z | 2026-10-11T13:27:56Z | Commit of this step; `just test-deployed` 6 + 1 passed | The deployment's pin is `sha256//MOMQ…`: canonical `sha256/` and a base64 that itself begins with `/`, not curl's form; the helper derives both forms from the parsed pin |
 | PLAN-00011-STEP-03 | completed | 2026-10-11T13:27:56Z | 2026-10-11T13:30:03Z | Commit of this step; `just test-deployed` 6 + 5 passed | `sha2` and `hex` added as dev-dependencies of `passalong` (workspace crates already in the lock) to hash what the tests send; a `Sent` guard deletes a test's items on drop |
-| PLAN-00011-STEP-04 | not-started | — | — | — | — |
+| PLAN-00011-STEP-04 | completed | 2026-10-11T13:30:03Z | 2026-10-11T13:32:11Z | Commit of this step; `just test-deployed` 6 + 8 passed; quota test 3.75 s on its own | `Serving`, `quick_serve`, and `wait_for_file` moved to `crates/passalong-https/tests/support/cli.rs`, shared by both CLI test files; `cli_https_backend.rs` otherwise unchanged and its suite green. `Cargo.lock` (dev-dependencies of STEP-03) is in this commit |
 | PLAN-00011-STEP-05 | not-started | — | — | — | — |
 | PLAN-00011-STEP-06 | not-started | — | — | — | — |
 | PLAN-00011-STEP-07 | not-started | — | — | — | — |
@@ -526,6 +526,7 @@ Allowed status values: `not-started`, `in-progress`, `blocked`, `completed`,
 | 2026-10-11T13:27:56Z | PLAN-00011-STEP-02 | Green: five TLS and identity tests | just test-deployed: 6 + 1 passed | STEP-03 |
 | 2026-10-11T13:30:03Z | PLAN-00011-STEP-03 | Red: the no-secret test first failed on an extra assertion that the key id is logged (it is not); the assertion was not in the plan and was removed | cli_deployed_server.rs | — |
 | 2026-10-11T13:30:03Z | PLAN-00011-STEP-03 | Green: init --yes, check, round trips, duplicate content, read-only key, no secret | just test-deployed: 6 + 5 passed | STEP-04 |
+| 2026-10-11T13:32:11Z | PLAN-00011-STEP-04 | Green: quota refusal, serve upload, serve pull | just test-deployed: 6 + 8 passed | STEP-05 |
 
 ### Deviations and blockers
 
@@ -546,6 +547,9 @@ None.
 | 2026-10-11T13:27:56Z | PLAN-00011-STEP-02 | cargo clippy -p passalong-https --all-targets --all-features -D warnings; cargo fmt | pass | — |
 | 2026-10-11T13:30:03Z | PLAN-00011-STEP-03 | just test-deployed | pass: 8 check lines as documented; 1 MiB file and text round-trip byte-identically through cat and load, list --json names it-deployed and the local SHA-256, get shows it; delete restores the listing; same text twice gives one id; read-only key: check n/a, send refused FORBIDDEN_ROLE, nothing stored; a debug session shows neither secret | the workspace is left with 0 items |
 | 2026-10-11T13:30:03Z | PLAN-00011-STEP-03 | cargo clippy -p passalong --all-targets --all-features -D warnings; cargo fmt | pass | — |
+| 2026-10-11T13:32:11Z | PLAN-00011-STEP-04 | just test-deployed | pass: a 257 MiB sparse file refused with QUOTA_EXCEEDED naming 268435456 bytes, nothing stored, 3.75 s for the whole test; a dropped 64 KiB file is sent (sent/, listed with its SHA-256 and device) and in pull mode a file sent as it-other arrives in downloads/ byte for byte | — |
+| 2026-10-11T13:32:11Z | PLAN-00011-STEP-04 | just test-https | pass: 27 + 12 tests, 0 deployed_ tests run, after the helper move | test-https-step04.log |
+| 2026-10-11T13:32:11Z | PLAN-00011-STEP-04 | cargo clippy -p passalong --all-targets --all-features -D warnings; cargo fmt | pass | — |
 
 ### Completion summary
 

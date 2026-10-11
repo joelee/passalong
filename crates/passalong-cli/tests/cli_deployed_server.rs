@@ -8,7 +8,9 @@ mod cli_support;
 #[path = "../../passalong-https/tests/support/deployed.rs"]
 mod deployed;
 
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use assert_cmd::Command;
@@ -16,7 +18,12 @@ use assert_cmd::Command;
 use cli_support::{Serving, quick_serve, wait_for_file};
 use deployed::{Deployed, SKIPPED, ThrowawayWorkspace};
 use passalong_core::api_key::{ApiKey, save_api_key};
-use passalong_core::encryption::SystemGit;
+use passalong_core::clock::SystemClock;
+use passalong_core::crypto::{DataKey, KdfParams, Sealer, Words, wrap};
+use passalong_core::encryption::{EncryptionAdmin, StoreHeader, SystemGit, save_key_file};
+use passalong_core::store::Store;
+use passalong_https::{Client, HttpEncryptionAdmin, HttpStore, Partition};
+use predicates::prelude::*;
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 
@@ -675,4 +682,337 @@ fn deployed_serve_stops_after_its_key_is_revoked() {
     assert!(log.contains("KEY_REVOKED"), "{log}");
     assert!(file.exists(), "the file stays for a later serve");
     assert_eq!(admin.show(&workspace.name)["items"], 0, "nothing was sent");
+}
+
+const OLD_WORDS: &str = "abacus abdomen abdominal abide abiding ability";
+const NEW_WORDS: &str = "zoom zoom zoom zoom zoom zoom";
+const THIRD_WORDS: &str = "cedar cedar cedar cedar cedar cedar";
+
+fn words(text: &str) -> Words {
+    Words::parse(text).unwrap()
+}
+
+/// Argon2 settings that act within a test's patience.
+fn quick() -> KdfParams {
+    KdfParams {
+        m_kib: 64,
+        t: 1,
+        p: 1,
+        salt: [7; 16],
+    }
+}
+
+/// The client the config in `dir` connects with; `encrypt` needs a
+/// terminal, so the encryption operations are the library's.
+fn connect(config: &Path) -> Arc<Client> {
+    let loaded = passalong_core::config::load(config, &passalong_core::config::StdEnv).unwrap();
+    passalong_https::connect(&loaded).unwrap()
+}
+
+fn admin(client: &Arc<Client>) -> HttpEncryptionAdmin {
+    HttpEncryptionAdmin::new(client.clone(), Arc::new(SystemClock))
+}
+
+/// Downloads every item in `dir`'s store into a fresh folder and returns
+/// `(id, sha256)` of each, sorted by id. Ids are keyed by the store's key,
+/// so a rotation renames every item; [`hashes`] is what stays.
+fn loaded_hashes(dir: &Path, config: &Path) -> Vec<(String, String)> {
+    let out = tempfile::tempdir_in(dir).unwrap();
+    let mut hashes = Vec::new();
+    for id in listed_ids(dir, config) {
+        let before: Vec<_> = std::fs::read_dir(out.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        passalong(dir, config)
+            .args(["load", &id])
+            .arg(out.path())
+            .assert()
+            .success();
+        let written = std::fs::read_dir(out.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| !before.contains(path))
+            .unwrap_or_else(|| panic!("load {id} wrote nothing"));
+        hashes.push((id, sha256_hex(&std::fs::read(written).unwrap())));
+    }
+    hashes.sort();
+    hashes
+}
+
+/// The content hashes of `items`, sorted.
+fn hashes(items: &[(String, String)]) -> Vec<String> {
+    let mut hashes: Vec<String> = items.iter().map(|(_, hash)| hash.clone()).collect();
+    hashes.sort();
+    hashes
+}
+
+#[test]
+#[ignore = "needs the deployed server: just test-deployed"]
+fn deployed_encryption_set_up_join_rotate_and_recover() {
+    let server = Deployed::from_env();
+    let Some(ops) = server.admin() else {
+        eprintln!("{SKIPPED}");
+        return;
+    };
+    let workspace = ThrowawayWorkspace::new(&ops, "64MiB");
+    let name = workspace.name.clone();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
+    // Device A encrypts the empty workspace and sends two items.
+    let a = TempDir::new().unwrap();
+    let config_a = device_as(&server, a.path(), "it-a", &workspace.key, "");
+    let client_a = connect(&config_a);
+    let key_1 = rt
+        .block_on(admin(&client_a).set_up(&words(OLD_WORDS), quick()))
+        .unwrap();
+    save_key_file(&a.path().join("store.key"), &key_1, &SystemGit::new()).unwrap();
+    let mut sent = Sent::new(a.path(), &config_a);
+    let text = format!("sealed at {}", nonce());
+    let text_id = sent.text(&text);
+    let bytes = fresh_bytes(200 * 1024);
+    let report = a.path().join("sealed.bin");
+    std::fs::write(&report, &bytes).unwrap();
+    let file_id = sent.file(&report);
+    let shown = ops.show(&name);
+    assert_eq!(shown["encryption"]["state"], "sealed", "{shown}");
+    assert_eq!(
+        shown["encryption"]["keyId"],
+        key_1.key_id().to_string(),
+        "{shown}"
+    );
+    assert_eq!(shown["items"], 2, "{shown}");
+    let originals = loaded_hashes(a.path(), &config_a);
+    assert_eq!(originals.len(), 2);
+    assert!(
+        originals
+            .iter()
+            .any(|(id, hash)| id == &text_id && hash == &sha256_hex(text.as_bytes()))
+    );
+    assert!(
+        originals
+            .iter()
+            .any(|(id, hash)| id == &file_id && hash == &sha256_hex(&bytes))
+    );
+
+    // Device B, with the same API key but no store key, is told to join.
+    let b = TempDir::new().unwrap();
+    let config_b = device_as(&server, b.path(), "it-b", &workspace.key, "");
+    let checked = passalong(b.path(), &config_b)
+        .arg("check")
+        .assert()
+        .failure()
+        .get_output()
+        .clone();
+    let out = String::from_utf8_lossy(&checked.stdout);
+    let err = String::from_utf8_lossy(&checked.stderr);
+    assert!(
+        out.contains("encryption     FAIL  the store is encrypted and this device has no key"),
+        "{out}"
+    );
+    assert!(err.contains("encrypt --join"), "{err}");
+
+    // B joins with the words and reads both items.
+    let client_b = connect(&config_b);
+    let joined = rt
+        .block_on(admin(&client_b).join(&words(OLD_WORDS)))
+        .unwrap();
+    assert_eq!(joined.key_id(), key_1.key_id());
+    save_key_file(&b.path().join("store.key"), &joined, &SystemGit::new()).unwrap();
+    passalong(b.path(), &config_b)
+        .arg("check")
+        .assert()
+        .success();
+    passalong(b.path(), &config_b)
+        .args(["cat", &text_id])
+        .assert()
+        .success()
+        .stdout(text.clone());
+    assert_eq!(loaded_hashes(b.path(), &config_b), originals);
+
+    // A rotates: B's key is stale until it joins again with the new words.
+    let key_2 = rt
+        .block_on(admin(&client_a).rotate(
+            &key_1,
+            &words(NEW_WORDS),
+            quick(),
+            Arc::new(SystemClock),
+        ))
+        .unwrap();
+    assert_ne!(key_2.key_id(), key_1.key_id());
+    save_key_file(&a.path().join("store.key"), &key_2, &SystemGit::new()).unwrap();
+    // A rotation renames every item (ids are keyed by the store's key) and
+    // keeps every byte.
+    let rotated = loaded_hashes(a.path(), &config_a);
+    assert_eq!(hashes(&rotated), hashes(&originals));
+    assert!(
+        rotated
+            .iter()
+            .all(|(id, _)| !originals.iter().any(|(old, _)| old == id)),
+        "{rotated:?}"
+    );
+    let checked = passalong(b.path(), &config_b)
+        .arg("check")
+        .assert()
+        .failure()
+        .get_output()
+        .clone();
+    let out = String::from_utf8_lossy(&checked.stdout);
+    let err = String::from_utf8_lossy(&checked.stderr);
+    assert!(out.contains("encryption     FAIL  "), "{out}");
+    assert!(err.contains("encrypt --join"), "{err}");
+    assert!(
+        rt.block_on(admin(&client_b).join(&words(OLD_WORDS)))
+            .is_err(),
+        "the old words are done"
+    );
+    let rejoined = rt
+        .block_on(admin(&client_b).join(&words(NEW_WORDS)))
+        .unwrap();
+    assert_eq!(rejoined.key_id(), key_2.key_id());
+    save_key_file(&b.path().join("store.key"), &rejoined, &SystemGit::new()).unwrap();
+    assert_eq!(loaded_hashes(b.path(), &config_b), rotated);
+
+    // A begins another rotation, copies one item, and stops; then A
+    // recovers it, finishing with the new words.
+    let key_3 = DataKey::generate().unwrap();
+    let header = StoreHeader::new(wrap(&key_3, &words(THIRD_WORDS), quick()).unwrap());
+    let header = String::from_utf8(header.to_json()).unwrap();
+    let body = format!(
+        "{{\"kind\":\"rotate\",\"expectedKeyId\":\"{}\",\"newKeyId\":\"{}\",\"newHeader\":{}}}",
+        key_2.key_id(),
+        key_3.key_id(),
+        header.trim_end()
+    );
+    rt.block_on(async {
+        let url = client_a.url("/rewrite");
+        client_a
+            .send("beginRewrite", |http| {
+                http.post(&url)
+                    .header("content-type", "application/json")
+                    .body(body.clone())
+            })
+            .await
+            .unwrap();
+        let source = HttpStore::new(
+            client_a.clone(),
+            Some(Sealer::new(key_2.clone())),
+            Arc::new(SystemClock),
+        );
+        let first = source.list().await.unwrap().into_iter().next().unwrap();
+        let (_, mut content) = source.get(&first.id).await.unwrap();
+        let mut first_bytes = Vec::new();
+        tokio::io::AsyncReadExt::read_to_end(&mut content, &mut first_bytes)
+            .await
+            .unwrap();
+        let staged = HttpStore::in_partition(
+            client_a.clone(),
+            Some(Sealer::new(key_3.clone())),
+            Arc::new(SystemClock),
+            Partition::Staged,
+        );
+        staged
+            .import(&first, Box::new(Cursor::new(first_bytes)))
+            .await
+            .unwrap();
+    });
+    let shown = ops.show(&name);
+    assert!(!shown["encryption"]["rewrite"].is_null(), "open: {shown}");
+    let open = rt
+        .block_on(admin(&client_a).open_rewrite())
+        .unwrap()
+        .unwrap();
+    assert!(open.mine, "{open:?}");
+    assert_eq!(open.staged, 1, "{open:?}");
+    // While it is open, B cannot send.
+    let err = stderr(
+        passalong(b.path(), &config_b)
+            .args(["clipboard", "--stdin"])
+            .write_stdin(format!("during a rewrite at {}", nonce())),
+    );
+    assert!(
+        err.contains("REWRITE_IN_PROGRESS") || err.contains("re-encrypt"),
+        "{err}"
+    );
+
+    let finished = rt
+        .block_on(admin(&client_a).resume_rewrite(&words(THIRD_WORDS), Some(&key_2), None))
+        .unwrap();
+    assert_eq!(finished.key_id(), key_3.key_id());
+    save_key_file(&a.path().join("store.key"), &finished, &SystemGit::new()).unwrap();
+    assert!(
+        rt.block_on(admin(&client_a).open_rewrite())
+            .unwrap()
+            .is_none()
+    );
+    let shown = ops.show(&name);
+    assert_eq!(shown["encryption"]["state"], "sealed", "{shown}");
+    assert_eq!(
+        shown["encryption"]["keyId"],
+        key_3.key_id().to_string(),
+        "{shown}"
+    );
+    assert!(shown["encryption"]["rewrite"].is_null(), "{shown}");
+    assert_eq!(shown["items"], 2, "{shown}");
+    assert_eq!(
+        hashes(&loaded_hashes(a.path(), &config_a)),
+        hashes(&originals),
+        "every item, as it was"
+    );
+
+    sent.ids.clear();
+    drop(workspace);
+}
+
+#[test]
+#[ignore = "needs the deployed server: just test-deployed"]
+fn deployed_a_fresh_start_leaves_plain_items_until_pruned() {
+    let server = Deployed::from_env();
+    let Some(ops) = server.admin() else {
+        eprintln!("{SKIPPED}");
+        return;
+    };
+    let workspace = ThrowawayWorkspace::new(&ops, "64MiB");
+    let dir = TempDir::new().unwrap();
+    let config = device_as(&server, dir.path(), "it-fresh", &workspace.key, "");
+    passalong(dir.path(), &config)
+        .args(["clipboard", "--stdin"])
+        .write_stdin(format!("from before encryption at {}", nonce()))
+        .assert()
+        .success();
+
+    let client = connect(&config);
+    let key = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(admin(&client).fresh_start(&words(OLD_WORDS), quick()))
+        .unwrap();
+    save_key_file(&dir.path().join("store.key"), &key, &SystemGit::new()).unwrap();
+    let shown = ops.show(&workspace.name);
+    assert_eq!(shown["encryption"]["state"], "sealed", "{shown}");
+    assert_eq!(shown["plainItems"], 1, "{shown}");
+
+    passalong(dir.path(), &config)
+        .arg("list")
+        .assert()
+        .success()
+        .stdout("no items\n")
+        .stderr(predicates::str::contains(
+            "1 unencrypted item remains from before encryption; remove it with `passalong prune --plain`",
+        ));
+    passalong(dir.path(), &config)
+        .args(["prune", "--plain", "--keep", "0", "--yes"])
+        .assert()
+        .success();
+    passalong(dir.path(), &config)
+        .arg("list")
+        .assert()
+        .success()
+        .stdout("no items\n")
+        .stderr(predicates::str::contains("unencrypted").not());
+    passalong(dir.path(), &config)
+        .args(["prune", "--plain", "--keep", "0", "--yes"])
+        .assert()
+        .success()
+        .stdout("no unencrypted items remain\n");
+    assert_eq!(ops.show(&workspace.name)["plainItems"], 0);
 }

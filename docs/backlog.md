@@ -59,3 +59,20 @@ Future work not covered by an active plan. Completed items are removed.
 - **Several stores per machine**, each with its own key file.
 - **Stronger Argon2 settings** when the words next change, since the
   header records them.
+
+### Testing
+
+- **The deployed-server suite in CI** (PLAN-00011). `just test-deployed`
+  needs a server on a private network, so it runs by hand. A self-hosted
+  runner on the tailnet, or a job that starts the published image on the
+  runner itself, would run it on every push.
+- **Destructive deployed tests without SSH** (PLAN-00011 D-05). The
+  encryption and revocation tests make throwaway workspaces over SSH. A
+  server API for an operator to create and delete workspaces and keys, or
+  a reset of a workspace, would let them run from any machine with only
+  the `INTEGRATION_TEST_*` variables.
+- **Items renamed by a rotation.** Ids are keyed by the store's key, so
+  `encrypt --rotate` gives every item a new id (seen in PLAN-00011
+  STEP-06). The list cache and pull mode's seen ids cope, but a user who
+  noted an id before a rotation will not find it; the usage docs could say
+  so.

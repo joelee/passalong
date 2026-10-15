@@ -280,7 +280,9 @@ just run --help   # run the CLI from source
 
 Development is test-driven, and every change must pass `just check`:
 format, clippy, a link check, tests, line coverage of at least 80 %, and a
-locked build.
+locked build. `just test-deployed` runs a further suite against a deployed
+passalong-server named in `.env`
+([Deployed server tests](https://github.com/joelee/passalong/blob/main/docs/developer-guide.md#deployed-server-tests)).
 See [docs/developer-guide.md](https://github.com/joelee/passalong/blob/main/docs/developer-guide.md).
 
 | Document | Contents |

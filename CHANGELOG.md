@@ -15,6 +15,12 @@ All notable changes to this project are documented here. The format follows
   and the encryption cycle, on workspaces made for them
   (PLAN-00011).
 
+### Security
+
+- `rustls` 0.23.46, which fixes RUSTSEC-2026-0346, RUSTSEC-2026-0347,
+  RUSTSEC-2026-0348, and RUSTSEC-2026-0349 in the TLS client the https
+  store uses; `yoke-derive` 0.8.4 replaces a yanked release.
+
 ## v0.3.0 - 2026-09-24T23:48:42Z
 
 ### Added
